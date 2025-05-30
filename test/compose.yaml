@@ -1,0 +1,18 @@
+services:
+  k8shell-cache-memcached:
+    container_name: memcached
+    image: bitnami/memcached:1.6.25-debian-12-r0
+    restart: unless-stopped
+    ports:
+      - "11211:11211"  
+
+  k8shell-db-postgresql:
+    container_name: postgresql
+    image: postgres:latest
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"  

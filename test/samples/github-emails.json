@@ -1,0 +1,14 @@
+[
+    {
+        "email": "karelnebojsa@seznam.cz",
+        "primary": true,
+        "verified": true,
+        "visibility": "private"
+    },
+    {
+        "email": "166448839+bruckins@users.noreply.github.com",
+        "primary": false,
+        "verified": true,
+        "visibility": null
+    }
+]

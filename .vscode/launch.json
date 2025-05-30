@@ -1,0 +1,27 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    // k8shell-db-postgresql-dev
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Go identity",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "main.go", // Path to your Go file or main package
+            "env": {
+                "SECRET_FILES": "test/secrets",
+                "POSTGRES_DATABASE": "postgres",
+                "POSTGRES_HOSTNAME": "127.0.0.1",
+                "POSTGRES_PORT": "5432",
+                "MEMCACHED_HOSTNAME": "127.0.0.1",
+                "MEMCACHED_PORT": "11211",
+            },
+            "args": [], // Any command-line arguments for your program
+            "showLog": true,
+            //"stopOnEntry": true
+        }
+    ]
+}

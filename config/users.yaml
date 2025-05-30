@@ -1,0 +1,58 @@
+# k8shell users file
+# @author: bruckins, https://k8shell.io
+
+# list of users
+users:
+  # - username: vitvatom
+  #   fullname: "Tomas Vitvar"
+  #   email: vitvatom@fit.cvut.cz
+  #   channels: [shell, pty, port_forward, sftp, scp, exec, forward_agent, system_exec]
+  #   auth_providers: [self, fit-gitlab]
+  #   auths: [publickey]
+  #   blueprints: ["*"]
+  #   roles: [admin, workspace-admin]
+
+  - username: alice
+    isValid: true
+    uid: 2001
+    gid: 2001
+    fullname: "Alice Nobody"
+    email: "alice@nobody"
+    locked: false
+    channels:
+      [shell, pty, port_forward, sftp, scp, exec, forward_agent, system_exec]
+    blueprints: [am1, dev, tex, am2, awd, ddw]
+    auths: [publickey, password]
+    authKeys:
+      - |
+        ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDD0WFyteR7SWAKgAtoiyRon96zG48ew52uXmlMK1nmY9Cb2ekwQWvgjTaF+AZ2ZjwS+BHrvCDsRDym/PMZ0SyHUyX9vLhKeIqZkNTpI0MB3RRQ8zY1IxdLQny7uSr5pZab5r7pEMsDmoEOHbZeeFKi1f3R4c4fgvqj2pBHIRiIMQUlVqeBbvVcOHVWddJMQAssV8sHjdq2upxr/SctM7qH9WMX8R1sh4npOVFI3zUkVDIO+4xmZpE0ihKf6vLZt7bTrXfP7db6jTcZX6BKCJA1CVuSnll+O+lYzunUNQyw8D++wrGvEkrXGowgHVotC2PS5JPVsnMzrNrCnG8vEgt3 Tomáš Vitvar (gitlab.fit.cvut.cz)
+    # cvutfit95
+    password: $2y$10$FJRWdVEBZRlPk8lW3qcEwejjbu18KM27P6l94.vHXbFPt7mH7DET2
+    roles: [workspace-user]
+
+  - username: nvkptr
+    isValid: true
+    uid: 2002
+    gid: 2002
+    fullname: "Petr Novak"
+    email: "nvk.ptr@gmail.com"
+    locked: false
+    channels:
+      [shell, pty, port_forward, sftp, scp, exec, forward_agent, system_exec]
+    auths: [publickey]
+    authKeys:
+      - |
+        ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCu+EJV5CuWzSgLsAZspIJzjwCvEJy3Cx9tFt9HUZV6U6VWy0qc73IDG978IUrdD1cEoDJ5DvBAk4haCBFSWDEqhaFbtdWndELswEKbklJp1fq1VsXIaHe3XzjmXE+MSy+WgS5PGh0705VuBPLdsQZRa/q+Klhsqr4WBa9987R7n2qQ2JynTnjehq4LgYV2sodaSkRLTDolnAqMGwx6z+pyVLCgSMoQnEvAJg2hvRHUyFS1ClhMC8y0/iZwbFsXiZmpEqiUiDrcClPnslmVgVDPue1M23XxxqDp6jvZpfHiYWkQB1AYO76GMkn13HRrU5v8XAzPYtTc8We2bC6vjQOGWUbJZdCVtF51ikyTNMtsN7T+t1RHRWSrBOYFydXDjg8gZaNBfa1ZQMNVmbdxrIy3DZrd11+AoBqVlwjqICXn5mW01eYGteFH1qLmHrxH9BZ9V0bFNL4+Wd1BfZYUSeBIJzhix0PpWa+swgUdZeUGg+UzO5qYMjd0DqvMxFEYG5E= petr@Petrs-MacBook-Pro.local
+    blueprints: [dev]
+    authProviders: [self]
+    roles: [workspace-user, workspace-admin]
+
+
+
+
+
+
+
+
+
+    

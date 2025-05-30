@@ -1,0 +1,42 @@
+# The template that is used to map the user from usermap to the k8shell user
+# The evaluation scope is the `PeopleModel` object from the usermap api (response of the request to `people_url`)
+user:
+  username: !cel "username"
+  fullname: !cel  "firstName + ' ' + lastName"
+  uid: !cel "personalNumber"
+  gid: !cel "personalNumber"
+  email: !cel "preferredEmail"
+  channels:
+    [shell, pty, port_forward, sftp, scp, exec, forward_agent, system_exec]
+  auths: [publickey]
+  auth_providers: [self, fit-gitlab]
+
+  # map usermap roles to blueprints that the user can use
+  blueprints: !cel |
+    distinct(["am2","ddw","sql","tex","dp1","dp2"].map(x,
+        username in ["vitvatom", "kuchajar"] ? "*" :
+        (x == "dp1" && username in ["podramic"]) ? "dp1" :
+        (x == "dp2" && username in ["fedotdan"]) ? "dp2" :
+        (x == "tex" && roles.exists(r, r.matches("(?i).*(TDP|BAP|BPR|DIP|MPR).*"))) ? "tex" :
+        (!(x in ["dp1", "dp2", "tex"]) && roles.exists(r, 
+          r.matches("(?i).*" + x + ".*-STUDENT.*") || 
+          r.matches("(?i).*" + x + ".*-UCITEL.*"))) ? x :
+        ""
+    ).filter(r, r != ""))
+
+  # map usermap roles to k8shell roles
+  roles: !cel |
+    distinct(roles.map(role,
+      role.matches(".*UCITEL.*") ? "workspace-admin" :
+      "workspace-user"
+    ).filter(r, r != ""))
+
+  # only allow AM1, AM2 and DDW students and teachers as k8shell users
+  is_valid: !cel |
+    (username in ["vitvatom"]) ||
+    (env == "prod" && (username in ["vitvatom", "kuchajar", "podramic", "fedotdan"] || 
+      roles.exists(role, 
+        role.matches(".*(AM2|DDW|SQL|TDP|BAP|BPR|DIP|MPR).*-STUDENT.*") || 
+        role.matches(".*(AM2|DDW|SQL|TDP|BAP|BPR|DIP|MPR).*-UCITEL.*")
+      )
+    ))

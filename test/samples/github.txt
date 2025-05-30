@@ -1,0 +1,5 @@
+
+curl -X GET -H "Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c" http://localhost:9090/api/v1/users/bruckins
+
+curl -v -X POST   -H "Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c"   -H "Content-Type: application/json"   --data '{"public_key":"ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCagrplG44X+S5s1SO9oe7FV4hXtDGNLSVpcBuO0HmcNIWR+A0CgC9YSamc8zx+5UpQu+89uA2IouR888EKvKS51SzBsU7wtYNY1YtBVzLlXO4yzGgIp9/JXTFv2HA5p42wpkGoj4VU1RrEFz1YzswtxOCU8BXJ639uwjMqRyIwCvA96gBbnHJlEtI5dxW3YOZvOX0mHHL8ybJaNv3Zy4GjZRuFFddlbpb9OTZ9h5pV2yLzc9dUzWG9hDIfGdFtOwxKp9NtXIKET/emRPJS4khIZvwng0k2as8+WJQVaUjxdvGgagrqIHYwuhT60krIDpHetwycy7ICtziRsYCq+Fn3V9wakcTtj6+HXIxs9TI3Pu+k8PL9C/wZNoZCCOwKTmP9TmTqC7wWvwMERlxYO6W4U2U/qp3qpvuClcPGk02Jr9L9DiPmltoXIDW6UPMGWnPVoMETpjnLknN+LshWllvYF6t7OmtKpgCTGrum6mcO6dVx8b+oYr6xtjj0StuzlPblooioxTiRNFUta0EV8jZPHriDMayNFHP8xuz9tUK/eI9SJdtJWT12a4hstAMAH+I8JUQDo5Chvvw7Q8p1jwh1p2sn3L+I5pbt/RoCvwVCk8IMGcDV1RwaT2aICYFNTvxQJ7J0kxlMbgi5VWWxQG7Uye3yGr+TdyBXOk1xSgrbsw== tomas@tomas-mac"}'   http://localhost:9090/api/v1/users/bruckins/authenticate
+

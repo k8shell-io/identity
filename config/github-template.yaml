@@ -1,0 +1,17 @@
+# The template that is used to map the user from github to the k8shell user
+# The evaluation scope is the `user` and `emails` objects from the github user and emails api
+user:
+  username: !cel "user.login"
+  fullname: ""
+  uid: !cel "user.id"
+  gid: !cel "user.id"
+  email: !cel |
+     emails.exists(e, e.primary == true)
+      ? emails.filter(e, e.primary == true)[0].email
+      : "unknown@nowhere.com"
+
+  channels: [shell, pty, port_forward, sftp, scp, exec, forward_agent, system_exec]
+  auths: [publickey]
+  blueprints: ["*"]
+  roles: ["workspace-user"]
+  is_valid: true
