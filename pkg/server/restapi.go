@@ -16,8 +16,6 @@ import (
 	"github.com/k8shell-io/identity/pkg/backend"
 	"github.com/k8shell-io/identity/pkg/log"
 	"github.com/rs/zerolog"
-
-	_ "github.com/k8shell-io/identity/docs"
 )
 
 // HttpConfig represents the HTTP server configuration.
@@ -144,13 +142,6 @@ func (a *RESTApiService) initializeRouter() *mux.Router {
 		http.ServeFile(w, r, "docs/redoc.html")
 	}).Methods("GET")
 
-	router.HandleFunc("/docs/swagger.json", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		http.ServeFile(w, r, "docs/swagger.json")
-	}).Methods("GET")
-
-	//router.PathPrefix("/swagger/").Handler(httpSwagger.WrapHandler)
-
 	return router
 }
 
@@ -160,10 +151,9 @@ func (a *RESTApiService) initializeRouter() *mux.Router {
 // @Tags         users
 // @Accept       json
 // @Produce      json
-// @Param        limit   query     int  false  "Number of users to return (default is backend.DefaultListUserLimit)"
-// @Param        offset  query     int  false  "Offset for pagination (default is 0)"
+// @Param        limit   query     int  		false  "Number of users to return"
+// @Param        offset  query     int  		false  "Offset for pagination"
 // @Success      200     {array}   models.User
-// @Failure      500     {string}  string  "Internal Server Error"
 // @Router       /api/v1/users [get]
 func (a *RESTApiService) GetUsers(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
@@ -193,11 +183,10 @@ func (a *RESTApiService) GetUsers(w http.ResponseWriter, r *http.Request) {
 // @Tags         users
 // @Accept       json
 // @Produce      json
-// @Param        username  path      string           true  "Username to look up"
+// @Param        username  path      string         true  "Username to look up"
 // @Success      200       {object}  models.User
-// @Failure      400       {string}  string  "Bad Request - Missing username"
-// @Failure      404       {string}  string  "User not found"
-// @Failure      500       {string}  string  "Internal Server Error"
+// @Failure      400       {string}  string  		"Missing username"
+// @Failure      404       {string}  string  		"User not found"
 // @Router       /api/v1/users/{username} [get]
 func (a *RESTApiService) FindUser(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -236,8 +225,7 @@ func (a *RESTApiService) FindUser(w http.ResponseWriter, r *http.Request) {
 // @Param        username  path      string                      true  "Username to authenticate"
 // @Param        request   body      AuthenticateUserRequest     true  "Public key request payload"
 // @Success      200       {object}  AuthenticateUserResponse
-// @Failure      400       {string}  string  "Bad Request - Missing or invalid data"
-// @Failure      500       {string}  string  "Internal Server Error"
+// @Failure      400       {string}  string  "Missing or invalid data"
 // @Router       /api/v1/users/{username}/authenticate [post]
 func (a *RESTApiService) AuthenticateUser(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -279,15 +267,14 @@ func (a *RESTApiService) AuthenticateUser(w http.ResponseWriter, r *http.Request
 }
 
 // OnboardUserDeviceFlow godoc
-// @Summary      Start GitHub Device Flow onboarding
-// @Description  Initiates the GitHub Device Authorization Flow to onboard a user with a given username.
+// @Summary      Onboard user
+// @Description  Initiates the Device Authorization Flow to onboard a user with a given username.
 // @Tags         users
 // @Accept       json
 // @Produce      json
 // @Param        username  path      string  true  "Username to onboard"
 // @Success      200       {object}  models.OnboardUser
-// @Failure      400       {string}  string  "Bad Request - Missing username"
-// @Failure      500       {string}  string  "Internal Server Error"
+// @Failure      400       {string}  string  "Missing username"
 // @Router       /api/v1/users/{username}/onboard [post]
 func (a *RESTApiService) OnboardUserDeviceFlow(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
