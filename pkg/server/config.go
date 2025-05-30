@@ -1,3 +1,5 @@
+// Copyright 2023 The K8Shell Authors
+
 package server
 
 import (
@@ -14,8 +16,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// envVarRegex is a regular expression to match environment variable placeholders in the form ${VAR_NAME}.
 var envVarRegex = regexp.MustCompile(`\$\{([^}]+)\}`)
 
+// Config represents the server configuration structure.
 type Config struct {
 	Http              HttpConfig          `yaml:"http"`
 	Cache             backend.CacheConfig `yaml:"cache"`
@@ -26,6 +30,9 @@ type Config struct {
 	configDir string
 }
 
+// LoadConfig loads the server configuration from the specified YAML file.
+// It processes environment variable substitutions and custom tags like !file.
+// It also validates the identity providers defined in the configuration.
 func LoadConfig(configFile string) (*Config, error) {
 	root, err := loadYaml(configFile)
 	if err != nil {
@@ -81,6 +88,7 @@ func LoadConfig(configFile string) (*Config, error) {
 	return &config, nil
 }
 
+// loadYaml reads a YAML file, processes environment variables and custom tags,
 func loadYaml(path string) (*yaml.Node, error) {
 	rawYAML, err := os.ReadFile(path)
 	if err != nil {
@@ -107,6 +115,8 @@ func loadYaml(path string) (*yaml.Node, error) {
 	return &root, nil
 }
 
+// processNode recursively processes a YAML node, expanding environment variables
+// and handling custom tags like !file.
 func processNode(node *yaml.Node) error {
 	switch node.Kind {
 	case yaml.ScalarNode:
@@ -138,6 +148,8 @@ func processNode(node *yaml.Node) error {
 	return nil
 }
 
+// expandEnvVars replaces environment variable placeholders in the input string
+// with their actual values. It returns an error if any variable is not set.
 func expandEnvVars(input string) (string, error) {
 	result := envVarRegex.ReplaceAllStringFunc(input, func(match string) string {
 		return match

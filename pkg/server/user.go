@@ -1,3 +1,5 @@
+// Copyright 2023 The K8Shell Authors
+
 package server
 
 import (
@@ -9,6 +11,9 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+// refreshUser checks if the user is valid and updates their information
+// based on the identity providers. If the user is not found or expired,
+// it attempts to refresh the user data from the identity providers.
 func (s *Server) refreshUser(username string, user *models.User) (*models.User, error) {
 	var err error
 
@@ -60,6 +65,8 @@ func (s *Server) refreshUser(username string, user *models.User) (*models.User, 
 	return user, nil
 }
 
+// GetUser retrieves a user by their username from the database.
+// It refreshes the user data if necessary, checking against the identity providers.
 func (s *Server) GetUser(username string) (*models.User, error) {
 	user, err := s.DB.FindUser(username)
 	if err != nil {
@@ -74,6 +81,8 @@ func (s *Server) GetUser(username string) (*models.User, error) {
 	return user, nil
 }
 
+// AuthenticateUser checks if the user exists and is valid, then authenticates them
+// using the provided public key against the public keys provided by the identity providers.
 func (s *Server) AuthenticateUser(username string, publicKey string) (bool, error) {
 	user, err := s.DB.FindUser(username)
 	if err != nil {
@@ -111,7 +120,9 @@ func (s *Server) AuthenticateUser(username string, publicKey string) (bool, erro
 	return false, nil
 }
 
-func (s *Server) OnboardUser(username string) (*models.OnboardUser, error) {
+// OnboardUser attempts to onboard a user using the device flow method from the available identity providers.
+// It returns the onboarding information if successful, or an error if no suitable provider is found.
+func (s *Server) OnboardUserDeviceFlow(username string) (*models.OnboardUser, error) {
 	for _, provider := range s.IdentityProviders {
 		onboardUser, err := provider.OnboardUserDeviceFlow(username)
 		if err != nil && !errors.Is(err, models.ErrMethodNotSupported) {

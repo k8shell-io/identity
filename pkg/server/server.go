@@ -1,3 +1,8 @@
+// Copyright 2025 The K8Shell Authors
+// Package server implements the main server logic for the K8Shell Identity service.
+// It initializes the server, loads configuration, sets up identity providers,
+// and provides methods for user authentication and management.
+
 package server
 
 import (
@@ -12,6 +17,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// Server represents the main server structure for the K8Shell Identity service.
 type Server struct {
 	DBConfig   backend.DBConfig
 	HttpConfig HttpConfig
@@ -22,6 +28,9 @@ type Server struct {
 	log               *zerolog.Logger
 }
 
+// NewServer initializes a new Server instance with the provided configuration file.
+// It loads the server configuration, initializes the database connection,
+// and sets up the identity providers based on the configuration.
 func NewServer(configFile string) (*Server, error) {
 	server := &Server{
 		log: log.NewLogger("server"),
@@ -55,6 +64,7 @@ func NewServer(configFile string) (*Server, error) {
 	return server, nil
 }
 
+// LoadProviders initializes the identity providers based on the configuration.
 func (s *Server) LoadProviders(config *Config) error {
 	for _, node := range config.IdentityProviders {
 		var raw map[string]any

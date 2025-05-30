@@ -1,3 +1,5 @@
+// Copyright 2023 The K8Shell Authors
+
 package server
 
 import (
@@ -14,13 +16,17 @@ import (
 	"github.com/k8shell-io/identity/pkg/backend"
 	"github.com/k8shell-io/identity/pkg/log"
 	"github.com/rs/zerolog"
+
+	_ "github.com/k8shell-io/identity/docs"
 )
 
+// HttpConfig represents the HTTP server configuration.
 type HttpConfig struct {
 	Port   int    `yaml:"port"`
 	APIKey string `yaml:"APIKey"`
 }
 
+// RESTApiService represents the REST API service for the K8Shell Identity server.
 type RESTApiService struct {
 	httpConfig HttpConfig
 	log        *zerolog.Logger
@@ -68,8 +74,15 @@ func NewRESTAPI(httpConfig HttpConfig, server *Server) (*RESTApiService, error) 
 	}, nil
 }
 
+// apiKeyMiddleware checks for the presence of a valid API key in the request header
+// and allows access to the API endpoints only if the key matches the configured one.
 func (a *RESTApiService) apiKeyMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/docs") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		authHeader := r.Header.Get("Authorization")
 		const prefix = "Bearer "
 
@@ -93,6 +106,10 @@ func (a *RESTApiService) apiKeyMiddleware(next http.Handler) http.Handler {
 // Middleware to log requests and responses
 func (a *RESTApiService) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/swagger/") {
+			next.ServeHTTP(w, r)
+			return
+		}
 		a.log.Debug().Msgf("Request: method %s, path %s", r.Method, r.URL.Path)
 		rec := &responseRecorder{ResponseWriter: w, statusCode: http.StatusOK}
 		next.ServeHTTP(rec, r)
@@ -114,9 +131,8 @@ func (a *RESTApiService) initializeRouter() *mux.Router {
 	// Define API endpoints
 	apiRouter.HandleFunc("/users", a.GetUsers).Methods(http.MethodGet)
 	apiRouter.HandleFunc("/users/{username}", a.FindUser).Methods(http.MethodGet)
-	apiRouter.HandleFunc("/users/{username}/onboard", a.OnboardUser).Methods(http.MethodPost)
+	apiRouter.HandleFunc("/users/{username}/onboard", a.OnboardUserDeviceFlow).Methods(http.MethodPost)
 	apiRouter.HandleFunc("/users/{username}/authenticate", a.AuthenticateUser).Methods(http.MethodPost)
-	apiRouter.HandleFunc("/users", a.AddUser).Methods(http.MethodPost)
 	a.logRoutes(router)
 
 	router.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -124,9 +140,31 @@ func (a *RESTApiService) initializeRouter() *mux.Router {
 		http.Error(w, "404 route not found", http.StatusNotFound)
 	})
 
+	router.HandleFunc("/docs", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "docs/redoc.html")
+	}).Methods("GET")
+
+	router.HandleFunc("/docs/swagger.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		http.ServeFile(w, r, "docs/swagger.json")
+	}).Methods("GET")
+
+	//router.PathPrefix("/swagger/").Handler(httpSwagger.WrapHandler)
+
 	return router
 }
 
+// GetUsers godoc
+// @Summary      List users
+// @Description  Returns a paginated list of users.
+// @Tags         users
+// @Accept       json
+// @Produce      json
+// @Param        limit   query     int  false  "Number of users to return (default is backend.DefaultListUserLimit)"
+// @Param        offset  query     int  false  "Offset for pagination (default is 0)"
+// @Success      200     {array}   models.User
+// @Failure      500     {string}  string  "Internal Server Error"
+// @Router       /api/v1/users [get]
 func (a *RESTApiService) GetUsers(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	limit := parseQueryInt(query.Get("limit"), backend.DefaultListUserLimit)
@@ -149,6 +187,18 @@ func (a *RESTApiService) GetUsers(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// FindUser godoc
+// @Summary      Get user details
+// @Description  Retrieves information for a single user by username.
+// @Tags         users
+// @Accept       json
+// @Produce      json
+// @Param        username  path      string           true  "Username to look up"
+// @Success      200       {object}  models.User
+// @Failure      400       {string}  string  "Bad Request - Missing username"
+// @Failure      404       {string}  string  "User not found"
+// @Failure      500       {string}  string  "Internal Server Error"
+// @Router       /api/v1/users/{username} [get]
 func (a *RESTApiService) FindUser(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	username := vars["username"]
@@ -177,6 +227,18 @@ func (a *RESTApiService) FindUser(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// AuthenticateUser godoc
+// @Summary      Authenticate user by public key
+// @Description  Validates a user's SSH public key to determine if authentication is allowed.
+// @Tags         users
+// @Accept       json
+// @Produce      json
+// @Param        username  path      string                      true  "Username to authenticate"
+// @Param        request   body      AuthenticateUserRequest     true  "Public key request payload"
+// @Success      200       {object}  AuthenticateUserResponse
+// @Failure      400       {string}  string  "Bad Request - Missing or invalid data"
+// @Failure      500       {string}  string  "Internal Server Error"
+// @Router       /api/v1/users/{username}/authenticate [post]
 func (a *RESTApiService) AuthenticateUser(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	username := vars["username"]
@@ -216,11 +278,42 @@ func (a *RESTApiService) AuthenticateUser(w http.ResponseWriter, r *http.Request
 	}
 }
 
-func (a *RESTApiService) AddUser(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusCreated)
-	w.Write([]byte("Not implemented"))
+// OnboardUserDeviceFlow godoc
+// @Summary      Start GitHub Device Flow onboarding
+// @Description  Initiates the GitHub Device Authorization Flow to onboard a user with a given username.
+// @Tags         users
+// @Accept       json
+// @Produce      json
+// @Param        username  path      string  true  "Username to onboard"
+// @Success      200       {object}  models.OnboardUser
+// @Failure      400       {string}  string  "Bad Request - Missing username"
+// @Failure      500       {string}  string  "Internal Server Error"
+// @Router       /api/v1/users/{username}/onboard [post]
+func (a *RESTApiService) OnboardUserDeviceFlow(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	username := vars["username"]
+	if username == "" {
+		http.Error(w, "Username is required", http.StatusBadRequest)
+		return
+	}
+
+	onboardUser, err := a.server.OnboardUserDeviceFlow(username)
+	if err != nil {
+		a.log.Error().Err(err).Msgf("Failed to onboard user '%s'", username)
+		http.Error(w, "Failed to onboard user", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(onboardUser); err != nil {
+		a.log.Error().Err(err).Msg("Failed to encode onboard user response")
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		return
+	}
 }
 
+// Serve starts the REST API server and listens for incoming requests.
 func (a *RESTApiService) Serve(ctx context.Context) {
 	server := &http.Server{
 		Handler: a.initializeRouter(),
@@ -250,31 +343,7 @@ func (a *RESTApiService) Serve(ctx context.Context) {
 	<-idleConnsClosed
 }
 
-// OnboardUser handles user onboarding
-func (a *RESTApiService) OnboardUser(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	username := vars["username"]
-	if username == "" {
-		http.Error(w, "Username is required", http.StatusBadRequest)
-		return
-	}
-
-	onboardUser, err := a.server.OnboardUser(username)
-	if err != nil {
-		a.log.Error().Err(err).Msgf("Failed to onboard user '%s'", username)
-		http.Error(w, "Failed to onboard user", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(onboardUser); err != nil {
-		a.log.Error().Err(err).Msg("Failed to encode onboard user response")
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-		return
-	}
-}
-
+// logRoutes logs all registered routes in the router
 func (a *RESTApiService) logRoutes(router *mux.Router) {
 	err := router.Walk(func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
 		path, err := route.GetPathTemplate()
@@ -296,6 +365,7 @@ func (a *RESTApiService) logRoutes(router *mux.Router) {
 	}
 }
 
+// parseQueryInt parses an integer from a query parameter string.
 func parseQueryInt(val string, defaultVal int) int {
 	if val == "" {
 		return defaultVal
