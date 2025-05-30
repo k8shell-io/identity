@@ -1,4 +1,4 @@
-// Copyright 2025 The K8Shell Authors
+// Copyright 2025 the k8Shell authors
 // Package server implements the main server logic for the K8Shell Identity service.
 // It initializes the server, loads configuration, sets up identity providers,
 // and provides methods for user authentication and management.

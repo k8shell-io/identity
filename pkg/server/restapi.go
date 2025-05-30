@@ -1,4 +1,4 @@
-// Copyright 2023 The K8Shell Authors
+// Copyright 2025 the k8Shell authors
 
 package server
 
