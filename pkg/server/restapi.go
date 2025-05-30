@@ -76,11 +76,6 @@ func NewRESTAPI(httpConfig HttpConfig, server *Server) (*RESTApiService, error) 
 // and allows access to the API endpoints only if the key matches the configured one.
 func (a *RESTApiService) apiKeyMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/docs") {
-			next.ServeHTTP(w, r)
-			return
-		}
-
 		authHeader := r.Header.Get("Authorization")
 		const prefix = "Bearer "
 
@@ -104,10 +99,6 @@ func (a *RESTApiService) apiKeyMiddleware(next http.Handler) http.Handler {
 // Middleware to log requests and responses
 func (a *RESTApiService) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/swagger/") {
-			next.ServeHTTP(w, r)
-			return
-		}
 		a.log.Debug().Msgf("Request: method %s, path %s", r.Method, r.URL.Path)
 		rec := &responseRecorder{ResponseWriter: w, statusCode: http.StatusOK}
 		next.ServeHTTP(rec, r)
@@ -119,12 +110,10 @@ func (a *RESTApiService) loggingMiddleware(next http.Handler) http.Handler {
 func (a *RESTApiService) initializeRouter() *mux.Router {
 	router := mux.NewRouter()
 
-	// middlewares
-	router.Use(a.apiKeyMiddleware)
-	router.Use(a.loggingMiddleware)
-
-	// Add token middleware
+	// api router with API key middleware
 	apiRouter := router.PathPrefix("/api/v1").Subrouter()
+	apiRouter.Use(a.apiKeyMiddleware)
+	apiRouter.Use(a.loggingMiddleware)
 
 	// Define API endpoints
 	apiRouter.HandleFunc("/users", a.GetUsers).Methods(http.MethodGet)
