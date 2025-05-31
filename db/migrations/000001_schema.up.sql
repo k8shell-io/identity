@@ -24,15 +24,17 @@ CREATE TABLE users (
 
 -- provider_info table to store onboarding user information with OAuth providers
 CREATE TABLE provider_info (
-    username         VARCHAR NOT NULL,
-    provider         VARCHAR NOT NULL,
-    status           VARCHAR NOT NULL CHECK (status IN ('ready', 'pending', 'error', 'expired')),
-    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-    user_code        VARCHAR,
-    verification_uri TEXT,
-    access_token     TEXT,
-    refresh_token    TEXT,
+    username          VARCHAR NOT NULL,
+    provider          VARCHAR NOT NULL,
+    status            VARCHAR NOT NULL CHECK (status IN ('ready', 'pending', 'error', 'expired')),
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    user_code         VARCHAR NOT NULL,
+    device_code       VARCHAR NOT NULL,
+    expires_at        TIMESTAMPTZ,
+    verification_uri  TEXT NOT NULL,
+    access_token      TEXT NOT NULL,
+    refresh_token     TEXT NOT NULL,
     
     PRIMARY KEY (username, provider)
 );

@@ -16,20 +16,24 @@ type ProviderInfo struct {
 	Username        string
 	Provider        string
 	UserCode        string
+	DeviceCode      string
+	ExpiresAt       *time.Time
 	VerificationURI string
 	AccessToken     string
 	RefreshToken    string
 }
 
 func (d *DB) GetUserProviderInfo(username string, provider string) (*ProviderInfo, error) {
-	query := `SELECT status, created_at, updated_at, username, provider, user_code, verification_uri, access_token, refresh_token
+	query := `SELECT status, created_at, updated_at, username, provider, user_code, device_code, 
+					 expires_at, verification_uri, access_token, refresh_token
 			  FROM provider_info WHERE username = $1 AND provider = $2`
 	row := d.pool.QueryRow(context.Background(), query, username, provider)
 
 	var info ProviderInfo
 	err := row.Scan(
 		&info.Status, &info.CreatedAt, &info.UpdatedAt, &info.Username, &info.Provider,
-		&info.UserCode, &info.VerificationURI, &info.AccessToken, &info.RefreshToken,
+		&info.UserCode, &info.DeviceCode, &info.ExpiresAt, &info.VerificationURI,
+		&info.AccessToken, &info.RefreshToken,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -43,11 +47,12 @@ func (d *DB) GetUserProviderInfo(username string, provider string) (*ProviderInf
 func (d *DB) CreateUserProviderInfo(info *ProviderInfo) error {
 	query := `INSERT INTO provider_info (
 		username, provider, status, created_at, updated_at,
-		user_code, verification_uri, access_token, refresh_token
-	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
+		user_code, device_code, expires_at, verification_uri, access_token, refresh_token
+	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
 	_, err := d.pool.Exec(context.Background(), query,
 		info.Username, info.Provider, info.Status, info.CreatedAt, info.UpdatedAt,
-		info.UserCode, info.VerificationURI, info.AccessToken, info.RefreshToken)
+		info.UserCode, info.DeviceCode, info.ExpiresAt, info.VerificationURI,
+		info.AccessToken, info.RefreshToken)
 	if err != nil {
 		return fmt.Errorf("create provider_info: %w", err)
 	}
@@ -91,7 +96,10 @@ func (d *DB) UpdateUserProviderToken(info *ProviderInfo) error {
 		SET access_token = $1,
 			refresh_token = $2,
 			status = $3,
-			updated_at = $4
+			updated_at = $4,
+			user_code = '',
+			device_code = '',
+			expires_at = null
 		WHERE username = $5 AND provider = $6`,
 		info.AccessToken, info.RefreshToken, info.Status,
 		info.UpdatedAt, info.Username, info.Provider)
@@ -105,12 +113,26 @@ func (d *DB) UpdateUserProviderStatus(username string, provider string, status s
 	if username == "" || provider == "" || status == "" {
 		return fmt.Errorf("username, provider and status must be specified")
 	}
-	_, err := d.pool.Exec(context.Background(),
-		`UPDATE provider_info
-		SET status = $1,
-			updated_at = now()
-		WHERE username = $2 AND provider = $3`,
-		status, username, provider)
+	var err error
+	if status == "ready" || status == "pending" {
+		_, err = d.pool.Exec(context.Background(),
+			`UPDATE provider_info
+			SET status = $1,
+				updated_at = now()
+			WHERE username = $2 AND provider = $3`,
+			status, username, provider)
+	} else {
+		// set user_code and expires_at to null for non-ready statuses
+		_, err = d.pool.Exec(context.Background(),
+			`UPDATE provider_info
+			SET status = $1,
+				updated_at = now(),
+				user_code = '',
+				device_code = '',
+				expires_at = null
+			WHERE username = $2 AND provider = $3`,
+			status, username, provider)
+	}
 	if err != nil {
 		return fmt.Errorf("update provider status: %w", err)
 	}
