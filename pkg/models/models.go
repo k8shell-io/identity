@@ -48,7 +48,10 @@ const (
 )
 
 var ErrMethodNotSupported = errors.New("method not supported")
+var ErrUserNotFound = errors.New("user not found")
 var ErrUserNotOnboarded = errors.New("user not onboarded")
+var ErrOnboardingPending = errors.New("onboarding pending")
+var ErrAlreadyOnboarded = errors.New("user already onboarded")
 
 type User struct {
 	Username     string       `yaml:"username"`

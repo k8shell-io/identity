@@ -69,7 +69,7 @@ func (p *GitHubProvider) FindUser(username string) (*models.User, error) {
 	}
 
 	if providerInfo == nil {
-		return nil, fmt.Errorf("%w: user '%s' was not onboard with provider %s", models.ErrUserNotOnboarded,
+		return nil, fmt.Errorf("%w: user '%s' was not onboarded with provider %s", models.ErrUserNotOnboarded,
 			username, p.Name())
 	}
 
@@ -79,7 +79,7 @@ func (p *GitHubProvider) FindUser(username string) (*models.User, error) {
 	}
 
 	// get user resource
-	userData, err := MakeRequest(p.httpClient, "GET", GITHUB_USER_URL, providerInfo.AccessToken)
+	userData, _, err := MakeRequest(p.httpClient, "GET", GITHUB_USER_URL, providerInfo.AccessToken, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to make request to GitHub API: %w", err)
 	}
@@ -87,7 +87,7 @@ func (p *GitHubProvider) FindUser(username string) (*models.User, error) {
 	// get emails resource
 	emailsData := any("[]")
 	if contains(p.config.Scopes, "user:email") {
-		emailsData, err = MakeRequest(p.httpClient, "GET", GITHUB_EMAILS_URL, providerInfo.AccessToken)
+		emailsData, _, err = MakeRequest(p.httpClient, "GET", GITHUB_EMAILS_URL, providerInfo.AccessToken, true)
 		if err != nil {
 			return nil, fmt.Errorf("failed to make request to GitHub API: %w", err)
 		}
@@ -115,24 +115,42 @@ func (p *GitHubProvider) OnboardUserDeviceFlow(username string) (*models.Onboard
 
 	if providerInfo != nil {
 		if providerInfo.Status == "ready" {
-			return nil, fmt.Errorf("user '%s' is already onboarded with provider %s", username, p.Name())
+			return nil, fmt.Errorf("%w: user '%s' is already onboarded with provider %s",
+				models.ErrAlreadyOnboarded, username, p.Name())
 		}
 		if providerInfo.Status == "pending" {
-			return nil, fmt.Errorf("user '%s' is already in onboarding process with provider %s", username, p.Name())
-		}
-		if providerInfo.Status == "expired" {
-			err = p.db.DeleteUserProviderInfo(username, p.Name())
-			if err != nil {
-				return nil, fmt.Errorf("failed to delete expired user provider info for '%s': %w", username, err)
+			expiresIn := int(time.Until(*providerInfo.ExpiresAt).Seconds())
+			if expiresIn > 0 {
+				return &models.OnboardUser{
+					Provider:        p.Name(),
+					Username:        username,
+					UserCode:        providerInfo.UserCode,
+					VerificationUrl: providerInfo.VerificationURI,
+					ExpiresIn:       expiresIn,
+				}, nil
 			}
-			p.log.Info().Msgf("Reset expired onboarding for user '%s' with provider %s", username, p.Name())
-			providerInfo = nil
-		} else {
-			return nil, fmt.Errorf("user '%s' is not ready with provider %s, onboarding status: %s", username, p.Name(),
-				providerInfo.Status)
 		}
+
+		// reset onboarding if status is not pending or ready
+		p.log.Info().Msgf("Reset onboarding in status '%s' for user '%s' with provider %s",
+			providerInfo.Status, username, p.Name())
+		err = p.db.DeleteUserProviderInfo(username, p.Name())
+		if err != nil {
+			return nil, fmt.Errorf("failed to delete user provider info for '%s': %w", username, err)
+		}
+		providerInfo = nil
 	}
 
+	// check user exsists in github
+	_, statusCode, err := MakeRequest(p.httpClient, "GET", fmt.Sprintf(GITHUB_PUBLIC_USER_URL, username), "", false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request to GitHub API: %w", err)
+	}
+	if statusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("%w: user '%s' does not exist in GitHub", models.ErrUserNotFound, username)
+	}
+
+	// get user code via device flow
 	resp, err := getDeviceCode(p.httpClient, p.config.ClientID, p.config.Scopes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get device code: %w", err)
@@ -146,6 +164,7 @@ func (p *GitHubProvider) OnboardUserDeviceFlow(username string) (*models.Onboard
 		ExpiresIn:       resp.ExpiresIn,
 	}
 
+	expiresAt := time.Now().Add(time.Duration(resp.ExpiresIn) * time.Second)
 	err = p.db.CreateUserProviderInfo(&backend.ProviderInfo{
 		Status:          "pending",
 		CreatedAt:       time.Now(),
@@ -153,6 +172,8 @@ func (p *GitHubProvider) OnboardUserDeviceFlow(username string) (*models.Onboard
 		Username:        username,
 		Provider:        p.Name(),
 		UserCode:        resp.UserCode,
+		DeviceCode:      resp.DeviceCode,
+		ExpiresAt:       &expiresAt,
 		VerificationURI: resp.VerificationURI,
 	})
 	if err != nil {
@@ -179,13 +200,31 @@ func (p *GitHubProvider) pollForAccessToken(username, deviceCode string, interva
 			}
 			switch resp.Error {
 			case "":
-				_ = p.db.UpdateUserProviderToken(&backend.ProviderInfo{
+				// user should have completed the device flow
+				// check if we can get user data
+				userData, _, err := MakeRequest(p.httpClient, "GET", GITHUB_USER_URL, resp.AccessToken, true)
+				if err != nil {
+					p.log.Error().Err(err).Msgf("failed to get user data for '%s' from GitHub", username)
+					p.db.UpdateUserProviderStatus(username, p.Name(), "error")
+					return
+				}
+
+				// check if the username matches
+				login, ok := userData.(map[string]interface{})["login"].(string)
+				if !ok || login != username {
+					p.log.Error().Msgf("username mismatch: expected '%s', got '%v'", username, login)
+					p.db.UpdateUserProviderStatus(username, p.Name(), "error")
+					return
+				}
+
+				if p.db.UpdateUserProviderToken(&backend.ProviderInfo{
 					Username:    username,
 					Provider:    p.Name(),
 					AccessToken: resp.AccessToken,
 					Status:      "ready",
-					UpdatedAt:   time.Now(),
-				})
+				}) != nil {
+					p.log.Error().Err(err).Msgf("failed to update user provider token for '%s'", username)
+				}
 				return
 			case "authorization_pending":
 				continue

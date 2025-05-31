@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/k8shell-io/identity/pkg/backend"
 	"github.com/k8shell-io/identity/pkg/log"
+	"github.com/k8shell-io/identity/pkg/models"
 	"github.com/rs/zerolog"
 )
 
@@ -59,6 +61,16 @@ func (rec *responseRecorder) WriteHeader(code int) {
 func (rec *responseRecorder) Write(data []byte) (int, error) {
 	rec.body.Write(data)
 	return rec.ResponseWriter.Write(data)
+}
+
+// writeJSONError writes a JSON error response with the given status code and message.
+func writeJSONError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status": status,
+		"msg":    msg,
+	})
 }
 
 // NewRESTAPI creates a new REST API service
@@ -152,7 +164,7 @@ func (a *RESTApiService) GetUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := a.server.DB.ListUsers(limit, offset)
 	if err != nil {
 		a.log.Error().Err(err).Msg("Failed to list users from database")
-		http.Error(w, "Failed to list users", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "Failed to list users")
 		return
 	}
 
@@ -161,7 +173,7 @@ func (a *RESTApiService) GetUsers(w http.ResponseWriter, r *http.Request) {
 
 	if err := json.NewEncoder(w).Encode(users); err != nil {
 		a.log.Error().Err(err).Msg("Failed to encode users to JSON")
-		http.Error(w, "Failed to encode users", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "Failed to encode users")
 		return
 	}
 }
@@ -181,18 +193,18 @@ func (a *RESTApiService) FindUser(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	if username == "" {
-		http.Error(w, "Username is required", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "Username is required")
 		return
 	}
 
 	user, err := a.server.GetUser(username)
 	if err != nil {
 		a.log.Error().Err(err).Msgf("Failed to find user '%s'", username)
-		http.Error(w, "Failed to find user", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "Failed to find user")
 		return
 	}
 	if user == nil {
-		http.Error(w, fmt.Sprintf("User '%s' not found", username), http.StatusNotFound)
+		writeJSONError(w, http.StatusNotFound, fmt.Sprintf("User '%s' not found", username))
 		return
 	}
 
@@ -200,7 +212,7 @@ func (a *RESTApiService) FindUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(user); err != nil {
 		a.log.Error().Err(err).Msg("Failed to encode user JSON")
-		http.Error(w, "Failed to encode user", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "Failed to encode user response")
 		return
 	}
 }
@@ -220,7 +232,7 @@ func (a *RESTApiService) AuthenticateUser(w http.ResponseWriter, r *http.Request
 	vars := mux.Vars(r)
 	username := vars["username"]
 	if username == "" {
-		http.Error(w, "Username is required", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "Username is required")
 		return
 	}
 
@@ -232,14 +244,14 @@ func (a *RESTApiService) AuthenticateUser(w http.ResponseWriter, r *http.Request
 	}
 
 	if req.PublicKey == "" {
-		http.Error(w, "Public key is required", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "Public key is required")
 		return
 	}
 
 	isAuthenticated, err := a.server.AuthenticateUser(username, req.PublicKey)
 	if err != nil {
 		a.log.Error().Err(err).Msgf("Failed to authenticate user '%s'", username)
-		http.Error(w, "Authentication failed", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "Failed to authenticate user")
 		return
 	}
 
@@ -250,7 +262,7 @@ func (a *RESTApiService) AuthenticateUser(w http.ResponseWriter, r *http.Request
 	}
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		a.log.Error().Err(err).Msg("Failed to encode authentication response")
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "Failed to encode response")
 		return
 	}
 }
@@ -269,22 +281,33 @@ func (a *RESTApiService) OnboardUserDeviceFlow(w http.ResponseWriter, r *http.Re
 	vars := mux.Vars(r)
 	username := vars["username"]
 	if username == "" {
-		http.Error(w, "Username is required", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "Username is required")
 		return
 	}
 
 	onboardUser, err := a.server.OnboardUserDeviceFlow(username)
 	if err != nil {
-		a.log.Error().Err(err).Msgf("Failed to onboard user '%s'", username)
-		http.Error(w, "Failed to onboard user", http.StatusInternalServerError)
-		return
+		if errors.Is(err, models.ErrOnboardingPending) {
+			writeJSONError(w, http.StatusBadRequest, "User onboarding is already in progress")
+			return
+		} else if errors.Is(err, models.ErrUserNotFound) {
+			writeJSONError(w, http.StatusNotFound, fmt.Sprintf("User '%s' not found", username))
+			return
+		} else if errors.Is(err, models.ErrAlreadyOnboarded) {
+			writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("User '%s' is already onboarded", username))
+			return
+		} else {
+			a.log.Error().Err(err).Msgf("Failed to onboard user '%s'", username)
+			writeJSONError(w, http.StatusBadRequest, "Failed to onboard user")
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(onboardUser); err != nil {
 		a.log.Error().Err(err).Msg("Failed to encode onboard user response")
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "Failed to encode onboard user response")
 		return
 	}
 }

@@ -13,6 +13,7 @@ import (
 
 const (
 	IDENTITY_USERAGENT     = "k8shell-identity/1.0"
+	GITHUB_PUBLIC_USER_URL = "https://api.github.com/users/%s"
 	GITHUB_USER_URL        = "https://api.github.com/user"
 	GITHUB_KEYS_URL        = "https://api.github.com/users/%s/keys"
 	GITHUB_EMAILS_URL      = "https://api.github.com/user/emails"
@@ -35,41 +36,46 @@ type AccessTokenResponse struct {
 	Error       string `json:"error,omitempty"`
 }
 
-func MakeRequest(client *http.Client, method string, url string, accessToken string) (any, error) {
+func MakeRequest(client *http.Client, method string, url string, accessToken string, errNotOk bool) (any, int, error) {
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, 0, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+accessToken)
+	if accessToken != "" {
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+	}
 	req.Header.Set("User-Agent", IDENTITY_USERAGENT)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to make request to GitHub API: %w", err)
+		return nil, 0, fmt.Errorf("failed to make request to GitHub API: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+		return nil, 0, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %d, response: %s", resp.StatusCode, body)
+	if resp.StatusCode != http.StatusOK && errNotOk {
+		return nil, resp.StatusCode,
+			fmt.Errorf("request failed: status code: %d, response: %s", resp.StatusCode, body)
 	}
 	var response any
 	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+		return nil, resp.StatusCode,
+			fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 
 	resourceMap, err := common.ToJSON(response)
 	if err != nil {
-		return nil, fmt.Errorf("failed to convert GitHub API response to map: %w", err)
+		return nil, resp.StatusCode,
+			fmt.Errorf("failed to convert GitHub API response to map: %w", err)
 	}
 
-	return resourceMap, nil
+	return resourceMap, resp.StatusCode, nil
 }
 
 func getDeviceCode(client *http.Client, clientId string, scopes []string) (*DeviceCodeResponse, error) {
@@ -132,7 +138,7 @@ func getAccessToken(client *http.Client, clientId, deviceCode string) (*AccessTo
 
 func getPublicKeys(client *http.Client, username string, accessToken string) ([]string, error) {
 	keysURL := fmt.Sprintf(GITHUB_KEYS_URL, username)
-	keysResource, err := MakeRequest(client, "GET", keysURL, accessToken)
+	keysResource, _, err := MakeRequest(client, "GET", keysURL, accessToken, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user keys: %w", err)
 	}

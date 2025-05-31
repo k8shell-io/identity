@@ -126,7 +126,8 @@ func (s *Server) OnboardUserDeviceFlow(username string) (*models.OnboardUser, er
 	for _, provider := range s.IdentityProviders {
 		onboardUser, err := provider.OnboardUserDeviceFlow(username)
 		if err != nil && !errors.Is(err, models.ErrMethodNotSupported) {
-			return nil, fmt.Errorf("error occurred while onboarding user '%s' with provider '%s': %w", username, provider.Name(), err)
+			return nil, fmt.Errorf("error occurred while onboarding user '%s' with provider '%s': %w",
+				username, provider.Name(), err)
 		}
 		if onboardUser != nil {
 			return onboardUser, nil
