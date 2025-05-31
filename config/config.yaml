@@ -50,8 +50,8 @@ identityProviders:
 
   # github identity provider
   - id: "github"
-    clientId: !file ${SECRET_FILES}/github_client_id
-    clientSecret: !file ${SECRET_FILES}/github_client_secret
+    clientId: !file ${SECRET_FILES}/k8shell_client_id
+    clientSecret: !file ${SECRET_FILES}/k8shell_client_secret
     scopes:
       - "read:user"
       - "user:email"
