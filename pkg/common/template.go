@@ -41,36 +41,6 @@ type UserTemplate struct {
 	} `yaml:"user"`
 }
 
-// func (c *CelExpr) UnmarshalYAML(node *yaml.Node) error {
-// 	switch node.Tag {
-// 	case "!cel":
-// 		c.Source = node.Value
-// 		c.IsCEL = true
-// 		return nil
-
-// 	default:
-// 		c.IsCEL = false
-// 		switch node.Kind {
-// 		case yaml.ScalarNode:
-// 			c.Source = node.Value
-// 			return nil
-// 		case yaml.SequenceNode, yaml.MappingNode:
-// 			var temp any
-// 			if err := node.Decode(&temp); err != nil {
-// 				return fmt.Errorf("decode plain YAML node: %w", err)
-// 			}
-// 			jsonBytes, err := json.Marshal(temp)
-// 			if err != nil {
-// 				return fmt.Errorf("marshal fallback node to JSON: %w", err)
-// 			}
-// 			c.Source = string(jsonBytes)
-// 			return nil
-// 		default:
-// 			return fmt.Errorf("unsupported YAML node kind: %d", node.Kind)
-// 		}
-// 	}
-// }
-
 func (c *CelExpr) UnmarshalYAML(node *yaml.Node) error {
 	switch node.Tag {
 	case "!cel":
@@ -88,17 +58,6 @@ func (c *CelExpr) UnmarshalYAML(node *yaml.Node) error {
 		return nil
 	}
 }
-
-// func (c *CelExpr) Eval(evalFn func(string) (any, error)) (any, error) {
-// 	if !c.IsCEL {
-// 		return c.Source, nil
-// 	}
-// 	v, err := evalFn(c.Source)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("evaluate CEL expression '%s': %w", c.Source, err)
-// 	}
-// 	return v, nil
-// }
 
 func (c *CelExpr) Eval(evalFn func(string) (any, error)) (any, error) {
 	if !c.IsCEL {
