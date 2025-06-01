@@ -19,7 +19,9 @@
                 "MEMCACHED_HOSTNAME": "127.0.0.1",
                 "MEMCACHED_PORT": "11211",
             },
-            "args": [], // Any command-line arguments for your program
+            "args": [
+                "--logtext"
+            ],
             "showLog": true,
             //"stopOnEntry": true
         }

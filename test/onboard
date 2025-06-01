@@ -1,4 +1,5 @@
 #!/bin/bash
 user=bruckins
+#user=tomvit
 source ./env.sh
 curl -s -X POST -H "Authorization: Bearer $TOKEN" http://localhost:9090/api/v1/users/$user/onboard | jq
