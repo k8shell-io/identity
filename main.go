@@ -2,16 +2,71 @@ package main
 
 import (
 	"context"
+	"flag"
+	"fmt"
+	"os"
 
 	"github.com/k8shell-io/identity/pkg/log"
 	"github.com/k8shell-io/identity/pkg/server"
 )
 
-func main() {
-	log.JsonLogger = false
-	log := log.NewLogger("main")
+var (
+	IDENTITY_VERSION = "0.0.0"
+	IDENTITY_COMMIT  = "0000000"
+)
 
-	server, err := server.NewServer("config/config.yaml")
+// Options represents the command line options
+type Options struct {
+	ConfigPath  string
+	LogText     bool
+	ShowVersion bool
+}
+
+// getOptions parses the command line options and returns the Options struct
+func getOptions(version string, commit_id string) (*Options, error) {
+	// Default options
+	options := &Options{
+		ConfigPath:  "config/config.yaml",
+		LogText:     false,
+		ShowVersion: false,
+	}
+
+	// Parse command line flags
+	flag.StringVar(&options.ConfigPath, "config", options.ConfigPath, "Path to the configuration file")
+	flag.BoolVar(&options.LogText, "logtext", options.LogText, "Log in text format (default: JSON)")
+	flag.BoolVar(&options.ShowVersion, "v", false, "Show version information")
+
+	// Print usage
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage:\n  identity [options]\n")
+		fmt.Fprint(os.Stderr, "\n")
+		fmt.Fprintf(os.Stderr, "Options:\n")
+		fmt.Fprint(os.Stderr, "  --config <file>    Configuration file\n")
+		fmt.Fprint(os.Stderr, "  --logtext          Log in text format (default: JSON)\n")
+		fmt.Fprint(os.Stderr, "  -v                 Show version and exit\n")
+	}
+
+	// Parse the flags
+	flag.Parse()
+	if options.ShowVersion {
+		fmt.Printf("identity version: %s (commit: %s)\n", version, commit_id)
+		os.Exit(0)
+	}
+
+	return options, nil
+}
+
+func main() {
+	opts, err := getOptions(IDENTITY_VERSION, IDENTITY_COMMIT)
+	if err != nil {
+		fmt.Printf("Error parsing options: %v\n", err)
+		os.Exit(1)
+	}
+
+	log.JsonLogger = !opts.LogText
+	log := log.NewLogger("server")
+
+	server, err := server.NewServer(opts.ConfigPath)
 	if err != nil {
 		log.Error().Msgf("Error starting server: %v\n", err)
 		return
