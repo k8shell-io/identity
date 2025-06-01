@@ -12,12 +12,15 @@ init:
 	go mod tidy
 
 image:
-	@echo "Building identity docker image..."
+	@echo "Identity docker image"
 	@rm -fr docker/files
 	@mkdir -p docker/files
-	version=$$(git describe --tags --match '*' | cut -d'-' -f1-2) && \
+	@echo "Downloading vendor modules..."
+	@go mod vendor
+	@echo "Building image..."
+	@version=$$(git describe --tags --match '*' | cut -d'-' -f1-2) && \
 	echo -n "k8shell-base/identity:$$version" > docker/BUILD && \
-	cp -r go.mod go.sum pkg db main.go docker/files && \
+	cp -r go.mod go.sum pkg db main.go vendor docker/files && \
 	cd docker && docker build --build-arg VERSION=$$version \
 		--build-arg COMMIT_ID=$$(git rev-parse --short HEAD) -t $(REPO)/$$(cat ./BUILD) .
 

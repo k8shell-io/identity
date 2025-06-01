@@ -9,9 +9,10 @@ LABEL COMMIT_ID=$COMMIT_ID
 WORKDIR /go/src/identity
 COPY files .
 
-RUN go mod download
 RUN go install github.com/swaggo/swag/cmd/swag@latest
 RUN /go/bin/swag init --generalInfo pkg/server/restapi.go --output docs
+
+ENV GOFLAGS="-mod=vendor"
 
 RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.IDENTITY_VERSION=$VERSION -X main.K8SHELLD_COMMIT=$COMMIT_ID" \
     -o /go/bin/identity main.go
