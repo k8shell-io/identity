@@ -10,6 +10,7 @@ import (
 	"github.com/k8shell-io/identity/pkg/backend"
 	"github.com/k8shell-io/identity/pkg/common"
 	"github.com/k8shell-io/identity/pkg/models"
+	"github.com/k8shell-io/identity/pkg/yamlcel"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -31,11 +32,11 @@ type UserMapProviderConfig struct {
 type UserMapProvider struct {
 	config     UserMapProviderConfig
 	UsermapAPI *UsermapAPI
-	template   *common.UserTemplate
+	template   *yamlcel.CELTemplate
 }
 
 func NewUserMapProvider(cfg UserMapProviderConfig, baseDir string, cacheCfg backend.CacheConfig) (*UserMapProvider, error) {
-	template, err := common.NewUserTemplate(cfg.Template, baseDir)
+	template, err := yamlcel.NewTemplate(common.NormalizePath(cfg.Template, baseDir))
 	if err != nil {
 		return nil, fmt.Errorf("load user template '%s': %w", cfg.Template, err)
 	}
@@ -76,12 +77,11 @@ func (p *UserMapProvider) FindUser(username string) (*models.User, error) {
 		return nil, fmt.Errorf("convert people resource to map: %w", err)
 	}
 
-	userObj, err := p.template.Eval(resource, p.config.ExtraFields)
+	userObj, err := yamlcel.EvalToStruct[models.User](p.template, resource, p.config.ExtraFields, "user")
 	if err != nil {
 		return nil, fmt.Errorf("template evaluation failed: %w", err)
 	}
 
-	// if the user object is not valid, return nil
 	if !userObj.IsValid {
 		return nil, nil
 	}

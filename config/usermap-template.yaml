@@ -9,7 +9,6 @@ user:
   channels:
     [shell, pty, port_forward, sftp, scp, exec, forward_agent, system_exec]
   auths: [publickey]
-  auth_providers: [self, fit-gitlab]
 
   # map usermap roles to blueprints that the user can use
   blueprints: !cel |
@@ -32,7 +31,7 @@ user:
     ).filter(r, r != ""))
 
   # only allow AM1, AM2 and DDW students and teachers as k8shell users
-  is_valid: !cel |
+  isValid: !cel |
     (username in ["vitvatom"]) ||
     (env == "prod" && (username in ["vitvatom", "kuchajar", "podramic", "fedotdan"] || 
       roles.exists(role, 

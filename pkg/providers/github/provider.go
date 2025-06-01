@@ -11,6 +11,7 @@ import (
 	"github.com/k8shell-io/identity/pkg/common"
 	"github.com/k8shell-io/identity/pkg/log"
 	"github.com/k8shell-io/identity/pkg/models"
+	"github.com/k8shell-io/identity/pkg/yamlcel"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/ssh"
 )
@@ -31,12 +32,12 @@ type GitHubProvider struct {
 	httpClient *http.Client
 	log        *zerolog.Logger
 	db         *backend.DB
-	template   *common.UserTemplate
+	template   *yamlcel.CELTemplate
 }
 
 func NewGitHubProvider(cfg GitHubProviderConfig, cacheCfg backend.CacheConfig, db *backend.DB, baseDir string) (*GitHubProvider, error) {
 	memcache := backend.NewCache(cacheCfg)
-	template, err := common.NewUserTemplate(cfg.Template, baseDir)
+	template, err := yamlcel.NewTemplate(common.NormalizePath(cfg.Template, baseDir))
 	if err != nil {
 		return nil, fmt.Errorf("load user template '%s': %w", cfg.Template, err)
 	}
@@ -98,7 +99,7 @@ func (p *GitHubProvider) FindUser(username string) (*models.User, error) {
 		"emails": emailsData,
 	}
 
-	user, err := p.template.Eval(resource, p.config.ExtraFields)
+	user, err := yamlcel.EvalToStruct[models.User](p.template, resource, p.config.ExtraFields, "user")
 	if err != nil {
 		return nil, fmt.Errorf("template evaluation failed: %w", err)
 	}

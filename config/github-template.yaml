@@ -3,8 +3,8 @@
 user:
   username: !cel "user.login"
   fullname: ""
-  uid: !cel "user.id"
-  gid: !cel "user.id"
+  uid: !cel "100000 + int(user.id)"
+  gid: !cel "100000 + int(user.id)"
   email: !cel |
      emails.exists(e, e.primary == true)
       ? emails.filter(e, e.primary == true)[0].email
@@ -14,4 +14,4 @@ user:
   auths: [publickey]
   blueprints: ["*"]
   roles: ["workspace-user"]
-  is_valid: true
+  isValid: true

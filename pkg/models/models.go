@@ -71,7 +71,7 @@ type User struct {
 	Envs         []string     `yaml:"envs"`
 	Roles        []Role       `yaml:"roles"`
 	Blueprints   []string     `yaml:"blueprints"`
-	Source       string
+	Source       string       `yaml:"source"`
 }
 
 type ShellSession struct {
