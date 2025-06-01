@@ -10,7 +10,7 @@ import (
 	"github.com/k8shell-io/identity/pkg/backend"
 	"github.com/k8shell-io/identity/pkg/common"
 	"github.com/k8shell-io/identity/pkg/models"
-	"github.com/k8shell-io/identity/pkg/yamlcel"
+	"github.com/k8shell-io/yaml-cel/pkg/yamlcel"
 	"golang.org/x/crypto/ssh"
 )
 
