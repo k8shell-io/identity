@@ -1,3 +1,4 @@
 docs/*
 docker/files
 vendor
+__debug*
