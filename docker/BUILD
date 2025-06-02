@@ -1,1 +1,1 @@
-k8shell-base/identity:0.5
+k8shell-base/identity:0.5-2

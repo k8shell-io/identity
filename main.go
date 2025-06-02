@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/k8shell-io/identity/pkg/log"
-	"github.com/k8shell-io/identity/pkg/server"
+	"github.com/k8shell-io/identity/internal/log"
+	"github.com/k8shell-io/identity/internal/server"
 )
 
 var (

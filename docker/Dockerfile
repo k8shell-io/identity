@@ -10,7 +10,7 @@ WORKDIR /go/src/identity
 COPY files .
 
 RUN go install github.com/swaggo/swag/cmd/swag@latest
-RUN /go/bin/swag init --generalInfo pkg/server/restapi.go --output docs
+RUN /go/bin/swag init --generalInfo internal/server/restapi.go --output docs
 
 ENV GOFLAGS="-mod=vendor"
 
