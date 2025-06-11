@@ -42,7 +42,7 @@ const (
 
 func runDBMigrations(connString string, migrarionDir string) error {
 	m, err := migrate.New(
-		fmt.Sprintf("file://%s", migrarionDir),
+		fmt.Sprintf("file://../../%s", migrarionDir),
 		connString,
 	)
 	if err != nil {
@@ -132,6 +132,15 @@ func NewDB(config DBConfig) (*DB, error) {
 		pool:   pool,
 		log:    log,
 	}, nil
+}
+
+func (db *DB) Close() {
+	if db.pool != nil {
+		db.pool.Close()
+		db.log.Info().Msg("Database connection pool closed")
+	} else {
+		db.log.Warn().Msg("Attempted to close a nil database connection pool")
+	}
 }
 
 func AdjustListUserLimit(limit, offset int) (int, int) {

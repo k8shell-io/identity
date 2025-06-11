@@ -39,7 +39,7 @@ func (d *DB) FindUser(username string) (*models.User, error) {
 		&user.Source,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
+		return nil, models.ErrUserNotFound
 	} else if err != nil {
 		return nil, err
 	}
