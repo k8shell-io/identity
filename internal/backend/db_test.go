@@ -50,7 +50,7 @@ func createDBResource() (*dockertest.Pool, *dockertest.Resource, error) {
 	return pool, resource, nil
 }
 
-func getDB(pool *dockertest.Pool, resource *dockertest.Resource) (*backend.DB, error) {
+func getDB(pool *dockertest.Pool) (*backend.DB, error) {
 	cfg := backend.DBConfig{
 		Username: DBUSER,
 		Password: DBPASSWORD,
@@ -83,7 +83,7 @@ func TestNewDB_Success(t *testing.T) {
 		_ = pool.Purge(resource)
 	})
 
-	db, err := getDB(pool, resource)
+	db, err := getDB(pool)
 	if err != nil {
 		t.Fatalf("Could not create DB: %s", err)
 	}
