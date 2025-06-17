@@ -218,12 +218,7 @@ func (p *GitHubProvider) pollForAccessToken(username, deviceCode string, interva
 					return
 				}
 
-				if p.db.UpdateUserProviderToken(&backend.ProviderInfo{
-					Username:    username,
-					Provider:    p.Name(),
-					AccessToken: resp.AccessToken,
-					Status:      "ready",
-				}) != nil {
+				if p.db.UpdateUserProvider(username, p.Name(), resp.AccessToken, "", "ready") != nil {
 					p.log.Error().Err(err).Msgf("failed to update user provider token for '%s'", username)
 				}
 				return
