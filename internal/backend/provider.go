@@ -71,26 +71,11 @@ func (d *DB) DeleteUserProviderInfo(username string, provider string) error {
 	return nil
 }
 
-func (d *DB) UpdateUserProviderToken(info *ProviderInfo) error {
-	if info == nil {
-		return fmt.Errorf("provider info cannot be nil")
+func (d *DB) UpdateUserProvider(username string, provider string, accessToken string, refreshToken string,
+	status string) error {
+	if username == "" || provider == "" || accessToken == "" || status == "" {
+		return fmt.Errorf("username, provider, accessToken and status must be specified")
 	}
-	if info.Username == "" || info.Provider == "" {
-		return fmt.Errorf("username and provider must be specified")
-	}
-	if info.AccessToken == "" {
-		return fmt.Errorf("access token must be specified")
-	}
-	if info.Status == "" {
-		return fmt.Errorf("status must be specified")
-	}
-	if info.UpdatedAt.IsZero() {
-		info.UpdatedAt = time.Now()
-	}
-	if info.CreatedAt.IsZero() {
-		info.CreatedAt = time.Now()
-	}
-
 	_, err := d.pool.Exec(context.Background(),
 		`UPDATE provider_info
 		SET access_token = $1,
@@ -101,10 +86,9 @@ func (d *DB) UpdateUserProviderToken(info *ProviderInfo) error {
 			device_code = '',
 			expires_at = null
 		WHERE username = $5 AND provider = $6`,
-		info.AccessToken, info.RefreshToken, info.Status,
-		info.UpdatedAt, info.Username, info.Provider)
+		accessToken, refreshToken, status, time.Now(), username, provider)
 	if err != nil {
-		return fmt.Errorf("update provider token: %w", err)
+		return fmt.Errorf("update provider tokens: %w", err)
 	}
 	return nil
 }
@@ -122,7 +106,7 @@ func (d *DB) UpdateUserProviderStatus(username string, provider string, status s
 			WHERE username = $2 AND provider = $3`,
 			status, username, provider)
 	} else {
-		// set user_code and expires_at to null for non-ready statuses
+		// set user_code and expires_at to '' for non-ready statuses
 		_, err = d.pool.Exec(context.Background(),
 			`UPDATE provider_info
 			SET status = $1,

@@ -71,4 +71,48 @@ func TestProviderCRUDLifecycle(t *testing.T) {
 	assert.Equal(t, "accesstoken123", info.AccessToken)
 	assert.Equal(t, "refreshtoken123", info.RefreshToken)
 
+	// Update the provider info
+	err = db.UpdateUserProvider("testuser", "testprovider", "accesstoken1234", "", "ready")
+	require.NoError(t, err)
+
+	info, err = db.GetUserProviderInfo("testuser", "testprovider")
+	require.NoError(t, err)
+	assert.NotNil(t, info)
+	assert.Equal(t, "ready", info.Status)
+	assert.Equal(t, "accesstoken1234", info.AccessToken)
+	assert.Equal(t, "", info.RefreshToken)
+	assert.Equal(t, "testuser", info.Username)
+	assert.Equal(t, "testprovider", info.Provider)
+
+	// Update the provider status to pending
+	err = db.UpdateUserProviderStatus("testuser", "testprovider", "pending")
+	require.NoError(t, err)
+	info, err = db.GetUserProviderInfo("testuser", "testprovider")
+	require.NoError(t, err)
+	assert.NotNil(t, info)
+	assert.Equal(t, "pending", info.Status)
+
+	// Update the provider status to error
+	err = db.UpdateUserProviderStatus("testuser", "testprovider", "error")
+	require.NoError(t, err)
+	info, err = db.GetUserProviderInfo("testuser", "testprovider")
+	require.NoError(t, err)
+	assert.NotNil(t, info)
+	assert.Equal(t, "error", info.Status)
+	assert.Equal(t, "", info.UserCode)
+	assert.Equal(t, "", info.DeviceCode)
+
+	// Delete the provider info
+	err = db.DeleteUserProviderInfo("testuser", "testprovider")
+	require.NoError(t, err)
+
+	// Verify that the provider info is deleted
+	info, err = db.GetUserProviderInfo("testuser", "testprovider")
+	if err != nil {
+		t.Fatalf("Failed to get provider info: %v", err)
+	}
+	if info != nil {
+		t.Errorf("Expected provider info to be nil after deletion, got: %+v", info)
+	}
+
 }
