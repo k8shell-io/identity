@@ -181,6 +181,70 @@ func (a *RESTApiService) initializeRouter() *mux.Router {
 	return router
 }
 
+func (a *RESTApiService) Serve(ctx context.Context) {
+	server := &http.Server{
+		Handler: a.initializeRouter(),
+		Addr:    fmt.Sprintf(":%d", a.httpConfig.Port),
+	}
+
+	idleConnsClosed := make(chan struct{})
+	go func() {
+		<-ctx.Done()
+		a.log.Info().Msg("Shutting down REST API server...")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			a.log.Error().Err(err).Msg("REST API server shutdown failed")
+		} else {
+			a.log.Info().Msg("REST API server shutdown complete")
+		}
+		close(idleConnsClosed)
+	}()
+
+	a.log.Info().Msgf("Starting API server on %s", server.Addr)
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		a.log.Error().Err(err).Msg("Failed to start API server")
+	}
+
+	<-idleConnsClosed
+}
+
+// logRoutes logs all registered routes in the router
+func (a *RESTApiService) logRoutes(router *mux.Router) {
+	err := router.Walk(func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
+		path, err := route.GetPathTemplate()
+		if err != nil {
+			path = "<undefined>"
+		}
+
+		methods, err := route.GetMethods()
+		if err != nil {
+			methods = []string{"<any>"}
+		}
+
+		a.log.Debug().Msgf("Route: %s Methods: %v", path, methods)
+		return nil
+	})
+
+	if err != nil {
+		a.log.Error().Msgf("Error walking routes: %v", err)
+	}
+}
+
+// parseQueryInt parses an integer from a query parameter string.
+func parseQueryInt(val string, defaultVal int) int {
+	if val == "" {
+		return defaultVal
+	}
+	i, err := strconv.Atoi(val)
+	if err != nil || i < 0 {
+		return defaultVal
+	}
+	return i
+}
+
+// HANDLERS
 // ** USERS
 
 // GetUsers godoc
@@ -496,67 +560,4 @@ func (a *RESTApiService) UpdateSSHSession(w http.ResponseWriter, r *http.Request
 	}
 
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func (a *RESTApiService) Serve(ctx context.Context) {
-	server := &http.Server{
-		Handler: a.initializeRouter(),
-		Addr:    fmt.Sprintf(":%d", a.httpConfig.Port),
-	}
-
-	idleConnsClosed := make(chan struct{})
-	go func() {
-		<-ctx.Done()
-		a.log.Info().Msg("Shutting down REST API server...")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			a.log.Error().Err(err).Msg("REST API server shutdown failed")
-		} else {
-			a.log.Info().Msg("REST API server shutdown complete")
-		}
-		close(idleConnsClosed)
-	}()
-
-	a.log.Info().Msgf("Starting API server on %s", server.Addr)
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		a.log.Error().Err(err).Msg("Failed to start API server")
-	}
-
-	<-idleConnsClosed
-}
-
-// logRoutes logs all registered routes in the router
-func (a *RESTApiService) logRoutes(router *mux.Router) {
-	err := router.Walk(func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
-		path, err := route.GetPathTemplate()
-		if err != nil {
-			path = "<undefined>"
-		}
-
-		methods, err := route.GetMethods()
-		if err != nil {
-			methods = []string{"<any>"}
-		}
-
-		a.log.Debug().Msgf("Route: %s Methods: %v", path, methods)
-		return nil
-	})
-
-	if err != nil {
-		a.log.Error().Msgf("Error walking routes: %v", err)
-	}
-}
-
-// parseQueryInt parses an integer from a query parameter string.
-func parseQueryInt(val string, defaultVal int) int {
-	if val == "" {
-		return defaultVal
-	}
-	i, err := strconv.Atoi(val)
-	if err != nil || i < 0 {
-		return defaultVal
-	}
-	return i
 }
