@@ -46,7 +46,7 @@ func NewServer(configFile string) (*Server, error) {
 	server.HttpConfig = config.Http
 	server.DBConfig = config.DB
 
-	server.DB, err = backend.NewDB(server.DBConfig)
+	server.DB, err = backend.NewDB(server.DBConfig, "")
 	if err != nil {
 		return nil, fmt.Errorf("create database pool: %w", err)
 	}

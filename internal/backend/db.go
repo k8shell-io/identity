@@ -40,9 +40,9 @@ const (
 	MaxListUserLimit     = 100
 )
 
-func runDBMigrations(connString string, migrarionDir string) error {
+func runDBMigrations(connString string, migrarionBaseDir string) error {
 	m, err := migrate.New(
-		fmt.Sprintf("file://../../%s", migrarionDir),
+		fmt.Sprintf("file:/%s/%s", migrarionBaseDir, MigrationDir),
 		connString,
 	)
 	if err != nil {
@@ -90,7 +90,7 @@ func (c *DBConfig) ConnString() string {
 	)
 }
 
-func NewDB(config DBConfig) (*DB, error) {
+func NewDB(config DBConfig, migrationBaseDir string) (*DB, error) {
 	log := log.NewLogger("db")
 	if config.Username == "" || config.Password == "" || config.Database == "" || config.Hostname == "" {
 		return nil, fmt.Errorf("database configuration is incomplete: username, password, database, and hostname are required")
@@ -120,7 +120,7 @@ func NewDB(config DBConfig) (*DB, error) {
 	log.Info().Msgf("Database connection established successfully at %s:%d/%s",
 		config.Hostname, config.Port, config.Database)
 
-	err = runDBMigrations(connString, MigrationDir)
+	err = runDBMigrations(connString, migrationBaseDir)
 	if err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("run database migrations: %w", err)

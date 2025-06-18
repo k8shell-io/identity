@@ -63,7 +63,7 @@ func getDB(pool *dockertest.Pool) (*backend.DB, error) {
 	var db *backend.DB
 	err := pool.Retry(func() error {
 		var err error
-		db, err = backend.NewDB(cfg)
+		db, err = backend.NewDB(cfg, "/../..")
 		return err
 	})
 	if err != nil {
