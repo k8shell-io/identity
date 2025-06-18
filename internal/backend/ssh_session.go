@@ -109,7 +109,7 @@ func (d *DB) UpdateSSHSessionBytes(username string, sessionID int32, bytesIn int
 	query := `
   UPDATE sessions
   SET bytes_in = $1, bytes_out = $2
-  WHERE session_id = $3 and username = $4 end_time IS NULL
+  WHERE session_id = $3 and username = $4 and end_time IS NULL
  `
 	_, err := d.pool.Exec(context.Background(), query, bytesIn, bytesOut, sessionID, username)
 	if err != nil {
