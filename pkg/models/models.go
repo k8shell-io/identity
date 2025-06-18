@@ -50,6 +50,7 @@ const (
 
 var ErrMethodNotSupported = errors.New("method not supported")
 var ErrUserNotFound = errors.New("user not found")
+var ErrActiveSessionNotFound = errors.New("active session not found")
 var ErrSessionNotFound = errors.New("session not found")
 var ErrUserNotOnboarded = errors.New("user not onboarded")
 var ErrOnboardingPending = errors.New("onboarding pending")

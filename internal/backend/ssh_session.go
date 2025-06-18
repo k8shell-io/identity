@@ -107,13 +107,16 @@ func (d *DB) CreateSSHSession(username string, workspace string, proxy_id string
 // UpdateShellSessionBytes updates the bytes in and out for a shell session
 func (d *DB) UpdateSSHSessionBytes(username string, sessionID int32, bytesIn int64, bytesOut int64) error {
 	query := `
-  UPDATE sessions
-  SET bytes_in = $1, bytes_out = $2
-  WHERE session_id = $3 and username = $4 and end_time IS NULL
- `
-	_, err := d.pool.Exec(context.Background(), query, bytesIn, bytesOut, sessionID, username)
+		UPDATE sessions
+		SET bytes_in = $1, bytes_out = $2
+		WHERE session_id = $3 AND username = $4 AND end_time IS NULL
+	`
+	tag, err := d.pool.Exec(context.Background(), query, bytesIn, bytesOut, sessionID, username)
 	if err != nil {
 		return fmt.Errorf("failed to update session ID %d bytes: %w", sessionID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: session ID %d not found or already ended", models.ErrActiveSessionNotFound, sessionID)
 	}
 	return nil
 }

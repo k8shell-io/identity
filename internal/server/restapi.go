@@ -443,8 +443,12 @@ func (a *RESTApiService) UpdateSSHSession(w http.ResponseWriter, r *http.Request
 
 	err = a.server.UpdateSSHSession(username, int32(sessionID), req.BytesIn, req.BytesOut, req.Client)
 	if err != nil {
-		a.log.Error().Err(err).Msgf("Failed to update SSH session for user '%s'", username)
-		writeJSONError(w, http.StatusInternalServerError, "Failed to update SSH session")
+		a.log.Error().Err(err).Msgf("Failed to update SSH session for user '%s': %s", username, err)
+		if errors.Is(err, models.ErrActiveSessionNotFound) {
+			writeJSONError(w, http.StatusNotFound, fmt.Sprintf("Session ID %d for user '%s' not found or already ended", sessionID, username))
+		} else {
+			writeJSONError(w, http.StatusInternalServerError, "Failed to update SSH session")
+		}
 		return
 	}
 
