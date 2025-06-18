@@ -69,7 +69,7 @@ func (s *Server) refreshUser(username string, user *models.User) (*models.User, 
 // It refreshes the user data if necessary, checking against the identity providers.
 func (s *Server) GetUser(username string) (*models.User, error) {
 	user, err := s.DB.FindUser(username)
-	if err != nil {
+	if err != nil && !errors.Is(err, models.ErrUserNotFound) {
 		return nil, fmt.Errorf("error occured when finding user '%s': %w", username, err)
 	}
 
@@ -85,7 +85,7 @@ func (s *Server) GetUser(username string) (*models.User, error) {
 // using the provided public key against the public keys provided by the identity providers.
 func (s *Server) AuthenticateUser(username string, publicKey string) (bool, error) {
 	user, err := s.DB.FindUser(username)
-	if err != nil {
+	if err != nil && !errors.Is(err, models.ErrUserNotFound) {
 		return false, fmt.Errorf("error occured when finding user '%s': %w", username, err)
 	}
 
