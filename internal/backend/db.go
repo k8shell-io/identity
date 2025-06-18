@@ -35,9 +35,9 @@ type DB struct {
 }
 
 const (
-	MigrationDir         = "db/migrations"
-	DefaultListUserLimit = 50
-	MaxListUserLimit     = 100
+	MigrationDir     = "db/migrations"
+	DefaultListLimit = 50
+	MaxListLimit     = 100
 )
 
 func runDBMigrations(connString string, migrarionBaseDir string) error {
@@ -143,11 +143,11 @@ func (db *DB) Close() {
 	}
 }
 
-func AdjustListUserLimit(limit, offset int) (int, int) {
+func AdjustListLimit(limit, offset int) (int, int) {
 	if limit <= 0 {
-		limit = DefaultListUserLimit
-	} else if limit > MaxListUserLimit {
-		limit = MaxListUserLimit
+		limit = DefaultListLimit
+	} else if limit > MaxListLimit {
+		limit = MaxListLimit
 	}
 	if offset < 0 {
 		offset = 0

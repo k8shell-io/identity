@@ -166,6 +166,7 @@ func (a *RESTApiService) initializeRouter() *mux.Router {
 	apiRouter.HandleFunc("/users/{username}/authenticate", a.AuthenticateUser).Methods(http.MethodPost)
 
 	apiRouter.HandleFunc("/users/{username}/sessions", a.CreateSSHSession).Methods(http.MethodPost)
+	apiRouter.HandleFunc("/users/{username}/sessions", a.GetSSHSessions).Methods(http.MethodGet)
 	apiRouter.HandleFunc("/users/{username}/sessions/{sessionId}", a.UpdateSSHSession).Methods(http.MethodPatch)
 
 	a.logRoutes(router)
@@ -177,12 +178,10 @@ func (a *RESTApiService) initializeRouter() *mux.Router {
 
 	router.PathPrefix("/swagger/").Handler(httpSwagger.WrapHandler)
 
-	// router.HandleFunc("/docs", func(w http.ResponseWriter, r *http.Request) {
-	// 	http.ServeFile(w, r, "docs/redoc.html")
-	// }).Methods("GET")
-
 	return router
 }
+
+// ** USERS
 
 // GetUsers godoc
 // @Summary      List users
@@ -197,7 +196,7 @@ func (a *RESTApiService) initializeRouter() *mux.Router {
 // @Router       /api/v1/users [get]
 func (a *RESTApiService) GetUsers(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
-	limit := parseQueryInt(query.Get("limit"), backend.DefaultListUserLimit)
+	limit := parseQueryInt(query.Get("limit"), backend.DefaultListLimit)
 	offset := parseQueryInt(query.Get("offset"), 0)
 
 	users, err := a.server.DB.ListUsers(limit, offset)
@@ -354,10 +353,54 @@ func (a *RESTApiService) OnboardUserDeviceFlow(w http.ResponseWriter, r *http.Re
 	}
 }
 
+// ** SSH SESSIONS
+
+// GetSSHSessions godoc
+// @Summary      List SSH sessions for a user
+// @Description  Returns a paginated list of SSH sessions for a user.
+// @Tags         sessions
+// @Accept       json
+// @Produce      json
+// @Param        username  path      string  true  "Username to list sessions for"
+// @Param        limit     query     int     false  "Number of sessions to return"
+// @Param        offset    query     int     false  "Offset for pagination"
+// @Param        reverse   query     bool    false  "Reverse order of sessions"
+// @Success      200       {array}   models.SSHSession
+// @Failure      400       {string}  string  "Missing or invalid data"
+// @Failure      404       {string}  string  "User not found"
+// @Security     BearerAuth
+// @Router       /api/v1/users/{username}/sessions [get]
+func (a *RESTApiService) GetSSHSessions(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	limit := parseQueryInt(query.Get("limit"), backend.DefaultListLimit)
+	offset := parseQueryInt(query.Get("offset"), 0)
+	reverse := query.Get("reverse") == "true"
+
+	vars := mux.Vars(r)
+	username := vars["username"]
+	if username == "" {
+		writeJSONError(w, http.StatusBadRequest, "Username is required")
+		return
+	}
+	sessions, err := a.server.GetSSHSessions(username, limit, offset, reverse)
+	if err != nil {
+		a.log.Error().Err(err).Msgf("Failed to get SSH sessions for user '%s'", username)
+		writeJSONError(w, http.StatusInternalServerError, "Failed to get SSH sessions")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(sessions); err != nil {
+		a.log.Error().Err(err).Msg("Failed to encode SSH sessions response")
+		writeJSONError(w, http.StatusInternalServerError, "Failed to encode SSH sessions response")
+		return
+	}
+}
+
 // CreateSSHSession godoc
 // @Summary      Create SSH session
 // @Description  Creates a new SSH session for a user in a specified workspace.
-// @Tags         users
+// @Tags         sessions
 // @Accept       json
 // @Produce      json
 // @Param        username  path      string                     true  "Username to create session for"
@@ -407,7 +450,7 @@ func (a *RESTApiService) CreateSSHSession(w http.ResponseWriter, r *http.Request
 // UpdateSSHSession godoc
 // @Summary      Update SSH session
 // @Description  Updates an existing SSH session with new data such as bytes in/out and client info.
-// @Tags         users
+// @Tags         sessions
 // @Accept       json
 // @Produce      json
 // @Param        username   path      string                     true  "Username to update session for"

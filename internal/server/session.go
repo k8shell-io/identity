@@ -8,6 +8,7 @@ import (
 	"github.com/k8shell-io/identity/pkg/models"
 )
 
+// CreateSSHSession creates a new SSH session for a user in a specific workspace.
 func (s *Server) CreateSSHSession(username string, workspace string, proxyID string, proxyPID int,
 	clientIP string) (*models.SSHSession, error) {
 	s.log.Debug().Msgf("Creating SSH session for user '%s' in workspace '%s'", username, workspace)
@@ -19,6 +20,7 @@ func (s *Server) CreateSSHSession(username string, workspace string, proxyID str
 	return session, nil
 }
 
+// UpdateSSHSession updates an existing SSH session with new bytes and client information.
 func (s *Server) UpdateSSHSession(username string, sessionID int32, bytesIn int64, bytesOut int64, client string) error {
 	if bytesIn > 0 || bytesOut > 0 {
 		err := s.DB.UpdateSSHSessionBytes(username, sessionID, bytesIn, bytesOut)
@@ -35,4 +37,15 @@ func (s *Server) UpdateSSHSession(username string, sessionID int32, bytesIn int6
 	}
 
 	return nil
+}
+
+// GetSSHSessions retrieves a list of SSH sessions for a user with pagination and sorting options.
+func (s *Server) GetSSHSessions(username string, limit int, offset int, reverse bool) ([]*models.SSHSession, error) {
+	s.log.Debug().Msgf("Retrieving SSH sessions for user '%s' with limit %d and offset %d", username, limit, offset)
+	sessions, err := s.DB.GetSSHSessions(username, limit, offset, reverse)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve SSH sessions for user '%s': %w", username, err)
+	}
+	s.log.Info().Msgf("Retrieved %d SSH sessions for user '%s'", len(sessions), username)
+	return sessions, nil
 }

@@ -152,3 +152,56 @@ func (d *DB) EndSSHSession(sessionID int32) error {
 	}
 	return nil
 }
+
+// GetSSHSessions retrieves a list of SSH sessions for a user with pagination and sorting options
+func (d *DB) GetSSHSessions(username string, limit int, offset int, reverse bool) ([]*models.SSHSession, error) {
+	limit, offset = AdjustListLimit(limit, offset)
+
+	order := "ASC"
+	if reverse {
+		order = "DESC"
+	}
+
+	query := fmt.Sprintf(`
+		SELECT session_id, username, proxy_id, proxy_pid, client, client_ip,
+			   start_time, end_time, workspace, channels, bytes_in, bytes_out
+		FROM public.sessions
+		WHERE username = $1
+		ORDER BY start_time %s
+		LIMIT $2 OFFSET $3
+	`, order)
+
+	rows, err := d.pool.Query(context.Background(), query, username, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve sessions for user '%s': %w", username, err)
+	}
+	defer rows.Close()
+
+	var sessions []*models.SSHSession
+	for rows.Next() {
+		var session models.SSHSession
+		if err := rows.Scan(
+			&session.SessionID,
+			&session.Username,
+			&session.ProxyID,
+			&session.ProxyPID,
+			&session.Client,
+			&session.ClientIP,
+			&session.StartTime,
+			&session.EndTime,
+			&session.Workspace,
+			&session.Channels,
+			&session.BytesIn,
+			&session.BytesOut,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan session row: %w", err)
+		}
+		sessions = append(sessions, &session)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating over session rows: %w", err)
+	}
+
+	return sessions, nil
+}

@@ -112,7 +112,7 @@ func (d *DB) DeleteUser(username string) error {
 }
 
 func (d *DB) ListUsers(limit, offset int) ([]*models.User, error) {
-	limit, offset = AdjustListUserLimit(limit, offset)
+	limit, offset = AdjustListLimit(limit, offset)
 
 	query := `
 		SELECT username, is_valid, expires_at, uid, gid, fullname,

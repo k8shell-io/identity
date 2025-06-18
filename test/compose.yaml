@@ -1,7 +1,7 @@
 services:
   identity:
     container_name: identity
-    image: fitcr.ksi.in.fit.cvut.cz/k8shell-base/identity:0.7
+    image: fitcr.ksi.in.fit.cvut.cz/k8shell-base/identity:0.7-1
     command: [ "/app/identity", "--config", "/app/config/config.yaml" ]
     working_dir: /app
     restart: unless-stopped
