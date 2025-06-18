@@ -101,14 +101,15 @@ func (s *Server) AuthenticateUser(username string, publicKey string) (bool, erro
 		return false, nil
 	}
 
+	parsedKey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(publicKey))
+	if err != nil {
+		s.log.Warn().Msgf("Failed to parse provided public key for user '%s': %v", username, err)
+		return false, nil
+	}
+
 	// authenticate the user with the public key using the identity providers
 	for _, provider := range s.IdentityProviders {
 		if provider.Name() == user.Source {
-			parsedKey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(publicKey))
-			if err != nil {
-				s.log.Warn().Msgf("Failed to parse provided public key for user '%s': %v", username, err)
-				return false, nil
-			}
 			auth, err := provider.AuthPublicKey(user, parsedKey)
 			if err != nil {
 				return false, fmt.Errorf("error occurred while authenticating user '%s' with provider '%s': %w", username, provider.Name(), err)

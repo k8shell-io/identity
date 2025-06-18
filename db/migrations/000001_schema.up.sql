@@ -22,6 +22,25 @@ CREATE TABLE users (
     source         varchar
 );
 
+CREATE TABLE sessions (
+    session_id serial primary key,
+    username   varchar   not null references users,
+    proxy_id   varchar,
+    proxy_pid  integer,
+    client     varchar,
+    client_ip  varchar,
+    start_time timestamp not null,
+    end_time   timestamp,
+    workspace  varchar   not null,
+    bytes_in   bigint   not null,
+    bytes_out  bigint   not null,
+    channels   character varying[],
+    unique (username, start_time, workspace)
+);
+
+CREATE INDEX ix_sessions_workspace
+    on sessions (workspace);
+
 -- provider_info table to store onboarding user information with OAuth providers
 CREATE TABLE provider_info (
     username          VARCHAR NOT NULL,

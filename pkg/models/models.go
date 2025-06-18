@@ -2,6 +2,7 @@ package models
 
 import (
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -49,6 +50,7 @@ const (
 
 var ErrMethodNotSupported = errors.New("method not supported")
 var ErrUserNotFound = errors.New("user not found")
+var ErrSessionNotFound = errors.New("session not found")
 var ErrUserNotOnboarded = errors.New("user not onboarded")
 var ErrOnboardingPending = errors.New("onboarding pending")
 var ErrAlreadyOnboarded = errors.New("user already onboarded")
@@ -74,17 +76,21 @@ type User struct {
 	Source       string       `yaml:"source"`
 }
 
-type ShellSession struct {
-	Username  string         `yaml:"username"`
-	ProxyID   *string        `yaml:"proxyId,omitempty"`
-	ProxyPID  *int           `yaml:"proxyPid,omitempty"`
-	Client    *string        `yaml:"client,omitempty"`
-	ClientIP  *string        `yaml:"clientIp,omitempty"`
-	StartTime *time.Time     `yaml:"startTime,omitempty"`
-	EndTime   *time.Time     `yaml:"endTime,omitempty"`
-	Workspace string         `yaml:"workspace"`
-	BytesIn   int            `yaml:"bytesIn"`
-	BytesOut  int            `yaml:"bytesOut"`
-	Channels  []ChannelShort `yaml:"channels"`
-	ProvTime  *float64       `yaml:"provTime,omitempty"`
+type SSHSession struct {
+	SessionID int32
+	Username  string
+	ProxyID   *string
+	ProxyPID  *int
+	Client    *string
+	ClientIP  *string
+	StartTime *time.Time
+	EndTime   *time.Time
+	Workspace string
+	BytesIn   int64
+	BytesOut  int64
+	Channels  []ChannelShort
+}
+
+func CreateSessionID(channel ChannelShort, proxyID string, proxyPID int, channelNumber int) string {
+	return fmt.Sprintf("%s-%s-%d-%d", channel, proxyID, proxyPID, channelNumber)
 }
