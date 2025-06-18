@@ -51,16 +51,6 @@ type responseRecorder struct {
 	body       bytes.Buffer
 }
 
-// AuthenticateUserRequest represents the request body for user authentication
-type AuthenticateUserRequest struct {
-	PublicKey string `json:"public_key"`
-}
-
-// AuthenticateUserResponse represents the response body for user authentication
-type AuthenticateUserResponse struct {
-	Authenticated bool `json:"authenticated"`
-}
-
 // WriteHeader captures the status code and forwards it to the original ResponseWriter
 func (rec *responseRecorder) WriteHeader(code int) {
 	rec.statusCode = code
@@ -81,6 +71,38 @@ func writeJSONError(w http.ResponseWriter, status int, msg string) {
 		"status": status,
 		"msg":    msg,
 	})
+}
+
+// * Models for REST API requests and responses
+
+// AuthenticateUserRequest represents the request body for user authentication
+type AuthenticateUserRequest struct {
+	PublicKey string `json:"public_key"`
+}
+
+// AuthenticateUserResponse represents the response body for user authentication
+type AuthenticateUserResponse struct {
+	Authenticated bool `json:"authenticated"`
+}
+
+// CreateSSHSessionRequest represents the request body for creating an SSH session
+type CreateSSHSessionRequest struct {
+	Workspace string `json:"workspace"`
+	ProxyID   string `json:"proxy_id"`
+	ProxyPID  int    `json:"proxy_pid"`
+	ClientIP  string `json:"client_ip"`
+}
+
+// UpdateSSHSessionRequest represents the request body for updating an SSH session
+type UpdateSSHSessionRequest struct {
+	BytesIn  int64  `json:"bytes_in"`
+	BytesOut int64  `json:"bytes_out"`
+	Client   string `json:"client"`
+}
+
+// SSHSessionResponse represents the response body for creating and updating an SSH session
+type SSHSessionResponse struct {
+	SessionID int32 `json:"session_id"`
 }
 
 // NewRESTAPI creates a new REST API service
@@ -142,6 +164,10 @@ func (a *RESTApiService) initializeRouter() *mux.Router {
 	apiRouter.HandleFunc("/users/{username}", a.FindUser).Methods(http.MethodGet)
 	apiRouter.HandleFunc("/users/{username}/onboard", a.OnboardUserDeviceFlow).Methods(http.MethodPost)
 	apiRouter.HandleFunc("/users/{username}/authenticate", a.AuthenticateUser).Methods(http.MethodPost)
+
+	apiRouter.HandleFunc("/users/{username}/sessions", a.CreateSSHSession).Methods(http.MethodPost)
+	apiRouter.HandleFunc("/users/{username}/sessions/{sessionId}", a.UpdateSSHSession).Methods(http.MethodPatch)
+
 	a.logRoutes(router)
 
 	router.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -328,7 +354,90 @@ func (a *RESTApiService) OnboardUserDeviceFlow(w http.ResponseWriter, r *http.Re
 	}
 }
 
-// Serve starts the REST API server and listens for incoming requests.
+// CreateSSHSession godoc
+// @Summary      Create SSH session
+// @Description  Creates a new SSH session for a user in a specified workspace.
+// @Tags         users
+// @Accept       json
+// @Produce      json
+// @Param        username  path      string                     true  "Username to create session for"
+// @Param        request   body      CreateSSHSessionRequest    true  "SSH session request payload"
+// @Success      200       {object}  SSHSessionResponse
+// @Failure      400       {string}  string  "Missing or invalid data"
+// @Failure      500       {string}  string  "Failed to create SSH session"
+// @Security     BearerAuth
+// @Router       /api/v1/users/{username}/sessions [post]
+func (a *RESTApiService) CreateSSHSession(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	username := vars["username"]
+	if username == "" {
+		writeJSONError(w, http.StatusBadRequest, "Username is required")
+		return
+	}
+
+	var req CreateSSHSessionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		a.log.Error().Err(err).Msg("Failed to decode request body")
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	session, err := a.server.CreateSSHSession(username, req.Workspace, req.ProxyID, req.ProxyPID, req.ClientIP)
+	if err != nil {
+		a.log.Error().Err(err).Msgf("Failed to create SSH session for user '%s'", username)
+		writeJSONError(w, http.StatusInternalServerError, "Failed to create SSH session")
+		return
+	}
+
+	// Prepare the response
+	response := SSHSessionResponse{
+		SessionID: session.SessionID,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Location", fmt.Sprintf("/api/v1/users/%s/sessions/%d", username, session.SessionID))
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		a.log.Error().Err(err).Msg("Failed to encode SSH session response")
+		writeJSONError(w, http.StatusInternalServerError, "Failed to encode SSH session response")
+		return
+	}
+}
+
+// UpdateSSHSession godoc
+// @Summary      Update SSH session
+func (a *RESTApiService) UpdateSSHSession(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	username := vars["username"]
+	sessionIDStr := vars["sessionId"]
+	if username == "" || sessionIDStr == "" {
+		writeJSONError(w, http.StatusBadRequest, "Username and session ID are required")
+		return
+	}
+
+	sessionID, err := strconv.Atoi(sessionIDStr)
+	if err != nil || sessionID <= 0 {
+		writeJSONError(w, http.StatusBadRequest, "Invalid session ID")
+		return
+	}
+
+	var req UpdateSSHSessionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		a.log.Error().Err(err).Msg("Failed to decode request body")
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	err = a.server.UpdateSSHSession(username, int32(sessionID), req.BytesIn, req.BytesOut, req.Client)
+	if err != nil {
+		a.log.Error().Err(err).Msgf("Failed to update SSH session for user '%s'", username)
+		writeJSONError(w, http.StatusInternalServerError, "Failed to update SSH session")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (a *RESTApiService) Serve(ctx context.Context) {
 	server := &http.Server{
 		Handler: a.initializeRouter(),

@@ -70,7 +70,7 @@ func TestSSHSessionCRUDLifecycle(t *testing.T) {
 	assert.Equal(t, firstSession.ClientIP, s.ClientIP)
 
 	// Update the session end time
-	err = db.UpdateSSHSessionBytes(firstSession.SessionID, 1000, 2000)
+	err = db.UpdateSSHSessionBytes("user1", firstSession.SessionID, 1000, 2000)
 	require.NoError(t, err)
 
 	s, err = db.FindSSHSession(firstSession.SessionID)

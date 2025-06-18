@@ -105,15 +105,32 @@ func (d *DB) CreateSSHSession(username string, workspace string, proxy_id string
 }
 
 // UpdateShellSessionBytes updates the bytes in and out for a shell session
-func (d *DB) UpdateSSHSessionBytes(sessionID int32, bytesIn int64, bytesOut int64) error {
+func (d *DB) UpdateSSHSessionBytes(username string, sessionID int32, bytesIn int64, bytesOut int64) error {
 	query := `
   UPDATE sessions
   SET bytes_in = $1, bytes_out = $2
-  WHERE session_id = $3 and end_time IS NULL
+  WHERE session_id = $3 and username = $4 end_time IS NULL
  `
-	_, err := d.pool.Exec(context.Background(), query, bytesIn, bytesOut, sessionID)
+	_, err := d.pool.Exec(context.Background(), query, bytesIn, bytesOut, sessionID, username)
 	if err != nil {
 		return fmt.Errorf("failed to update session ID %d bytes: %w", sessionID, err)
+	}
+	return nil
+}
+
+// UpdateShellSessionClient updates the client information for a shell session
+func (d *DB) UpdateSSHSessionClient(username string, sessionID int32, client string) error {
+	if client == "" {
+		return errors.New("client cannot be empty")
+	}
+	query := `
+		UPDATE sessions
+		SET client = $1
+		WHERE session_id = $2 AND end_time IS NULL
+	`
+	_, err := d.pool.Exec(context.Background(), query, client, sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to update session ID %d client: %w", sessionID, err)
 	}
 	return nil
 }
