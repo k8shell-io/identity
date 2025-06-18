@@ -16,11 +16,11 @@ image:
 	@rm -fr docker/files
 	@mkdir -p docker/files
 	@echo "Downloading vendor modules..."
-	@go mod vendor
+	@go mod vendor -o docker/files/vendor
 	@echo "Building image..."
 	@version=$$(git describe --tags --match '*' | cut -d'-' -f1-2) && \
 	echo -n "k8shell-base/identity:$$version" > docker/BUILD && \
-	cp -r go.mod go.sum pkg internal db main.go vendor docker/files && \
+	cp -r go.mod go.sum pkg internal db main.go docker/files && \
 	cd docker && docker build --build-arg VERSION=$$version \
 		--build-arg COMMIT_ID=$$(git rev-parse --short HEAD) -t $(REPO)/$$(cat ./BUILD) .
 

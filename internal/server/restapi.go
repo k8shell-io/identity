@@ -564,6 +564,19 @@ func (a *RESTApiService) UpdateSSHSession(w http.ResponseWriter, r *http.Request
 }
 
 // EndSSHSession godoc
+// @Summary      End SSH session
+// @Description  Marks an SSH session as ended by setting the end time.
+// @Tags         sessions
+// @Accept       json
+// @Produce      json
+// @Param        username   path      string  true  "Username to end session for"
+// @Param        sessionId  path      int     true  "Session ID to end"
+// @Success      204       {string}  string  "SSH session ended successfully"
+// @Failure      400       {string}  string  "Missing or invalid data"
+// @Failure      404       {string}  string  "Session not found"
+// @Failure      500       {string}  string  "Failed to end SSH session"
+// @Security     BearerAuth
+// @Router       /api/v1/users/{username}/sessions/{sessionId}/end [post]
 func (a *RESTApiService) EndSSHSession(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	username := vars["username"]
