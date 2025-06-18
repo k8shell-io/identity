@@ -88,7 +88,8 @@ func TestSSHSessionCRUDLifecycle(t *testing.T) {
 	assert.Equal(t, int64(1000), s.BytesIn)
 	assert.Equal(t, int64(2000), s.BytesOut)
 
-	err = db.EndSSHSession(firstSession.SessionID)
+	// end the session
+	err = db.EndSSHSession("user1", firstSession.SessionID)
 	require.NoError(t, err)
 	s, err = db.FindSSHSession(firstSession.SessionID)
 	require.NoError(t, err)

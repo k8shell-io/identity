@@ -116,7 +116,7 @@ func (d *DB) UpdateSSHSessionBytes(username string, sessionID int32, bytesIn int
 		return fmt.Errorf("failed to update session ID %d bytes: %w", sessionID, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("%w: session ID %d not found or already ended", models.ErrActiveSessionNotFound, sessionID)
+		return fmt.Errorf("%w: session ID %d not found", models.ErrActiveSessionNotFound, sessionID)
 	}
 	return nil
 }
@@ -129,26 +129,32 @@ func (d *DB) UpdateSSHSessionClient(username string, sessionID int32, client str
 	query := `
 		UPDATE sessions
 		SET client = $1
-		WHERE session_id = $2 AND end_time IS NULL
+		WHERE session_id = $2 AND username = $3 AND end_time IS NULL
 	`
-	_, err := d.pool.Exec(context.Background(), query, client, sessionID)
+	tag, err := d.pool.Exec(context.Background(), query, client, sessionID, username)
 	if err != nil {
 		return fmt.Errorf("failed to update session ID %d client: %w", sessionID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: session ID %d not found", models.ErrActiveSessionNotFound, sessionID)
 	}
 	return nil
 }
 
 // EndShellSession marks a shell session as ended by setting the end time
-func (d *DB) EndSSHSession(sessionID int32) error {
+func (d *DB) EndSSHSession(username string, sessionID int32) error {
 	query := `
 		UPDATE sessions
 		SET end_time = $1
-		WHERE session_id = $2
+		WHERE session_id = $2 AND username = $3 AND end_time IS NULL
 	`
 	now := time.Now()
-	_, err := d.pool.Exec(context.Background(), query, now, sessionID)
+	tag, err := d.pool.Exec(context.Background(), query, now, sessionID, username)
 	if err != nil {
 		return fmt.Errorf("failed to end session ID %d: %w", sessionID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: session ID %d not found", models.ErrActiveSessionNotFound, sessionID)
 	}
 	return nil
 }

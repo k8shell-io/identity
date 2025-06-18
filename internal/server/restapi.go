@@ -168,6 +168,7 @@ func (a *RESTApiService) initializeRouter() *mux.Router {
 	apiRouter.HandleFunc("/users/{username}/sessions", a.CreateSSHSession).Methods(http.MethodPost)
 	apiRouter.HandleFunc("/users/{username}/sessions", a.GetSSHSessions).Methods(http.MethodGet)
 	apiRouter.HandleFunc("/users/{username}/sessions/{sessionId}", a.UpdateSSHSession).Methods(http.MethodPatch)
+	apiRouter.HandleFunc("/users/{username}/sessions/{sessionId}/end", a.EndSSHSession).Methods(http.MethodPost)
 
 	a.logRoutes(router)
 
@@ -555,6 +556,36 @@ func (a *RESTApiService) UpdateSSHSession(w http.ResponseWriter, r *http.Request
 			writeJSONError(w, http.StatusNotFound, fmt.Sprintf("Session ID %d for user '%s' not found or already ended", sessionID, username))
 		} else {
 			writeJSONError(w, http.StatusInternalServerError, "Failed to update SSH session")
+		}
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// EndSSHSession godoc
+func (a *RESTApiService) EndSSHSession(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	username := vars["username"]
+	sessionIDStr := vars["sessionId"]
+	if username == "" || sessionIDStr == "" {
+		writeJSONError(w, http.StatusBadRequest, "Username and session ID are required")
+		return
+	}
+
+	sessionID, err := strconv.Atoi(sessionIDStr)
+	if err != nil || sessionID <= 0 {
+		writeJSONError(w, http.StatusBadRequest, "Invalid session ID")
+		return
+	}
+
+	err = a.server.EndSSHSession(username, int32(sessionID))
+	if err != nil {
+		a.log.Error().Err(err).Msgf("Failed to end SSH session for user '%s': %s", username, err)
+		if errors.Is(err, models.ErrActiveSessionNotFound) {
+			writeJSONError(w, http.StatusNotFound, fmt.Sprintf("Session ID %d for user '%s' not found or already ended", sessionID, username))
+		} else {
+			writeJSONError(w, http.StatusInternalServerError, "Failed to end SSH session")
 		}
 		return
 	}

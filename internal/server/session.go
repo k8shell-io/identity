@@ -16,7 +16,7 @@ func (s *Server) CreateSSHSession(username string, workspace string, proxyID str
 	if err != nil {
 		return nil, fmt.Errorf("failed to create SSH session for user '%s': %w", username, err)
 	}
-	s.log.Info().Msgf("SSH session %d created for user '%s' in workspace '%s'", session.SessionID, username, workspace)
+	s.log.Debug().Msgf("SSH session %d created for user '%s' in workspace '%s'", session.SessionID, username, workspace)
 	return session, nil
 }
 
@@ -46,6 +46,17 @@ func (s *Server) GetSSHSessions(username string, limit int, offset int, reverse 
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve SSH sessions for user '%s': %w", username, err)
 	}
-	s.log.Info().Msgf("Retrieved %d SSH sessions for user '%s'", len(sessions), username)
+	s.log.Debug().Msgf("Retrieved %d SSH sessions for user '%s'", len(sessions), username)
 	return sessions, nil
+}
+
+// EndSSHSession marks an SSH session as ended by setting the end time.
+func (s *Server) EndSSHSession(username string, sessionID int32) error {
+	s.log.Debug().Msgf("Ending SSH session with ID %d", sessionID)
+	err := s.DB.EndSSHSession(username, sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to end SSH session %d: %w", sessionID, err)
+	}
+	s.log.Debug().Msgf("SSH session %d ended successfully", sessionID)
+	return nil
 }
