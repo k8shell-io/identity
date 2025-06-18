@@ -406,6 +406,19 @@ func (a *RESTApiService) CreateSSHSession(w http.ResponseWriter, r *http.Request
 
 // UpdateSSHSession godoc
 // @Summary      Update SSH session
+// @Description  Updates an existing SSH session with new data such as bytes in/out and client info.
+// @Tags         users
+// @Accept       json
+// @Produce      json
+// @Param        username   path      string                     true  "Username to update session for"
+// @Param        sessionId  path      int                        true  "Session ID to update"
+// @Param        request    body      UpdateSSHSessionRequest    true  "SSH session update request payload"
+// @Success      204       {string}  string  "SSH session updated successfully"
+// @Failure      400       {string}  string  "Missing or invalid data"
+// @Failure      404       {string}  string  "Session not found"
+// @Failure      500       {string}  string  "Failed to update SSH session"
+// @Security     BearerAuth
+// @Router       /api/v1/users/{username}/sessions/{sessionId} [patch]
 func (a *RESTApiService) UpdateSSHSession(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	username := vars["username"]
