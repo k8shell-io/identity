@@ -1,0 +1,14 @@
+
+### 
+http://localhost:9090/api/v1/users/kuchajar
+Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
+Content-Type: application/json
+
+### 
+http://localhost:9090/api/v1/users/vitvatom/sessions
+Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
+Content-Type: application/json
+
+###
+
+http://localhost:9090/api/v1/users/vitvatom/sessions
