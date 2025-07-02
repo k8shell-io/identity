@@ -211,3 +211,41 @@ func (d *DB) GetSSHSessions(username string, limit int, offset int, reverse bool
 
 	return sessions, nil
 }
+
+func (d *DB) GetSSHSession(username string, sessionId int32) (*models.SSHSession, error) {
+	query := `
+		SELECT session_id, username, proxy_id, proxy_pid, client, client_ip,
+			   start_time, end_time, workspace, channels, bytes_in, bytes_out
+		FROM public.sessions
+		WHERE username = $1 AND session_id = $2
+	`
+
+	rows, err := d.pool.Query(context.Background(), query, username, sessionId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve session '%s' for user '%s'", username, err)
+	}
+	defer rows.Close()
+
+	var session models.SSHSession
+	if !rows.Next() {
+		return nil, fmt.Errorf("%w: session '%d' for user '%s' not found", models.ErrSessionNotFound, sessionId, username)
+	}
+	if err := rows.Scan(
+		&session.SessionID,
+		&session.Username,
+		&session.ProxyID,
+		&session.ProxyPID,
+		&session.Client,
+		&session.ClientIP,
+		&session.StartTime,
+		&session.EndTime,
+		&session.Workspace,
+		&session.Channels,
+		&session.BytesIn,
+		&session.BytesOut,
+	); err != nil {
+		return nil, fmt.Errorf("failed to scan session row: %w", err)
+	}
+
+	return &session, nil
+}

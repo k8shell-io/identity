@@ -1,14 +1,40 @@
 
-### 
-http://localhost:9090/api/v1/users/kuchajar
+### individual user
+http://localhost:9090/api/v1/users/valenta
 Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
 Content-Type: application/json
 
-### 
-http://localhost:9090/api/v1/users/vitvatom/sessions
+### all users
+http://localhost:9090/api/v1/users
 Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
 Content-Type: application/json
 
-###
+### authenticate user
+POST http://localhost:9090/api/v1/users/vitvatom/authenticate
+Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
+Content-Type: application/json
 
-http://localhost:9090/api/v1/users/vitvatom/sessions
+{
+    "public_key":"ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDD0WFyteR7SWAKgAtoiyRon96zG48ew52uXmlMK1nmY9Cb2ekwQWvgjTaF+AZ2ZjwS+BHrvCDsRDym/PMZ0SyHUyX9vLhKeIqZkNTpI0MB3RRQ8zY1IxdLQny7uSr5pZab5r7pEMsDmoEOHbZeeFKi1f3R4c4fgvqj2pBHIRiIMQUlVqeBbvVcOHVWddJMQAssV8sHjdq2upxr/SctM7qH9WMX8R1sh4npOVFI3zUkVDIO+4xmZpE0ihKf6vLZt7bTrXfP7db6jTcZX6BKCJA1CVuSnll+O+lYzunUNQyw8D++wrGvEkrXGowgHVotC2PS5JPVsnMzrNrCnG8vEgt3 Tomáš Vitvar (gitlab.fit.cvut.cz)"
+}
+
+### create a session for user
+POST http://localhost:9090/api/v1/users/vitvatom/sessions
+Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
+
+{
+  "client_ip": "192.168.1.10",
+  "proxy_id": "abcdefg",
+  "proxy_pid": 12345,
+  "workspace": "test"
+}
+
+### get all sessions for user
+GET http://localhost:9090/api/v1/users/vitvatom/sessions
+Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
+Content-Type: application/json
+
+### get last session for user
+GET http://localhost:9090/api/v1/users/vitvatom/sessions?reverse=true&limit=1
+Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
+Content-Type: application/json

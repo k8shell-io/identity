@@ -165,8 +165,9 @@ func (a *RESTApiService) initializeRouter() *mux.Router {
 	apiRouter.HandleFunc("/users/{username}/onboard", a.OnboardUserDeviceFlow).Methods(http.MethodPost)
 	apiRouter.HandleFunc("/users/{username}/authenticate", a.AuthenticateUser).Methods(http.MethodPost)
 
-	apiRouter.HandleFunc("/users/{username}/sessions", a.CreateSSHSession).Methods(http.MethodPost)
 	apiRouter.HandleFunc("/users/{username}/sessions", a.GetSSHSessions).Methods(http.MethodGet)
+	apiRouter.HandleFunc("/users/{username}/sessions", a.CreateSSHSession).Methods(http.MethodPost)
+	apiRouter.HandleFunc("/users/{username}/sessions/{sessionId}", a.GetSSHSession).Methods(http.MethodGet)
 	apiRouter.HandleFunc("/users/{username}/sessions/{sessionId}", a.UpdateSSHSession).Methods(http.MethodPatch)
 	apiRouter.HandleFunc("/users/{username}/sessions/{sessionId}/end", a.EndSSHSession).Methods(http.MethodPost)
 
@@ -259,6 +260,7 @@ func parseQueryInt(val string, defaultVal int) int {
 // @Success      200     {array}   models.User
 // @Security     BearerAuth
 // @Router       /api/v1/users [get]
+// GetUsers retrieves a list of users with pagination support.
 func (a *RESTApiService) GetUsers(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	limit := parseQueryInt(query.Get("limit"), backend.DefaultListLimit)
@@ -293,6 +295,7 @@ func (a *RESTApiService) GetUsers(w http.ResponseWriter, r *http.Request) {
 // @Failure      404       {string}  string  		"User not found"
 // @Security     BearerAuth
 // @Router       /api/v1/users/{username} [get]
+// FindUser retrieves a user by their username and returns their details.
 func (a *RESTApiService) FindUser(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	username := vars["username"]
@@ -337,6 +340,7 @@ func (a *RESTApiService) FindUser(w http.ResponseWriter, r *http.Request) {
 // @Failure      400       {string}  string  "Missing or invalid data"
 // @Security     BearerAuth
 // @Router       /api/v1/users/{username}/authenticate [post]
+// AuthenticateUser checks if the user exists and is valid, then authenticates them using the provided public key.
 func (a *RESTApiService) AuthenticateUser(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	username := vars["username"]
@@ -387,6 +391,7 @@ func (a *RESTApiService) AuthenticateUser(w http.ResponseWriter, r *http.Request
 // @Failure      400       {string}  string  "Missing username"
 // @Security     BearerAuth
 // @Router       /api/v1/users/{username}/onboard [post]
+// OnboardUserDeviceFlow initiates the Device Authorization Flow to onboard a user.
 func (a *RESTApiService) OnboardUserDeviceFlow(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	username := vars["username"]
@@ -439,6 +444,7 @@ func (a *RESTApiService) OnboardUserDeviceFlow(w http.ResponseWriter, r *http.Re
 // @Failure      404       {string}  string  "User not found"
 // @Security     BearerAuth
 // @Router       /api/v1/users/{username}/sessions [get]
+// GetSSHSessions retrieves a list of SSH sessions for a user with pagination and sorting options.
 func (a *RESTApiService) GetSSHSessions(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	limit := parseQueryInt(query.Get("limit"), backend.DefaultListLimit)
@@ -462,6 +468,61 @@ func (a *RESTApiService) GetSSHSessions(w http.ResponseWriter, r *http.Request) 
 	if err := json.NewEncoder(w).Encode(sessions); err != nil {
 		a.log.Error().Err(err).Msg("Failed to encode SSH sessions response")
 		writeJSONError(w, http.StatusInternalServerError, "Failed to encode SSH sessions response")
+		return
+	}
+}
+
+// GetSSHSession godoc
+// @Summary      Get SSH session by ID
+// @Description  Retrieves a specific SSH session by its ID for a user.
+// @Tags         sessions
+// @Accept       json
+// @Produce      json
+// @Param        username   path      string  true  "Username to get session for"
+// @Param        sessionId  path      int     true  "Session ID to retrieve"
+// @Success      200        {object}  models.SSHSession
+// @Failure      400        {string}  string  "Missing or invalid data"
+// @Failure      404        {string}  string  "Session not found"
+// @Failure      500        {string}  string  "Failed to get SSH session"
+// @Security     BearerAuth
+// @Router       /api/v1/users/{username}/sessions/{sessionId} [get]
+// GetSSHSession retrieves a specific SSH session by its ID for a user.
+func (a *RESTApiService) GetSSHSession(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	username := vars["username"]
+	if username == "" {
+		writeJSONError(w, http.StatusBadRequest, "Username is required")
+		return
+	}
+
+	sessionIdStr := vars["sessionId"]
+	if sessionIdStr == "" {
+		writeJSONError(w, http.StatusBadRequest, "Session ID is required")
+		return
+	}
+	id64, err := strconv.ParseInt(sessionIdStr, 10, 32)
+	if err != nil {
+		a.log.Error().Err(err).Msgf("Invalid session ID '%s' for user '%s'", sessionIdStr, username)
+		writeJSONError(w, http.StatusBadRequest, "Invalid session ID")
+		return
+	}
+	sessionId := int32(id64)
+
+	sessions, err := a.server.GetSSHSession(username, sessionId)
+	if err != nil {
+		a.log.Error().Err(err).Msgf("Failed to get SSH session '%s' for user '%s': %s", sessionId, username, err)
+		if errors.Is(err, models.ErrSessionNotFound) {
+			writeJSONError(w, http.StatusNotFound, fmt.Sprintf("Session ID %d for user '%s' not found", sessionId, username))
+		} else {
+			writeJSONError(w, http.StatusInternalServerError, "Failed to get SSH session")
+		}
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(sessions); err != nil {
+		a.log.Error().Err(err).Msg("Failed to encode SSH session response")
+		writeJSONError(w, http.StatusInternalServerError, "Failed to encode SSH session response")
 		return
 	}
 }

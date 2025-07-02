@@ -50,6 +50,17 @@ func (s *Server) GetSSHSessions(username string, limit int, offset int, reverse 
 	return sessions, nil
 }
 
+// GetSSHSession retrieves a specific SSH session by its ID for a user.
+func (s *Server) GetSSHSession(username string, sessionId int32) (*models.SSHSession, error) {
+	s.log.Debug().Msgf("Retrieving SSH session '%s' for user '%s'", sessionId, username)
+	sessions, err := s.DB.GetSSHSession(username, sessionId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve SSH session '%s' for user '%s': %w", sessionId, username, err)
+	}
+	s.log.Debug().Msgf("Retrieved SSH session '%s' for user '%s'", sessionId, username)
+	return sessions, nil
+}
+
 // EndSSHSession marks an SSH session as ended by setting the end time.
 func (s *Server) EndSSHSession(username string, sessionID int32) error {
 	s.log.Debug().Msgf("Ending SSH session with ID %d", sessionID)
