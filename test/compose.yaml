@@ -1,7 +1,7 @@
 services:
   identity:
     container_name: identity
-    image: fitcr.ksi.in.fit.cvut.cz/k8shell-base/identity:0.8-3
+    image: fitcr.ksi.in.fit.cvut.cz/k8shell-base/identity:0.8-4
     command: [ "/app/identity", "--config", "/app/config/config.yaml" ]
     working_dir: /app
     restart: unless-stopped
@@ -10,25 +10,25 @@ services:
     environment:
       SECRET_FILES: /app/secrets
       POSTGRES_DATABASE: postgres
-      POSTGRES_HOSTNAME: k8shell-db-postgresql
+      POSTGRES_HOSTNAME: k8shell-db-postgresql-int
       POSTGRES_PORT: 5432
-      MEMCACHED_HOSTNAME: k8shell-cache-memcached
+      MEMCACHED_HOSTNAME: k8shell-cache-memcached-int
       MEMCACHED_PORT: 11211
     volumes:
       - ./secrets:/app/secrets:ro
       - ../config:/app/config:ro
       - ../db:/app/db:ro
 
-  k8shell-cache-memcached:
+  k8shell-cache-memcached-int:
     container_name: memcached
     image: bitnami/memcached:1.6.25-debian-12-r0
     restart: unless-stopped
     ports:
       - "11211:11211"
 
-  k8shell-db-postgresql:
+  k8shell-db-postgresql-int:
     container_name: postgresql
-    image: postgres:latest
+    image: postgres:15
     restart: unless-stopped
     environment:
       POSTGRES_PASSWORD: postgres
