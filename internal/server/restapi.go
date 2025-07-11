@@ -512,7 +512,7 @@ func (a *RESTApiService) GetSSHSession(w http.ResponseWriter, r *http.Request) {
 
 	sessions, err := a.server.GetSSHSession(username, sessionId)
 	if err != nil {
-		a.log.Error().Err(err).Msgf("Failed to get SSH session '%s' for user '%s': %s", sessionId, username, err)
+		a.log.Error().Err(err).Msgf("Failed to get SSH session '%d' for user '%s': %s", sessionId, username, err)
 		if errors.Is(err, models.ErrSessionNotFound) {
 			writeJSONError(w, http.StatusNotFound, fmt.Sprintf("Session ID %d for user '%s' not found", sessionId, username))
 		} else {
