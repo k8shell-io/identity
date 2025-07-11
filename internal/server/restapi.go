@@ -95,9 +95,11 @@ type CreateSSHSessionRequest struct {
 
 // UpdateSSHSessionRequest represents the request body for updating an SSH session
 type UpdateSSHSessionRequest struct {
-	BytesIn  int64  `json:"bytes_in"`
-	BytesOut int64  `json:"bytes_out"`
-	Client   string `json:"client"`
+	BytesIn  int64    `json:"bytes_in"`
+	BytesOut int64    `json:"bytes_out"`
+	Client   string   `json:"client"`
+	ProvTime float32  `json:"prov_time"`
+	Channels []string `json:"channels"`
 }
 
 // SSHSessionResponse represents the response body for creating and updating an SSH session
@@ -535,7 +537,7 @@ func (a *RESTApiService) GetSSHSession(w http.ResponseWriter, r *http.Request) {
 // @Produce      json
 // @Param        username  path      string                     true  "Username to create session for"
 // @Param        request   body      CreateSSHSessionRequest    true  "SSH session request payload"
-// @Success      200       {object}  SSHSessionResponse
+// @Success      200       {object}  models.SSHSession
 // @Failure      400       {string}  string  "Missing or invalid data"
 // @Failure      500       {string}  string  "Failed to create SSH session"
 // @Security     BearerAuth
@@ -562,17 +564,12 @@ func (a *RESTApiService) CreateSSHSession(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Prepare the response
-	response := SSHSessionResponse{
-		SessionID: session.SessionID,
-	}
-
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Location", fmt.Sprintf("/api/v1/users/%s/sessions/%d", username, session.SessionID))
 	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		a.log.Error().Err(err).Msg("Failed to encode SSH session response")
-		writeJSONError(w, http.StatusInternalServerError, "Failed to encode SSH session response")
+	if err := json.NewEncoder(w).Encode(session); err != nil {
+		a.log.Error().Err(err).Msg("Failed to encode SSH session")
+		writeJSONError(w, http.StatusInternalServerError, "Failed to encode SSH session")
 		return
 	}
 }
@@ -614,7 +611,8 @@ func (a *RESTApiService) UpdateSSHSession(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	err = a.server.UpdateSSHSession(username, int32(sessionID), req.BytesIn, req.BytesOut, req.Client)
+	err = a.server.UpdateSSHSession(username, int32(sessionID), req.BytesIn, req.BytesOut, req.Client,
+		req.ProvTime, req.Channels)
 	if err != nil {
 		a.log.Error().Err(err).Msgf("Failed to update SSH session for user '%s': %s", username, err)
 		if errors.Is(err, models.ErrActiveSessionNotFound) {

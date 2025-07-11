@@ -15,7 +15,7 @@ import (
 func (d *DB) FindSSHSession(sessionID int32) (*models.SSHSession, error) {
 	query := `
 		SELECT session_id, username, proxy_id, proxy_pid, client, client_ip,
-			   start_time, end_time, workspace, channels, bytes_in, bytes_out
+			   start_time, end_time, workspace, channels, bytes_in, bytes_out, prov_time, channels
 		FROM public.sessions
 		WHERE session_id = $1
 	`
@@ -34,6 +34,8 @@ func (d *DB) FindSSHSession(sessionID int32) (*models.SSHSession, error) {
 		&session.Channels,
 		&session.BytesIn,
 		&session.BytesOut,
+		&session.ProvTime,
+		&session.Channels,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, models.ErrSessionNotFound
@@ -68,28 +70,29 @@ func (d *DB) CreateSSHSession(username string, workspace string, proxy_id string
 	now := time.Now()
 	session := &models.SSHSession{
 		Username:  username,
-		ProxyID:   &proxy_id,
-		ProxyPID:  &proxy_pid,
-		Client:    nil,
-		ClientIP:  &client_ip,
+		ProxyID:   proxy_id,
+		ProxyPID:  proxy_pid,
+		Client:    "",
+		ClientIP:  client_ip,
 		StartTime: &now,
 		Workspace: workspace,
 		BytesIn:   0,
 		BytesOut:  0,
 		Channels:  []models.ChannelShort{},
+		ProvTime:  0.0,
 	}
 	query := ` INSERT INTO sessions (
   username, proxy_id, proxy_pid, client, client_ip,
-  start_time, workspace, bytes_in, bytes_out
+  start_time, workspace, bytes_in, bytes_out, prov_time, channels
  ) VALUES (
   $1, $2, $3, $4, $5, $6,
-  $7, $8, $9
+  $7, $8, $9, $10, $11
  ) RETURNING session_id, start_time, end_time, workspace, bytes_in, bytes_out
  `
 	err := d.pool.QueryRow(context.Background(), query,
 		session.Username, session.ProxyID, session.ProxyPID,
 		session.Client, session.ClientIP, session.StartTime, session.Workspace,
-		session.BytesIn, session.BytesOut,
+		session.BytesIn, session.BytesOut, session.ProvTime, session.Channels,
 	).Scan(
 		&session.SessionID,
 		&session.StartTime,
@@ -170,7 +173,7 @@ func (d *DB) GetSSHSessions(username string, limit int, offset int, reverse bool
 
 	query := fmt.Sprintf(`
 		SELECT session_id, username, proxy_id, proxy_pid, client, client_ip,
-			   start_time, end_time, workspace, channels, bytes_in, bytes_out
+			   start_time, end_time, workspace, channels, bytes_in, bytes_out, prov_time, channels
 		FROM public.sessions
 		WHERE username = $1
 		ORDER BY start_time %s
@@ -199,6 +202,8 @@ func (d *DB) GetSSHSessions(username string, limit int, offset int, reverse bool
 			&session.Channels,
 			&session.BytesIn,
 			&session.BytesOut,
+			&session.ProvTime,
+			&session.Channels,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan session row: %w", err)
 		}
@@ -215,7 +220,7 @@ func (d *DB) GetSSHSessions(username string, limit int, offset int, reverse bool
 func (d *DB) GetSSHSession(username string, sessionId int32) (*models.SSHSession, error) {
 	query := `
 		SELECT session_id, username, proxy_id, proxy_pid, client, client_ip,
-			   start_time, end_time, workspace, channels, bytes_in, bytes_out
+			   start_time, end_time, workspace, channels, bytes_in, bytes_out, prov_time, channels
 		FROM public.sessions
 		WHERE username = $1 AND session_id = $2
 	`
@@ -243,9 +248,52 @@ func (d *DB) GetSSHSession(username string, sessionId int32) (*models.SSHSession
 		&session.Channels,
 		&session.BytesIn,
 		&session.BytesOut,
+		&session.ProvTime,
+		&session.Channels,
 	); err != nil {
 		return nil, fmt.Errorf("failed to scan session row: %w", err)
 	}
 
 	return &session, nil
+}
+
+func (db *DB) UpdateSSHSessionProvTime(username string, sessionID int32, provTime float32) error {
+	if provTime <= 0 {
+		return errors.New("provision time must be greater than 0")
+	}
+
+	query := `
+		UPDATE sessions
+		SET prov_time = $1
+		WHERE session_id = $2 AND username = $3 AND end_time IS NULL
+	`
+	tag, err := db.pool.Exec(context.Background(), query, provTime, sessionID, username)
+	if err != nil {
+		return fmt.Errorf("failed to update session ID %d provision time: %w", sessionID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: session ID %d not found", models.ErrActiveSessionNotFound, sessionID)
+	}
+	return nil
+}
+
+// UpdateSSHSessionChannels updates the channels for an SSH session
+func (db *DB) UpdateSSHSessionChannels(username string, sessionID int32, channels []string) error {
+	if len(channels) == 0 {
+		return errors.New("channels cannot be empty")
+	}
+
+	query := `
+		UPDATE sessions
+		SET channels = $1
+		WHERE session_id = $2 AND username = $3 AND end_time IS NULL
+	`
+	tag, err := db.pool.Exec(context.Background(), query, channels, sessionID, username)
+	if err != nil {
+		return fmt.Errorf("failed to update session ID %d channels: %w", sessionID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: session ID %d not found", models.ErrActiveSessionNotFound, sessionID)
+	}
+	return nil
 }

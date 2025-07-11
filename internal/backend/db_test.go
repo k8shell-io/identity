@@ -50,7 +50,7 @@ func createDBResource() (*dockertest.Pool, *dockertest.Resource, error) {
 	return pool, resource, nil
 }
 
-func getDB(pool *dockertest.Pool) (*backend.DB, error) {
+func getDB(pool *dockertest.Pool, t *testing.T) (*backend.DB, error) {
 	cfg := backend.DBConfig{
 		Username: DBUSER,
 		Password: DBPASSWORD,
@@ -61,9 +61,13 @@ func getDB(pool *dockertest.Pool) (*backend.DB, error) {
 	cfg.SetDefaults()
 
 	var db *backend.DB
+	//pool.MaxWait = 30
 	err := pool.Retry(func() error {
 		var err error
 		db, err = backend.NewDB(cfg, "/../..")
+		if err != nil {
+			t.Log("Failed to create DB instance:", err, "retrying...")
+		}
 		return err
 	})
 	if err != nil {
@@ -83,7 +87,7 @@ func TestNewDB_Success(t *testing.T) {
 		_ = pool.Purge(resource)
 	})
 
-	db, err := getDB(pool)
+	db, err := getDB(pool, t)
 	if err != nil {
 		t.Fatalf("Could not create DB: %s", err)
 	}

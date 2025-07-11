@@ -17,7 +17,7 @@ func TestUserCRUDLifecycle(t *testing.T) {
 		err := pool.Purge(reconstrce)
 		assert.NoError(t, err)
 	}()
-	db, err := getDB(pool)
+	db, err := getDB(pool, t)
 	if err != nil {
 		t.Fatalf("Failed to get DB: %v", err)
 	}

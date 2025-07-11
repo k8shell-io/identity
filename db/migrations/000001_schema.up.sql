@@ -35,6 +35,7 @@ CREATE TABLE sessions (
     bytes_in   bigint   not null,
     bytes_out  bigint   not null,
     channels   character varying[],
+    prov_time  float not null default 0.0,
     unique (username, start_time, workspace)
 );
 

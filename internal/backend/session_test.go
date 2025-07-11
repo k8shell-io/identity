@@ -17,7 +17,7 @@ func TestSSHSessionCRUDLifecycle(t *testing.T) {
 		err := pool.Purge(reconstrce)
 		assert.NoError(t, err)
 	}()
-	db, err := getDB(pool)
+	db, err := getDB(pool, t)
 	if err != nil {
 		t.Fatalf("Failed to get DB: %v", err)
 	}
@@ -83,10 +83,21 @@ func TestSSHSessionCRUDLifecycle(t *testing.T) {
 	err = db.UpdateSSHSessionBytes("user1", firstSession.SessionID, 1000, 2000)
 	require.NoError(t, err)
 
+	err = db.UpdateSSHSessionProvTime("user1", firstSession.SessionID, 1.5)
+	require.NoError(t, err)
+
+	err = db.UpdateSSHSessionClient("user1", firstSession.SessionID, "new-client")
+	require.NoError(t, err)
+
+	err = db.UpdateSSHSessionChannels("user1", firstSession.SessionID, []string{"channel1", "channel2"})
+	require.NoError(t, err)
+
 	s, err = db.FindSSHSession(firstSession.SessionID)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1000), s.BytesIn)
 	assert.Equal(t, int64(2000), s.BytesOut)
+	assert.Equal(t, "new-client", s.Client)
+	assert.Equal(t, float32(1.5), s.ProvTime)
 
 	// end the session
 	err = db.EndSSHSession("user1", firstSession.SessionID)

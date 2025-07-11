@@ -21,7 +21,8 @@ func (s *Server) CreateSSHSession(username string, workspace string, proxyID str
 }
 
 // UpdateSSHSession updates an existing SSH session with new bytes and client information.
-func (s *Server) UpdateSSHSession(username string, sessionID int32, bytesIn int64, bytesOut int64, client string) error {
+func (s *Server) UpdateSSHSession(username string, sessionID int32, bytesIn int64, bytesOut int64,
+	client string, provTime float32, channels []string) error {
 	if bytesIn > 0 || bytesOut > 0 {
 		err := s.DB.UpdateSSHSessionBytes(username, sessionID, bytesIn, bytesOut)
 		if err != nil {
@@ -33,6 +34,20 @@ func (s *Server) UpdateSSHSession(username string, sessionID int32, bytesIn int6
 		err := s.DB.UpdateSSHSessionClient(username, sessionID, client)
 		if err != nil {
 			return fmt.Errorf("failed to update SSH session %d client: %w", sessionID, err)
+		}
+	}
+
+	if provTime > 0 {
+		err := s.DB.UpdateSSHSessionProvTime(username, sessionID, provTime)
+		if err != nil {
+			return fmt.Errorf("failed to update SSH session %d provision time: %w", sessionID, err)
+		}
+	}
+
+	if len(channels) > 0 {
+		err := s.DB.UpdateSSHSessionChannels(username, sessionID, channels)
+		if err != nil {
+			return fmt.Errorf("failed to update SSH session %d channels: %w", sessionID, err)
 		}
 	}
 
@@ -52,12 +67,12 @@ func (s *Server) GetSSHSessions(username string, limit int, offset int, reverse 
 
 // GetSSHSession retrieves a specific SSH session by its ID for a user.
 func (s *Server) GetSSHSession(username string, sessionId int32) (*models.SSHSession, error) {
-	s.log.Debug().Msgf("Retrieving SSH session '%s' for user '%s'", sessionId, username)
+	s.log.Debug().Msgf("Retrieving SSH session '%d' for user '%s'", sessionId, username)
 	sessions, err := s.DB.GetSSHSession(username, sessionId)
 	if err != nil {
-		return nil, fmt.Errorf("failed to retrieve SSH session '%s' for user '%s': %w", sessionId, username, err)
+		return nil, fmt.Errorf("failed to retrieve SSH session '%d' for user '%s': %w", sessionId, username, err)
 	}
-	s.log.Debug().Msgf("Retrieved SSH session '%s' for user '%s'", sessionId, username)
+	s.log.Debug().Msgf("Retrieved SSH session '%d' for user '%s'", sessionId, username)
 	return sessions, nil
 }
 

@@ -80,16 +80,17 @@ type User struct {
 type SSHSession struct {
 	SessionID int32
 	Username  string
-	ProxyID   *string
-	ProxyPID  *int
-	Client    *string
-	ClientIP  *string
+	ProxyID   string
+	ProxyPID  int
+	Client    string
+	ClientIP  string
 	StartTime *time.Time
 	EndTime   *time.Time
 	Workspace string
 	BytesIn   int64
 	BytesOut  int64
 	Channels  []ChannelShort
+	ProvTime  float32
 }
 
 func CreateSessionID(channel ChannelShort, proxyID string, proxyPID int, channelNumber int) string {
