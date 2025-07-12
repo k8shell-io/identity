@@ -1,4 +1,4 @@
 docs/*
-docker/files
+docker/identity/files
 vendor
 __debug*

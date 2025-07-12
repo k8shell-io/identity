@@ -45,17 +45,17 @@ jobs:
       - name: Vendor Go modules
         run: |
           go mod vendor
-          mkdir -p docker/files
-          cp -r vendor docker/files/
+          mkdir -p docker/identity/files
+          cp -r vendor docker/identity/files/
 
       - name: Copy sources to docker context
         run: |
-          cp go.mod go.sum main.go -t docker/files/
-          cp -r pkg internal db docs docker/files/
-          echo -n "k8shell-base/identity:$VERSION" > docker/BUILD
+          cp go.mod go.sum main.go -t docker/identity/files/
+          cp -r pkg internal db docs docker/identity/files/
+          echo -n "k8shell-base/identity:$VERSION" > docker/identity/BUILD
 
-      - name: Load REPO_NAME from docker/BUILD
-        run: echo "REPO_NAME=$(cat docker/BUILD)" >> $GITHUB_ENV
+      - name: Load REPO_NAME from docker/identity/BUILD
+        run: echo "REPO_NAME=$(cat docker/identity/BUILD)" >> $GITHUB_ENV
 
       - name: Login to Docker Registry
         uses: docker/login-action@v3

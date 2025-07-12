@@ -13,13 +13,13 @@ init:
 
 image:
 	@echo "Identity docker image"
-	@rm -fr docker/files
-	@mkdir -p docker/files
+	@rm -fr docker/identity/files
+	@mkdir -p docker/identity/files
 	@echo "Downloading vendor modules..."
-	@go mod vendor -o docker/files/vendor
+	@go mod vendor -o docker/identity/files/vendor
 	@echo "Building image..."
 	@version=$$(git describe --tags --match '*' | sed 's/-g.*//') && \
-	cp -r go.mod go.sum pkg internal db main.go docker/files && \
-	cd docker && docker build --build-arg VERSION=$$version \
+	cp -r go.mod go.sum pkg internal db main.go docker/identity/files && \
+	cd docker/identity && docker build --build-arg VERSION=$$version \
 		--build-arg COMMIT_ID=$$(git rev-parse --short HEAD) -t $(REPO)/$$(cat ./BUILD) .
 
