@@ -1,4 +1,4 @@
-name: Build Identity Image
+name: Build Identity Image and Chart
 
 on:
   push:
@@ -73,3 +73,14 @@ jobs:
           build-args: |
             VERSION=${{ env.VERSION }}
             COMMIT_ID=${{ env.COMMIT_ID }}
+
+      - name: Build and push chart
+        run: |
+          export CHART_VERSION=$(echo ${VERSION} | sed -E 's/^v(.*)/\1/')
+          sed -i "s/^\([[:space:]]*\)tag:.*/\1tag: \"${VERSION}\"/" helm/identity/values.yaml
+          sed -i "s/^version: [0-9.]*$/version: ${CHART_VERSION}/" helm/identity/Chart.yaml
+          mkdir -p dist
+          helm package helm/identity --app-version ${CHART_VERSION} -d dist
+          helm registry login ${{ secrets.REGISTRY }} --username "${{ secrets.HARBOR_USER }}" \
+            --password "${{ secrets.HARBOR_PASSWORD }}"
+          helm push dist/$(ls dist | grep tgz) oci://${{ secrets.REGISTRY }}/charts

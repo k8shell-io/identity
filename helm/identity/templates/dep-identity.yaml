@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: identity
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: identity
+  template:
+    metadata:
+      labels:
+        app: identity
+    spec:
+      {{- if .Values.image.imagePullSecret }}
+      imagePullSecrets:
+      - name: {{ .Values.image.imagePullSecret }}
+      {{- end }}
+      containers:
+        - name: identity
+          resources:
+            limits:
+              cpu: "4"
+            requests:
+              cpu: "0.1"        
+          image: {{ .Values.image.registry }}/{{ .Values.image.name }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.imagePullPolicy }}
+          command: [ "/app/identity", "--config", "/app/config/config.yaml" ]
+          env:
+          - name: SECRET_FILES
+            value: {{ .Values.secretFiles | quote }}
+          {{- range .Values.envvars }}
+          {{- $key := first (keys .) }}
+          {{- $value := index . $key }}
+          {{- if (hasPrefix "secret:" $value) }}
+          {{- $secretParts := regexSplit "/" (trimPrefix "secret:" $value) -1 }}
+          - name: {{ $key }}
+            valueFrom:
+              secretKeyRef:
+                name: {{ index $secretParts 0 }}
+                key: {{ index $secretParts 1 }}
+          {{- else }}
+          - name: {{ $key }}
+            value: {{ $value | quote }}
+          {{- end }}
+          {{- end }}      
+          ports:
+            - containerPort: 9090
+              name: api
+          volumeMounts:
+          - name: config-volume
+            mountPath: /app/config
+            readOnly: true
+          {{- range .Values.secrets }}
+          {{- $key := first (keys .) }}
+          {{- $value := index . $key }}
+          {{- if (hasPrefix "secret:" $value) }}
+          {{- $secretParts := regexSplit "/" (trimPrefix "secret:" $value) -1 }}
+          {{- $secretName := index $secretParts 0 }}
+          {{- $secretKey := index $secretParts 1 }}
+          - name: {{ $secretName }}-secret-volume
+            mountPath: {{ $.Values.secretFiles }}/{{ $key }}
+            subPath: {{ $secretKey }}
+            readOnly: true
+          {{- end }}
+          {{- end }}
+
+      volumes:
+      - name: config-volume
+        configMap:
+          name: {{ .Values.configMapName }}
+      {{- $uniqueSecrets := dict }}
+      {{- range .Values.secrets }}
+      {{- $key := first (keys .) }}
+      {{- $value := index . $key }}
+      {{- if (hasPrefix "secret:" $value) }}
+      {{- $secretParts := regexSplit "/" (trimPrefix "secret:" $value) -1 }}
+      {{- $secretName := index $secretParts 0 }}
+      {{- if not (hasKey $uniqueSecrets $secretName) }}
+      {{- $_ := set $uniqueSecrets $secretName true }}
+      - name: {{ $secretName }}-secret-volume
+        secret:
+          secretName: {{ $secretName }}
+      {{- end }}
+      {{- end }}
+      {{- end }}
+
