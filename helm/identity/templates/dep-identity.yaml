@@ -19,11 +19,6 @@ spec:
       {{- end }}
       containers:
         - name: identity
-          resources:
-            limits:
-              cpu: "4"
-            requests:
-              cpu: "0.1"        
           image: {{ .Values.image.registry }}/{{ .Values.image.name }}:{{ .Values.image.tag }}
           imagePullPolicy: {{ .Values.image.imagePullPolicy }}
           command: [ "/app/identity", "--config", "/app/config/config.yaml" ]
