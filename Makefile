@@ -18,7 +18,7 @@ image:
 	@echo "Downloading vendor modules..."
 	@go mod vendor -o docker/files/vendor
 	@echo "Building image..."
-	@version=$$(git describe --tags --match '*' | cut -d'-' -f1-2) && \
+	@version=$$(git describe --tags --match '*' | sed 's/-g.*//') && \
 	echo -n "k8shell-base/identity:$$version" > docker/BUILD && \
 	cp -r go.mod go.sum pkg internal db main.go docker/files && \
 	cd docker && docker build --build-arg VERSION=$$version \
