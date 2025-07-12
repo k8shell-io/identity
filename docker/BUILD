@@ -1,1 +1,1 @@
-k8shell-base/identity:v0.10
+k8shell-base/identity
