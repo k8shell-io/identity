@@ -67,7 +67,7 @@ jobs:
       - name: Build and push image
         uses: docker/build-push-action@v6
         with:
-          context: docker
+          context: docker/identity
           tags: ${{ secrets.REGISTRY }}/${{ env.REPO_NAME }}
           push: true
           build-args: |
