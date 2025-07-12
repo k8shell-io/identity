@@ -19,13 +19,7 @@ image:
 	@go mod vendor -o docker/files/vendor
 	@echo "Building image..."
 	@version=$$(git describe --tags --match '*' | sed 's/-g.*//') && \
-	echo -n "k8shell-base/identity:$$version" > docker/BUILD && \
 	cp -r go.mod go.sum pkg internal db main.go docker/files && \
 	cd docker && docker build --build-arg VERSION=$$version \
 		--build-arg COMMIT_ID=$$(git rev-parse --short HEAD) -t $(REPO)/$$(cat ./BUILD) .
-
-push:
-	$(MAKE) image
-	@echo "Pushing identity docker image to repository..."
-	cd docker && docker push $(REPO)/$$(cat ./BUILD)
 

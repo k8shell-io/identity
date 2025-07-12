@@ -8,7 +8,7 @@ on:
       - "v*"
 
 jobs:
-  k8shell-proxy-module:
+  build-identity:
     runs-on: k8shell-runner
 
     env:
@@ -29,23 +29,33 @@ jobs:
         with:
           go-version: '1.23'
 
-      - name: Get version
-        id: version
+      - name: Get version and commit ID
         run: |
           VERSION=$(git describe --tags --match '*' | sed 's/-g.*//')
+          COMMIT_ID=$(git rev-parse --short HEAD)
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "COMMIT_ID=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-          echo "REPO_NAME=$(cat docker/BUILD)" >> $GITHUB_ENV
+          echo "COMMIT_ID=$COMMIT_ID" >> $GITHUB_ENV
+
+      - name: Install swag CLI
+        run: go install github.com/swaggo/swag/cmd/swag@latest
+
+      - name: Generate Swagger docs
+        run: swag init -g main.go -o ./docs
 
       - name: Vendor Go modules
         run: |
+          go mod vendor
           mkdir -p docker/files
-          go mod vendor -o docker/files/vendor
+          cp -r vendor docker/files/
 
       - name: Copy sources to docker context
         run: |
           cp go.mod go.sum main.go -t docker/files/
-          cp -r pkg internal db docker/files/
+          cp -r pkg internal db docs docker/files/
+          echo -n "k8shell-base/identity:$VERSION" > docker/BUILD
+
+      - name: Load REPO_NAME from docker/BUILD
+        run: echo "REPO_NAME=$(cat docker/BUILD)" >> $GITHUB_ENV
 
       - name: Login to Docker Registry
         uses: docker/login-action@v3
@@ -58,7 +68,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: docker
-          tags: ${{ secrets.REGISTRY }}/${{ env.REPO_NAME }}:${{ env.VERSION }}
+          tags: ${{ secrets.REGISTRY }}/${{ env.REPO_NAME }}
           push: true
           build-args: |
             VERSION=${{ env.VERSION }}
