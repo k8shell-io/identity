@@ -8,12 +8,11 @@ on:
       - "v*"
 
 jobs:
-  build-identity-image:
-    runs-on: [self-hosted, linux]
+  k8shell-proxy-module:
+    runs-on: k8shell-runner
 
     env:
       GO111MODULE: on
-      REPO: fitcr.ksi.in.fit.cvut.cz/charts
 
     steps:
       - name: Checkout code
