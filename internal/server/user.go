@@ -144,7 +144,9 @@ func (s *Server) OnboardCapability(username string) (*models.OnBoardCapability, 
 			return nil, fmt.Errorf("error occurred while checking onboarding capability for user '%s' with provider '%s': %w",
 				username, provider.Name(), err)
 		}
-		return cap, nil
+		if cap != nil {
+			return cap, nil
+		}
 	}
 	return nil, fmt.Errorf("no suitable identity provider found for checking onboarding capability of user '%s'", username)
 }
