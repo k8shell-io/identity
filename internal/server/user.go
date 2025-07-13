@@ -137,19 +137,14 @@ func (s *Server) OnboardUserDeviceFlow(username string) (*models.OnboardUser, er
 	return nil, fmt.Errorf("no suitable identity provider found for onboarding user '%s'", username)
 }
 
-func (s *Server) CanOnboardUser(username string) (bool, error) {
+func (s *Server) OnboardCapability(username string) (*models.OnBoardCapability, error) {
 	for _, provider := range s.IdentityProviders {
-		exists, err := provider.CanOnboardUser(username)
+		cap, err := provider.OnboardCapability(username)
 		if err != nil {
-			if !errors.Is(err, models.ErrMethodNotSupported) {
-				return false, fmt.Errorf("error occurred while checking if user '%s' can be onboarded with provider '%s': %w",
-					username, provider.Name(), err)
-			}
-			continue
+			return nil, fmt.Errorf("error occurred while checking onboarding capability for user '%s' with provider '%s': %w",
+				username, provider.Name(), err)
 		}
-		if exists {
-			return true, nil
-		}
+		return cap, nil
 	}
-	return false, nil
+	return nil, fmt.Errorf("no suitable identity provider found for checking onboarding capability of user '%s'", username)
 }

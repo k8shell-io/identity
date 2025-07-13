@@ -102,11 +102,6 @@ type UpdateSSHSessionRequest struct {
 	Channels []string `json:"channels"`
 }
 
-// CanOnboardUserResponse represents the response body for checking if a user can be onboarded
-type CanOnboardUserResponse struct {
-	CanOnboard bool `json:"can_onboard"`
-}
-
 // NewRESTAPI creates a new REST API service
 func NewRESTAPI(httpConfig HttpConfig, server *Server) (*RESTApiService, error) {
 	log := log.NewLogger("api")
@@ -164,6 +159,7 @@ func (a *RESTApiService) initializeRouter() *mux.Router {
 	// Define API endpoints
 	apiRouter.HandleFunc("/users", a.GetUsers).Methods(http.MethodGet)
 	apiRouter.HandleFunc("/users/{username}", a.FindUser).Methods(http.MethodGet)
+	apiRouter.HandleFunc("/users/{username}/onboardcap", a.OnBoardCapability).Methods(http.MethodGet)
 	apiRouter.HandleFunc("/users/{username}/onboard", a.OnboardUserDeviceFlow).Methods(http.MethodPost)
 	apiRouter.HandleFunc("/users/{username}/authenticate", a.AuthenticateUser).Methods(http.MethodPost)
 
@@ -436,12 +432,13 @@ func (a *RESTApiService) OnboardUserDeviceFlow(w http.ResponseWriter, r *http.Re
 // @Accept       json
 // @Produce      json
 // @Param        username  path      string  true  "Username to check onboarding capability"
-// @Success      200       {object}  CanOnboardUserResponse
-// @Failure      400       {string}  string  "Missing username"
+// @Success      200       {object}  models.OnBoardCapability
+// @Failure      404       {string}  string  "User not found"
+// @Failure      500       {string}  string  "Failed to check onboarding capability
 // @Security     BearerAuth
-// @Router       /api/v1/users/{username}/can_onboard [get]
+// @Router       /api/v1/users/{username}/onboardcap [get]
 // CanOnboardUser checks if a user can be onboarded using the Device Authorization Flow.
-func (a *RESTApiService) CanOnboardUser(w http.ResponseWriter, r *http.Request) {
+func (a *RESTApiService) OnBoardCapability(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	if username == "" {
@@ -449,7 +446,7 @@ func (a *RESTApiService) CanOnboardUser(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	canOnboard, err := a.server.CanOnboardUser(username)
+	cap, err := a.server.OnboardCapability(username)
 	if err != nil {
 		a.log.Error().Err(err).Msgf("Failed to check if user '%s' can be onboarded", username)
 		writeJSONError(w, http.StatusInternalServerError, "Failed to check onboarding capability")
@@ -458,10 +455,7 @@ func (a *RESTApiService) CanOnboardUser(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	canOnboardResponse := CanOnboardUserResponse{
-		CanOnboard: canOnboard,
-	}
-	if err := json.NewEncoder(w).Encode(canOnboardResponse); err != nil {
+	if err := json.NewEncoder(w).Encode(cap); err != nil {
 		a.log.Error().Err(err).Msg("Failed to encode onboarding capability response")
 		writeJSONError(w, http.StatusInternalServerError, "Failed to encode onboarding capability response")
 		return
