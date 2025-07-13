@@ -22,3 +22,4 @@ FROM alpine:3.21.3
 RUN mkdir /app
 COPY --from=build /go/bin/identity /app
 COPY --from=build /go/src/identity/docs /app/docs
+COPY --from=build /go/src/identity/db /app/db
