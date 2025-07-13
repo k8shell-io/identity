@@ -17,6 +17,7 @@ type IdentityProvider interface {
 	UserMaxAge() int
 
 	FindUser(username string) (*User, error)
+	CanOnboardUser(username string) (bool, error)
 	OnboardUserDeviceFlow(username string) (*OnboardUser, error)
 	AuthPublicKey(user *User, key ssh.PublicKey) (bool, error)
 }

@@ -108,6 +108,17 @@ func (p *GitHubProvider) FindUser(username string) (*models.User, error) {
 	return user, nil
 }
 
+func (p *GitHubProvider) CanOnboardUser(username string) (bool, error) {
+	_, statusCode, err := MakeRequest(p.httpClient, "GET", fmt.Sprintf(GITHUB_PUBLIC_USER_URL, username), "", false)
+	if err != nil {
+		return false, fmt.Errorf("failed to make request to GitHub API: %w", err)
+	}
+	if statusCode == http.StatusNotFound {
+		return false, nil
+	}
+	return true, nil
+}
+
 func (p *GitHubProvider) OnboardUserDeviceFlow(username string) (*models.OnboardUser, error) {
 	providerInfo, err := p.db.GetUserProviderInfo(username, p.Name())
 	if err != nil {
@@ -143,11 +154,11 @@ func (p *GitHubProvider) OnboardUserDeviceFlow(username string) (*models.Onboard
 	}
 
 	// check user exsists in github
-	_, statusCode, err := MakeRequest(p.httpClient, "GET", fmt.Sprintf(GITHUB_PUBLIC_USER_URL, username), "", false)
+	exists, err := p.CanOnboardUser(username)
 	if err != nil {
-		return nil, fmt.Errorf("failed to make request to GitHub API: %w", err)
+		return nil, fmt.Errorf("failed to check if user '%s' exists in GitHub: %w", username, err)
 	}
-	if statusCode == http.StatusNotFound {
+	if !exists {
 		return nil, fmt.Errorf("%w: user '%s' does not exist in GitHub", models.ErrUserNotFound, username)
 	}
 

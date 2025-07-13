@@ -90,6 +90,12 @@ func (p *UserMapProvider) FindUser(username string) (*models.User, error) {
 	return userObj, nil
 }
 
+func (p *UserMapProvider) CanOnboardUser(username string) (bool, error) {
+	// Usermap provider does not support onboarding via device code
+	return false, fmt.Errorf("%w: usermap provider does not support onboarding via device flow",
+		models.ErrMethodNotSupported)
+}
+
 func (p *UserMapProvider) keysFromURL(username string) ([]string, []string, error) {
 	if p.config.GitLabUrl == "" {
 		return nil, nil, nil

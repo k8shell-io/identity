@@ -102,9 +102,9 @@ type UpdateSSHSessionRequest struct {
 	Channels []string `json:"channels"`
 }
 
-// SSHSessionResponse represents the response body for creating and updating an SSH session
-type SSHSessionResponse struct {
-	SessionID int32 `json:"session_id"`
+// CanOnboardUserResponse represents the response body for checking if a user can be onboarded
+type CanOnboardUserResponse struct {
+	CanOnboard bool `json:"can_onboard"`
 }
 
 // NewRESTAPI creates a new REST API service
@@ -425,6 +425,45 @@ func (a *RESTApiService) OnboardUserDeviceFlow(w http.ResponseWriter, r *http.Re
 	if err := json.NewEncoder(w).Encode(onboardUser); err != nil {
 		a.log.Error().Err(err).Msg("Failed to encode onboard user response")
 		writeJSONError(w, http.StatusInternalServerError, "Failed to encode onboard user response")
+		return
+	}
+}
+
+// CanOnboardUser godoc
+// @Summary      Check if user can be onboarded
+// @Description  Checks if a user can be onboarded using the Device Authorization Flow.
+// @Tags         users
+// @Accept       json
+// @Produce      json
+// @Param        username  path      string  true  "Username to check onboarding capability"
+// @Success      200       {object}  CanOnboardUserResponse
+// @Failure      400       {string}  string  "Missing username"
+// @Security     BearerAuth
+// @Router       /api/v1/users/{username}/can_onboard [get]
+// CanOnboardUser checks if a user can be onboarded using the Device Authorization Flow.
+func (a *RESTApiService) CanOnboardUser(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	username := vars["username"]
+	if username == "" {
+		writeJSONError(w, http.StatusBadRequest, "Username is required")
+		return
+	}
+
+	canOnboard, err := a.server.CanOnboardUser(username)
+	if err != nil {
+		a.log.Error().Err(err).Msgf("Failed to check if user '%s' can be onboarded", username)
+		writeJSONError(w, http.StatusInternalServerError, "Failed to check onboarding capability")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	canOnboardResponse := CanOnboardUserResponse{
+		CanOnboard: canOnboard,
+	}
+	if err := json.NewEncoder(w).Encode(canOnboardResponse); err != nil {
+		a.log.Error().Err(err).Msg("Failed to encode onboarding capability response")
+		writeJSONError(w, http.StatusInternalServerError, "Failed to encode onboarding capability response")
 		return
 	}
 }

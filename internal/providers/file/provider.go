@@ -110,6 +110,12 @@ func (p *FileUserProvider) AuthPublicKey(user *models.User, key ssh.PublicKey) (
 	return false, nil
 }
 
+func (f *FileUserProvider) CanOnboardUser(username string) (bool, error) {
+	// File user provider does not support onboarding via device code
+	return false, fmt.Errorf("%w: file user provider does not support onboarding via device flow",
+		models.ErrMethodNotSupported)
+}
+
 func (p *FileUserProvider) OnboardUserDeviceFlow(username string) (*models.OnboardUser, error) {
 	// File user provider does not support onboarding via device code
 	return nil, fmt.Errorf("%w: file user provider does not support onboarding via device flow",
