@@ -55,6 +55,7 @@ var ErrSessionNotFound = errors.New("session not found")
 var ErrUserNotOnboarded = errors.New("user not onboarded")
 var ErrOnboardingPending = errors.New("onboarding pending")
 var ErrAlreadyOnboarded = errors.New("user already onboarded")
+var ErrUserNotAllowedOnboard = errors.New("user not allowed to onboard")
 
 type User struct {
 	Username     string       `yaml:"username"`

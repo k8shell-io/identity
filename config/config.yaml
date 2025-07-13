@@ -60,4 +60,7 @@ identityProviders:
     template: github-template.yaml
     extra:
       env: prod
+    allow:
+      - "bruckins"
+      - "tomvit"
 

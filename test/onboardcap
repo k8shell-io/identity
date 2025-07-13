@@ -1,0 +1,5 @@
+#!/bin/bash
+user=$1
+#user=tomvit
+source ./env.sh
+curl -s -X GET -H "Authorization: Bearer $TOKEN" http://localhost:9090/api/v1/users/$user/onboardcap | jq

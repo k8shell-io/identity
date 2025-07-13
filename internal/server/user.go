@@ -140,7 +140,7 @@ func (s *Server) OnboardUserDeviceFlow(username string) (*models.OnboardUser, er
 func (s *Server) OnboardCapability(username string) (*models.OnBoardCapability, error) {
 	for _, provider := range s.IdentityProviders {
 		cap, err := provider.OnboardCapability(username)
-		if err != nil {
+		if err != nil && !errors.Is(err, models.ErrMethodNotSupported) && !errors.Is(err, models.ErrUserNotAllowedOnboard) {
 			return nil, fmt.Errorf("error occurred while checking onboarding capability for user '%s' with provider '%s': %w",
 				username, provider.Name(), err)
 		}

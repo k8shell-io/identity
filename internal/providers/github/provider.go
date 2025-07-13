@@ -24,6 +24,7 @@ type GitHubProviderConfig struct {
 	Scopes       []string          `yaml:"scopes"`
 	Template     string            `yaml:"template"`
 	ExtraFields  map[string]string `yaml:"extra,omitempty"`
+	Allow        []string          `yaml:"allow,omitempty"`
 }
 
 type GitHubProvider struct {
@@ -109,14 +110,20 @@ func (p *GitHubProvider) FindUser(username string) (*models.User, error) {
 }
 
 func (p *GitHubProvider) OnboardCapability(username string) (*models.OnBoardCapability, error) {
-	_, statusCode, err := MakeRequest(p.httpClient, "GET", fmt.Sprintf(GITHUB_PUBLIC_USER_URL, username), "", false)
-	if err != nil {
-		return nil, fmt.Errorf("failed to make request to GitHub API: %w", err)
-	}
 	cap := &models.OnBoardCapability{
 		Provider:   p.Name(),
 		Username:   username,
 		CanOnboard: false,
+	}
+
+	if len(p.config.Allow) > 0 {
+		if !contains(p.config.Allow, username) {
+			return cap, nil // user is not allowed to onboard
+		}
+	}
+	_, statusCode, err := MakeRequest(p.httpClient, "GET", fmt.Sprintf(GITHUB_PUBLIC_USER_URL, username), "", false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request to GitHub API: %w", err)
 	}
 	switch statusCode {
 	case http.StatusOK:
@@ -165,8 +172,11 @@ func (p *GitHubProvider) OnboardUserDeviceFlow(username string) (*models.Onboard
 
 	// check user exsists in github
 	cap, err := p.OnboardCapability(username)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check onboarding capability: %w", err)
+	}
 	if !cap.CanOnboard {
-		return nil, fmt.Errorf("%w: user '%s' does not exist in GitHub", models.ErrUserNotFound, username)
+		return nil, fmt.Errorf("user '%s' cannot be onboarded", username)
 	}
 
 	// get user code via device flow

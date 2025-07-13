@@ -21,5 +21,5 @@ image:
 	@version=$$(git describe --tags --match '*' | sed 's/-g.*//') && \
 	cp -r go.mod go.sum pkg internal db main.go docker/identity/files && \
 	cd docker/identity && docker build --build-arg VERSION=$$version \
-		--build-arg COMMIT_ID=$$(git rev-parse --short HEAD) -t $(REPO)/$$(cat ./BUILD) .
+		--build-arg COMMIT_ID=$$(git rev-parse --short HEAD) -t $(REPO)/$$(cat ./BUILD):$$version .
 
