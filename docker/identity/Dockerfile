@@ -23,3 +23,5 @@ RUN mkdir /app
 COPY --from=build /go/bin/identity /app
 COPY --from=build /go/src/identity/docs /app/docs
 COPY --from=build /go/src/identity/db /app/db
+
+WORKDIR /app
