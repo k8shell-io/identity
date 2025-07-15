@@ -17,7 +17,7 @@ import (
 func (s *Server) refreshUser(username string, user *models.User) (*models.User, error) {
 	var err error
 
-	if user == nil || time.Now().After(user.ExpiresAt) {
+	if user == nil || time.Now().After(user.ExpiresAt) || !user.IsValid {
 		var foundUser *models.User
 		for _, provider := range s.IdentityProviders {
 			foundUser, err = provider.FindUser(username)
@@ -78,6 +78,12 @@ func (s *Server) GetUser(username string) (*models.User, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error occured when refreshing user '%s': %w", username, err)
 	}
+
+	// if user is nil or not valid, return an error
+	if user == nil || !user.IsValid {
+		return nil, fmt.Errorf("user '%s' is not valid: %w", username, models.ErrUserIsNotValid)
+	}
+
 	return user, nil
 }
 

@@ -46,7 +46,7 @@ CREATE INDEX ix_sessions_workspace
 CREATE TABLE provider_info (
     username          VARCHAR NOT NULL,
     provider          VARCHAR NOT NULL,
-    status            VARCHAR NOT NULL CHECK (status IN ('ready', 'pending', 'error', 'expired')),
+    status            VARCHAR NOT NULL CHECK (status IN ('ready', 'pending', 'error', 'expired', 'invalid')),
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
     user_code         VARCHAR NOT NULL,

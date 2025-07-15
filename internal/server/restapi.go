@@ -305,8 +305,8 @@ func (a *RESTApiService) FindUser(w http.ResponseWriter, r *http.Request) {
 	user, err := a.server.GetUser(username)
 	if err != nil {
 		a.log.Error().Err(err).Msgf("Failed to find user '%s'", username)
-		if errors.Is(err, models.ErrUserNotFound) {
-			writeJSONError(w, http.StatusNotFound, fmt.Sprintf("User '%s' not found", username))
+		if errors.Is(err, models.ErrUserNotFound) || errors.Is(err, models.ErrUserIsNotValid) {
+			writeJSONError(w, http.StatusNotFound, fmt.Sprintf("User '%s' not found or invalid", username))
 		} else {
 			writeJSONError(w, http.StatusInternalServerError, "Failed to find user")
 		}
