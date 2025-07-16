@@ -18,13 +18,6 @@ type OnBoardCapability struct {
 	CanOnboard bool   `json:"can_onboard"`
 }
 
-type RepoInfo struct {
-	Name  string `json:"name"`
-	Owner struct {
-		Login string `json:"login"`
-	} `json:"owner"`
-}
-
 type IdentityProvider interface {
 	Name() string
 	UserMaxAge() int
