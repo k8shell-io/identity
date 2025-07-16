@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/k8shell-io/identity/internal/common"
+	"github.com/k8shell-io/identity/pkg/models"
 )
 
 const (
@@ -17,6 +18,7 @@ const (
 	GITHUB_USER_URL        = "https://api.github.com/user"
 	GITHUB_KEYS_URL        = "https://api.github.com/users/%s/keys"
 	GITHUB_EMAILS_URL      = "https://api.github.com/user/emails"
+	GITHUB_REPOS_URL       = "https://api.github.com/user/repos"
 	GITHUB_DEVICECODE_URL  = "https://github.com/login/device/code"
 	GITHUB_ACCESSTOKEN_URL = "https://github.com/login/oauth/access_token"
 )
@@ -163,4 +165,35 @@ func getPublicKeys(client *http.Client, username string, accessToken string) ([]
 	}
 
 	return keys, nil
+}
+
+func getRepos(client *http.Client, accessToken string) ([]models.RepoInfo, error) {
+	reposResource, _, err := MakeRequest(client, "GET", GITHUB_REPOS_URL, accessToken, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get repositories: %w", err)
+	}
+
+	var repos []models.RepoInfo
+	if reposList, ok := reposResource.([]any); ok {
+		for _, repo := range reposList {
+			repoMap, ok := repo.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("unexpected repository response format")
+			}
+			var repoInfo models.RepoInfo
+			if name, exists := repoMap["name"].(string); exists {
+				repoInfo.Name = name
+			}
+			if owner, exists := repoMap["owner"].(map[string]any); exists {
+				if login, exists := owner["login"].(string); exists {
+					repoInfo.Owner.Login = login
+				}
+			}
+			repos = append(repos, repoInfo)
+		}
+	} else {
+		return nil, fmt.Errorf("unexpected repositories response format")
+	}
+
+	return repos, nil
 }

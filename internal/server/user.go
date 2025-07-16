@@ -143,6 +143,8 @@ func (s *Server) OnboardUserDeviceFlow(username string) (*models.OnboardUser, er
 	return nil, fmt.Errorf("no suitable identity provider found for onboarding user '%s'", username)
 }
 
+// OnboardCapability checks if the user can be onboarded by any of the identity providers.
+// It returns the onboarding capability if available, or an error if no suitable provider is found.
 func (s *Server) OnboardCapability(username string) (*models.OnBoardCapability, error) {
 	for _, provider := range s.IdentityProviders {
 		cap, err := provider.OnboardCapability(username)
@@ -155,4 +157,30 @@ func (s *Server) OnboardCapability(username string) (*models.OnBoardCapability, 
 		}
 	}
 	return nil, fmt.Errorf("no suitable identity provider found for checking onboarding capability of user '%s'", username)
+}
+
+// GetRepositories retrieves the repositories for a user from the identity providers.
+// It returns a slice of RepoInfo or an error if the user is not valid or no provider supports fetching repositories.
+func (s *Server) GetRepositories(username string) ([]models.RepoInfo, error) {
+	user, err := s.GetUser(username)
+	if err != nil {
+		return nil, fmt.Errorf("error occurred when getting user '%s': %w", username, err)
+	}
+
+	var repos []models.RepoInfo
+	for _, provider := range s.IdentityProviders {
+		if provider.Name() == user.Source {
+			providerRepos, err := provider.GetRepositories(username)
+			if err != nil && !errors.Is(err, models.ErrMethodNotSupported) {
+				return nil, fmt.Errorf("error occurred while fetching repositories for user '%s' with provider '%s': %w",
+					username, provider.Name(), err)
+			}
+			if providerRepos != nil {
+				repos = append(repos, providerRepos...)
+			}
+			return repos, nil
+		}
+	}
+	return nil, fmt.Errorf("cannot fetch repositories of user '%s': %w", username,
+		models.ErrNoSuitableIdentityProvider)
 }

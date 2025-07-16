@@ -57,6 +57,7 @@ var ErrUserIsNotValid = errors.New("user is not valid")
 var ErrOnboardingPending = errors.New("onboarding pending")
 var ErrAlreadyOnboarded = errors.New("user already onboarded")
 var ErrUserNotAllowedOnboard = errors.New("user not allowed to onboard")
+var ErrNoSuitableIdentityProvider = errors.New("no suitable identity provider found")
 
 type User struct {
 	Username     string       `yaml:"username"`
@@ -93,6 +94,13 @@ type SSHSession struct {
 	BytesOut  int64
 	Channels  []ChannelShort
 	ProvTime  float32
+}
+
+type RepoInfo struct {
+	Name  string `json:"name"`
+	Owner struct {
+		Login string `json:"login"`
+	} `json:"owner"`
 }
 
 func CreateSessionID(channel ChannelShort, proxyID string, proxyPID int, channelNumber int) string {

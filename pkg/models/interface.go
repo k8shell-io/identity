@@ -26,4 +26,5 @@ type IdentityProvider interface {
 	OnboardCapability(username string) (*OnBoardCapability, error)
 	OnboardUserDeviceFlow(username string) (*OnboardUser, error)
 	AuthPublicKey(user *User, key ssh.PublicKey) (bool, error)
+	GetRepositories(username string) ([]RepoInfo, error)
 }

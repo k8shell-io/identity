@@ -145,3 +145,9 @@ func (p *UserMapProvider) OnboardUserDeviceFlow(username string) (*models.Onboar
 	return nil, fmt.Errorf("%w: usermap provider does not support onboarding via device flow",
 		models.ErrMethodNotSupported)
 }
+
+func (p *UserMapProvider) GetRepositories(username string) ([]models.RepoInfo, error) {
+	// Usermap provider does not support fetching repositories
+	return nil, fmt.Errorf("%w: usermap provider does not support fetching repositories",
+		models.ErrMethodNotSupported)
+}

@@ -333,6 +333,23 @@ func (p *GitHubProvider) AuthPublicKey(user *models.User, key ssh.PublicKey) (bo
 	return false, nil
 }
 
+func (p *GitHubProvider) GetRepositories(username string) ([]models.RepoInfo, error) {
+	providerInfo, err := p.db.GetUserProviderInfo(username, p.Name())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user provider info for '%s': %w", username, err)
+	}
+	if providerInfo == nil || providerInfo.Status != "ready" {
+		return nil, fmt.Errorf("%w: user '%s' is not ready with provider %s", models.ErrUserNotOnboarded,
+			username, p.Name())
+	}
+
+	repos, err := getRepos(p.httpClient, providerInfo.AccessToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get repositories: %w", err)
+	}
+	return repos, nil
+}
+
 func contains(slice []string, value string) bool {
 	for _, v := range slice {
 		if v == value {

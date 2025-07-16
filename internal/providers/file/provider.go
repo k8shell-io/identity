@@ -121,3 +121,9 @@ func (p *FileUserProvider) OnboardUserDeviceFlow(username string) (*models.Onboa
 	return nil, fmt.Errorf("%w: file user provider does not support onboarding via device flow",
 		models.ErrMethodNotSupported)
 }
+
+func (p *FileUserProvider) GetRepositories(username string) ([]models.RepoInfo, error) {
+	// File user provider does not support fetching repositories
+	return nil, fmt.Errorf("%w: file user provider does not support fetching repositories",
+		models.ErrMethodNotSupported)
+}
