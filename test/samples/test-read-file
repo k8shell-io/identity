@@ -1,0 +1,3 @@
+curl -H "Authorization: token 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" \
+     -H "Accept: application/vnd.github.v3.raw" \
+     https://api.github.com/repos/k8shell-io/identity/contents/README.md?ref=main
