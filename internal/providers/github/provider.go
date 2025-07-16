@@ -1,6 +1,7 @@
 package github
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -343,10 +344,46 @@ func (p *GitHubProvider) GetRepositories(username string) ([]models.RepoInfo, er
 			username, p.Name())
 	}
 
-	repos, err := getRepos(p.httpClient, providerInfo.AccessToken)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get repositories: %w", err)
+	repos := make([]models.RepoInfo, 0)
+	if p.memcache != nil {
+		cacheKey := fmt.Sprintf("github:%s:repos", username)
+		cacheItem, err := p.memcache.Get(cacheKey)
+		if err == nil && cacheItem != nil {
+			if err := json.Unmarshal(cacheItem.Value, &repos); err == nil {
+				return repos, nil
+			}
+			p.log.Warn().Err(err).Msgf("failed to unmarshal cached repositories for user '%s'", username)
+		} else if err != memcache.ErrCacheMiss {
+			p.log.Warn().Err(err).Msgf("failed to get cached repositories for user '%s'", username)
+		}
 	}
+
+	if len(repos) == 0 {
+		repos, err = getRepos(p.httpClient, providerInfo.AccessToken)
+		if err != nil {
+			if errors.Is(err, ErrUnauthorized) {
+				p.db.UpdateUserProviderStatus(username, p.Name(), "invalid")
+				p.db.InvalidateUser(username)
+			}
+			return nil, fmt.Errorf("failed to get repositories for user '%s': %w", username, err)
+		}
+		if p.memcache != nil && len(repos) > 0 {
+			cacheKey := fmt.Sprintf("github:%s:repos", username)
+			cacheValue, err := json.Marshal(repos)
+			if err != nil {
+				p.log.Warn().Err(err).Msgf("failed to marshal repositories for user '%s'", username)
+			} else {
+				if err := p.memcache.Set(&memcache.Item{
+					Key:        cacheKey,
+					Value:      cacheValue,
+					Expiration: 60,
+				}); err != nil {
+					p.log.Warn().Err(err).Msgf("failed to cache repositories for user '%s'", username)
+				}
+			}
+		}
+	}
+
 	return repos, nil
 }
 

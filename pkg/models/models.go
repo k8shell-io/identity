@@ -96,13 +96,6 @@ type SSHSession struct {
 	ProvTime  float32
 }
 
-type RepoInfo struct {
-	Name  string `json:"name"`
-	Owner struct {
-		Login string `json:"login"`
-	} `json:"owner"`
-}
-
 func CreateSessionID(channel ChannelShort, proxyID string, proxyPID int, channelNumber int) string {
 	return fmt.Sprintf("%s-%s-%d-%d", channel, proxyID, proxyPID, channelNumber)
 }
