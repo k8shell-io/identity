@@ -162,7 +162,6 @@ func (a *RESTApiService) initializeRouter() *mux.Router {
 	apiRouter.HandleFunc("/users/{username}/onboardcap", a.OnBoardCapability).Methods(http.MethodGet)
 	apiRouter.HandleFunc("/users/{username}/onboard", a.OnboardUserDeviceFlow).Methods(http.MethodPost)
 	apiRouter.HandleFunc("/users/{username}/authenticate", a.AuthenticateUser).Methods(http.MethodPost)
-	apiRouter.HandleFunc("/users/{username}/repositories", a.GetRepositories).Methods(http.MethodGet)
 
 	apiRouter.HandleFunc("/users/{username}/sessions", a.GetSSHSessions).Methods(http.MethodGet)
 	apiRouter.HandleFunc("/users/{username}/sessions", a.CreateSSHSession).Methods(http.MethodPost)
@@ -459,53 +458,6 @@ func (a *RESTApiService) OnBoardCapability(w http.ResponseWriter, r *http.Reques
 	if err := json.NewEncoder(w).Encode(cap); err != nil {
 		a.log.Error().Err(err).Msg("Failed to encode onboarding capability response")
 		writeJSONError(w, http.StatusInternalServerError, "Failed to encode onboarding capability response")
-		return
-	}
-}
-
-// GetRepositories godoc
-// @Summary      Get user repositories
-// @Description  Retrieves a list of repositories for a user from the identity providers.
-// @Tags         users
-// @Accept       json
-// @Produce      json
-// @Param        username  path      string  true  "Username to get repositories for"
-// @Success      200       {array}   models.RepoInfo
-// @Failure      400       {string}  string  "Missing or invalid username"
-// @Failure      404       {string}  string  "User not found"
-// @Failure      500       {string}  string  "Failed to get repositories"
-// @Security     BearerAuth
-// @Router       /api/v1/users/{username}/repositories [get]
-// GetRepositories retrieves the repositories for a user from the identity providers.
-func (a *RESTApiService) GetRepositories(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	username := vars["username"]
-	if username == "" {
-		writeJSONError(w, http.StatusBadRequest, "Username is required")
-		return
-	}
-	repos, err := a.server.GetRepositories(username)
-	if err != nil {
-		a.log.Error().Err(err).Msgf("Failed to get repositories for user '%s'", username)
-		if errors.Is(err, models.ErrUserNotFound) {
-			writeJSONError(w, http.StatusNotFound, fmt.Sprintf("User '%s' not found", username))
-			return
-		} else if errors.Is(err, models.ErrUserIsNotValid) {
-			writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("User '%s' is not valid", username))
-			return
-		} else if errors.Is(err, models.ErrNoSuitableIdentityProvider) {
-			writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("No suitable identity provider found for user '%s'", username))
-			return
-		} else {
-			writeJSONError(w, http.StatusInternalServerError, "Failed to get repositories")
-			return
-		}
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(repos); err != nil {
-		a.log.Error().Err(err).Msg("Failed to encode repositories response")
-		writeJSONError(w, http.StatusInternalServerError, "Failed to encode repositories response")
 		return
 	}
 }
