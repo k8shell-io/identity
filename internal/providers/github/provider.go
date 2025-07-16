@@ -88,6 +88,7 @@ func (p *GitHubProvider) FindUser(username string) (*models.User, error) {
 	if err != nil {
 		if errors.Is(err, ErrUnauthorized) {
 			p.db.UpdateUserProviderStatus(username, p.Name(), "invalid")
+			p.db.InvalidateUser(username)
 		}
 		return nil, fmt.Errorf("failed to make request to GitHub API: %w", err)
 	}
@@ -99,6 +100,7 @@ func (p *GitHubProvider) FindUser(username string) (*models.User, error) {
 		if err != nil {
 			if errors.Is(err, ErrUnauthorized) {
 				p.db.UpdateUserProviderStatus(username, p.Name(), "invalid")
+				p.db.InvalidateUser(username)
 			}
 			return nil, fmt.Errorf("failed to make request to GitHub API: %w", err)
 		}
@@ -299,6 +301,7 @@ func (p *GitHubProvider) AuthPublicKey(user *models.User, key ssh.PublicKey) (bo
 		if err != nil {
 			if errors.Is(err, ErrUnauthorized) {
 				p.db.UpdateUserProviderStatus(user.Username, p.Name(), "invalid")
+				p.db.InvalidateUser(user.Username)
 			}
 			return false, fmt.Errorf("failed to get public keys for user '%s': %w", user.Username, err)
 		}

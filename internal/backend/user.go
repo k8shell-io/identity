@@ -106,6 +106,12 @@ func (d *DB) UpdateUser(user *models.User) error {
 	return err
 }
 
+func (d *DB) InvalidateUser(username string) error {
+	query := `UPDATE public.users SET is_valid=false WHERE username=$1`
+	_, err := d.pool.Exec(context.Background(), query, username)
+	return err
+}
+
 func (d *DB) DeleteUser(username string) error {
 	_, err := d.pool.Exec(context.Background(), `DELETE FROM users WHERE username=$1`, username)
 	return err
