@@ -60,6 +60,10 @@ func MakeRequest(client *http.Client, method string, url string, accessToken str
 	}
 
 	if resp.StatusCode != http.StatusOK && errNotOk {
+		if resp.StatusCode == http.StatusUnauthorized {
+			return nil, resp.StatusCode, fmt.Errorf("request failed: status code: %d: %w",
+				resp.StatusCode, ErrUnauthorized)
+		}
 		return nil, resp.StatusCode,
 			fmt.Errorf("request failed: status code: %d, response: %s", resp.StatusCode, body)
 	}

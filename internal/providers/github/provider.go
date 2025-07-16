@@ -1,6 +1,7 @@
 package github
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -35,6 +36,8 @@ type GitHubProvider struct {
 	db         *backend.DB
 	template   *yamlcel.CELTemplate
 }
+
+var ErrUnauthorized = errors.New("unauthorized")
 
 func NewGitHubProvider(cfg GitHubProviderConfig, cacheCfg backend.CacheConfig, db *backend.DB, baseDir string) (*GitHubProvider, error) {
 	memcache := backend.NewCache(cacheCfg)
@@ -83,6 +86,9 @@ func (p *GitHubProvider) FindUser(username string) (*models.User, error) {
 	// get user resource
 	userData, _, err := MakeRequest(p.httpClient, "GET", GITHUB_USER_URL, providerInfo.AccessToken, true)
 	if err != nil {
+		if errors.Is(err, ErrUnauthorized) {
+			p.db.UpdateUserProviderStatus(username, p.Name(), "invalid")
+		}
 		return nil, fmt.Errorf("failed to make request to GitHub API: %w", err)
 	}
 
@@ -91,6 +97,9 @@ func (p *GitHubProvider) FindUser(username string) (*models.User, error) {
 	if contains(p.config.Scopes, "user:email") {
 		emailsData, _, err = MakeRequest(p.httpClient, "GET", GITHUB_EMAILS_URL, providerInfo.AccessToken, true)
 		if err != nil {
+			if errors.Is(err, ErrUnauthorized) {
+				p.db.UpdateUserProviderStatus(username, p.Name(), "invalid")
+			}
 			return nil, fmt.Errorf("failed to make request to GitHub API: %w", err)
 		}
 	}
@@ -288,6 +297,9 @@ func (p *GitHubProvider) AuthPublicKey(user *models.User, key ssh.PublicKey) (bo
 	if len(keys) == 0 {
 		keys, err = getPublicKeys(p.httpClient, user.Username, providerInfo.AccessToken)
 		if err != nil {
+			if errors.Is(err, ErrUnauthorized) {
+				p.db.UpdateUserProviderStatus(user.Username, p.Name(), "invalid")
+			}
 			return false, fmt.Errorf("failed to get public keys for user '%s': %w", user.Username, err)
 		}
 
