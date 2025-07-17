@@ -57,6 +57,7 @@ var ErrUserIsNotValid = errors.New("user is not valid")
 var ErrOnboardingPending = errors.New("onboarding pending")
 var ErrAlreadyOnboarded = errors.New("user already onboarded")
 var ErrUserNotAllowedOnboard = errors.New("user not allowed to onboard")
+var ErrUserTokenNotSupported = errors.New("user token not supported by provider")
 
 type User struct {
 	Username     string       `yaml:"username"`

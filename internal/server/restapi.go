@@ -169,6 +169,8 @@ func (a *RESTApiService) initializeRouter() *mux.Router {
 	apiRouter.HandleFunc("/users/{username}/sessions/{sessionId}", a.UpdateSSHSession).Methods(http.MethodPatch)
 	apiRouter.HandleFunc("/users/{username}/sessions/{sessionId}/end", a.EndSSHSession).Methods(http.MethodPost)
 
+	apiRouter.HandleFunc("/users/{username}/token", a.GetUserToken).Methods(http.MethodGet)
+
 	a.logRoutes(router)
 
 	router.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -458,6 +460,56 @@ func (a *RESTApiService) OnBoardCapability(w http.ResponseWriter, r *http.Reques
 	if err := json.NewEncoder(w).Encode(cap); err != nil {
 		a.log.Error().Err(err).Msg("Failed to encode onboarding capability response")
 		writeJSONError(w, http.StatusInternalServerError, "Failed to encode onboarding capability response")
+		return
+	}
+}
+
+// GetUserToken godoc
+// @Summary      Get user token
+// @Description  Retrieves a user token for the specified username.
+// @Tags         users
+// @Accept       json
+// @Produce      json
+// @Param        username  path      string  true  "Username to get token for"
+// @Success      200       {object}  models.UserToken
+// @Failure      400       {string}  string  "Missing username"
+// @Failure      404       {string}  string  "User not found"
+// @Failure      500       {string}  string  "Failed to get user token"
+// @Security     BearerAuth
+// @Router       /api/v1/users/{username}/token [get]
+// GetUserToken retrieves a user token for the specified username.
+func (a *RESTApiService) GetUserToken(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	username := vars["username"]
+	if username == "" {
+		writeJSONError(w, http.StatusBadRequest, "Username is required")
+		return
+	}
+
+	token, err := a.server.GetUserToken(username)
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			writeJSONError(w, http.StatusNotFound, fmt.Sprintf("User '%s' not found", username))
+			return
+		}
+		if errors.Is(err, models.ErrUserIsNotValid) {
+			writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("User '%s' is not valid", username))
+			return
+		}
+		if errors.Is(err, models.ErrUserTokenNotSupported) {
+			writeJSONError(w, http.StatusNotImplemented, fmt.Sprintf("User token not supported for '%s'", username))
+			return
+		}
+		a.log.Error().Err(err).Msgf("Failed to get user token for '%s'", username)
+		writeJSONError(w, http.StatusInternalServerError, "Failed to get user token")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(token); err != nil {
+		a.log.Error().Err(err).Msg("Failed to encode user token response")
+		writeJSONError(w, http.StatusInternalServerError, "Failed to encode user token response")
 		return
 	}
 }

@@ -145,3 +145,8 @@ func (p *UserMapProvider) OnboardUserDeviceFlow(username string) (*models.Onboar
 	return nil, fmt.Errorf("%w: usermap provider does not support onboarding via device flow",
 		models.ErrMethodNotSupported)
 }
+
+func (p *UserMapProvider) GetUserToken(user *models.User) (*models.UserToken, error) {
+	// Usermap provider does not support user tokens
+	return nil, fmt.Errorf("%w: usermap provider does not support user tokens", models.ErrMethodNotSupported)
+}

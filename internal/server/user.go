@@ -79,8 +79,11 @@ func (s *Server) GetUser(username string) (*models.User, error) {
 		return nil, fmt.Errorf("error occured when refreshing user '%s': %w", username, err)
 	}
 
-	// if user is nil or not valid, return an error
-	if user == nil || !user.IsValid {
+	if user == nil {
+		return nil, fmt.Errorf("user '%s' not found: %w", username, models.ErrUserNotFound)
+	}
+
+	if !user.IsValid {
 		return nil, fmt.Errorf("user '%s' is not valid: %w", username, models.ErrUserIsNotValid)
 	}
 
@@ -155,4 +158,26 @@ func (s *Server) OnboardCapability(username string) (*models.OnBoardCapability, 
 		}
 	}
 	return nil, fmt.Errorf("no suitable identity provider found for checking onboarding capability of user '%s'", username)
+}
+
+// GetUserToken retrieves a user token for the specified username.
+func (s *Server) GetUserToken(username string) (*models.UserToken, error) {
+	user, err := s.GetUser(username)
+	if err != nil {
+		return nil, fmt.Errorf("error occurred when getting user '%s': %w", username, err)
+	}
+
+	for _, provider := range s.IdentityProviders {
+		if provider.Name() == user.Source {
+			token, err := provider.GetUserToken(user)
+			if err != nil {
+				return nil, fmt.Errorf("error occurred while getting user token for '%s' with provider '%s': %w",
+					username, provider.Name(), err)
+			}
+			return token, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no suitable identity provider found for user '%s': %w", username, 
+		models.ErrUserTokenNotSupported)  
 }

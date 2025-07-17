@@ -121,3 +121,8 @@ func (p *FileUserProvider) OnboardUserDeviceFlow(username string) (*models.Onboa
 	return nil, fmt.Errorf("%w: file user provider does not support onboarding via device flow",
 		models.ErrMethodNotSupported)
 }
+
+func (f *FileUserProvider) GetUserToken(user *models.User) (*models.UserToken, error) {
+	// File user provider does not support user tokens
+	return nil, fmt.Errorf("%w: file user provider does not support user tokens", models.ErrMethodNotSupported)
+}

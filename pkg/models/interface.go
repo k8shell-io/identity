@@ -18,6 +18,12 @@ type OnBoardCapability struct {
 	CanOnboard bool   `json:"can_onboard"`
 }
 
+type UserToken struct {
+	Provider string `json:"provider"`
+	Username string `json:"username"`
+	Token    string `json:"token"`
+}
+
 type IdentityProvider interface {
 	Name() string
 	UserMaxAge() int
@@ -26,4 +32,5 @@ type IdentityProvider interface {
 	OnboardCapability(username string) (*OnBoardCapability, error)
 	OnboardUserDeviceFlow(username string) (*OnboardUser, error)
 	AuthPublicKey(user *User, key ssh.PublicKey) (bool, error)
+	GetUserToken(user *User) (*UserToken, error)
 }
