@@ -37,7 +37,7 @@ jobs:
           echo "COMMIT_ID=$COMMIT_ID" >> $GITHUB_ENV
 
       - name: Install swag CLI
-        run: go install github.com/swaggo/swag/cmd/swag@latest
+        run: go install github.com/swaggo/swag/cmd/swag@v1.16.4
 
       - name: Generate Swagger docs
         run: swag init -g main.go -o ./docs
