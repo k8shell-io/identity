@@ -1,7 +1,7 @@
 blueprint:
   name: identity
   template: default
-  image: ${WORKSPACE_REGISTRY}/workspaces/dev:0.8-1.3
+  image: ${WORKSPACE_REGISTRY}/workspaces/dev:0.8-1.4
   sudo: true
   network_policy: workspace
   resources:
@@ -26,6 +26,6 @@ blueprint:
           git config --global url."https://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@github.com/".insteadOf "https://github.com/"
           cd $HOME/workspace/identity
           export GOPATH="$HOME/go"
-          /go/bin/swag init --generalInfo internal/server/restapi.go --output docs
+          swag init --generalInfo internal/server/restapi.go --output docs          
           go mod tidy 
 
