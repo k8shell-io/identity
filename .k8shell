@@ -1,0 +1,16 @@
+blueprint:
+  name: identity
+  template: default
+  image: ${WORKSPACE_REGISTRY}/workspaces/am2:0.8-3.2
+  sudo: true
+  network_policy: workspace
+  resources:
+    limits:
+      cpu: 8
+      memory: 8Gi
+  dind:
+    enabled: true
+    docker_dns:
+      enabled: true
+      resolver:
+        cluster_fqdn: true
