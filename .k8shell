@@ -25,5 +25,6 @@ blueprint:
           go env -w GOPRIVATE=github.com/k8shell-io/*
           git config --global url."https://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@github.com/".insteadOf "https://github.com/"
           cd $HOME/workspace/identity
+          export GOPATH="$HOME/go"
           go mod tidy 
 
