@@ -10,7 +10,7 @@ blueprint:
       memory: 16Gi
 
   dind:
-    enabled: true
+    enabled: false
     docker_dns:
       enabled: true
       resolver:
