@@ -7,10 +7,10 @@ blueprint:
   resources:
     limits:
       cpu: 8
-      memory: 16Gi
+      memory: 8Gi
 
   dind:
-    enabled: false
+    enabled: true
     docker_dns:
       enabled: true
       resolver:
