@@ -23,5 +23,6 @@ blueprint:
           cd $HOME/workspace
           git clone https://u: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@github.com/k8shell-io/identity.git
           go env -w GOPRIVATE=github.com/k8shell-io/*
-          git config --global url."https://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@github.com/".insteadOf "https://github.com/" 
+          git config --global url."https://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@github.com/".insteadOf "https://github.com/"
+          go mod tidy 
 
