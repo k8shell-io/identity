@@ -25,7 +25,7 @@ blueprint:
           go env -w GOPRIVATE=github.com/k8shell-io/*
           git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
           cd $HOME/workspace/identity
-          export GOPATH="$HOME/go"
           swag init --generalInfo internal/server/restapi.go --output docs          
+          export GOPATH="$HOME/go"
           go mod tidy 
 
