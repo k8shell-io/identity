@@ -34,6 +34,7 @@ blueprint:
 
       - run_compose@&: |
           #!/bin/sh
+          sleep 10
           cd $HOME/workspace/identity/backend
           docker compose up -d
 
