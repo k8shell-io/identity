@@ -1,7 +1,7 @@
 blueprint:
   name: identity
   template: default
-  image: ${WORKSPACE_REGISTRY}/workspaces/dev:0.8-1.5
+  image: ${WORKSPACE_REGISTRY}/workspaces/dev:0.8-1.6
   sudo: true
   network_policy: workspace
   resources:
