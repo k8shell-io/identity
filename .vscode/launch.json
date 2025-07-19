@@ -20,7 +20,9 @@
                 "MEMCACHED_PORT": "11211",
             },
             "args": [
-                "--logtext"
+                "--logtext",
+                "--config",
+                "config/config.yaml",
             ],
             "showLog": true,
             //"stopOnEntry": true
