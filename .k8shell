@@ -32,3 +32,9 @@ blueprint:
           pwd
           go mod tidy
 
+      - run_compose@&: |
+          #!/bin/sh
+          cd $HOME/workspace/identity/backend
+          docker compose up -d
+
+
