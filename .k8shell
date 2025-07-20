@@ -1,6 +1,6 @@
 blueprint:
   name: identity
-  template: default
+  template: development
   image: ${WORKSPACE_REGISTRY}/workspaces/dev:0.8-1.6
   sudo: true
   network_policy: workspace
@@ -8,13 +8,6 @@ blueprint:
     limits:
       cpu: 8
       memory: 8Gi
-
-  dind:
-    enabled: true
-    docker_dns:
-      enabled: true
-      resolver:
-        cluster_fqdn: true
 
   init_scripts:
     files:
