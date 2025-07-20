@@ -3,7 +3,7 @@ blueprint:
   template: default
   #image: ${WORKSPACE_REGISTRY}/workspaces/dev:0.8-1.6
   image: ubuntu:latest
-  sudo: true
+  sudo: false
   network_policy: workspace
   resources:
     limits:
