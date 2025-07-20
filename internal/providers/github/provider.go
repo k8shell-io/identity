@@ -346,6 +346,7 @@ func (p *GitHubProvider) GetUserToken(user *models.User) (*models.UserToken, err
 
 	return &models.UserToken{
 		Provider: p.Name(),
+		Address:  "github.com",
 		Username: user.Username,
 		Token:    providerInfo.AccessToken,
 	}, nil

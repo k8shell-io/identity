@@ -20,6 +20,7 @@ type OnBoardCapability struct {
 
 type UserToken struct {
 	Provider string `json:"provider"`
+	Address  string `json:"address"`
 	Username string `json:"username"`
 	Token    string `json:"token"`
 }
