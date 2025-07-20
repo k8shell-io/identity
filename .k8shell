@@ -11,12 +11,7 @@ blueprint:
 
   init_scripts:
     files:
-      - clone_repo@&: |
-          #!/bin/sh
-          cd $HOME/workspace
-          git clone https://u:${GITHUB_TOKEN}@github.com/k8shell-io/identity.git
-          git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
-
+      - init_repo@&: |
           go env -w GOPRIVATE=github.com/k8shell-io/*
           cd $HOME/workspace/identity
           swag init --generalInfo internal/server/restapi.go --output docs          
