@@ -7,7 +7,7 @@ blueprint:
   resources:
     limits:
       cpu: 8
-      memory: 8Gi
+      memory: 16Gi
 
   init_scripts:
     files:
