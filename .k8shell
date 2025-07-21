@@ -1,6 +1,8 @@
 blueprint:
   name: identity
   template: development
+
+  shell: /bin/zsh
   image: ${WORKSPACE_REGISTRY}/workspaces/dev:0.8-1.7
   sudo: true
   network_policy: workspace
