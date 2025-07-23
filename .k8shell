@@ -1,5 +1,4 @@
 blueprint:
-  name: identity
   template: development
 
   shell: /bin/zsh
