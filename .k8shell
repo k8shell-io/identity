@@ -14,7 +14,6 @@ blueprint:
   init_scripts:
     files:
       - init_repo@&: |
-          source ~/.bashrc
           go env -w GOPRIVATE=github.com/k8shell-io/*
           cd $HOME/workspace/identity
           swag init --generalInfo internal/server/restapi.go --output docs          
