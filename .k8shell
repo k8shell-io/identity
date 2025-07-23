@@ -14,19 +14,15 @@ blueprint:
   init_scripts:
     files:
       - init_repo@&: |
+          #!/bin/bash
           go env -w GOPRIVATE=github.com/k8shell-io/*
           cd $HOME/workspace/identity
           swag init --generalInfo internal/server/restapi.go --output docs          
-          export GOPATH="$HOME/go"
-          echo "export GOPATH=$GOPATH" 
-          pwd
           go mod tidy
 
       - run_compose@&: |
-          #!/bin/sh
-          sleep 10
+          #!/bin/bash
           cd $HOME/workspace/identity/backend
-          pwd
           docker compose up -d
 
 
