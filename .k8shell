@@ -14,7 +14,7 @@ blueprint:
     files:
       - init_repo@&: |
           go env -w GOPRIVATE=github.com/k8shell-io/*
-          cd $HOME/workspace/identity
+          cd $HOME/identity
           swag init --generalInfo internal/server/restapi.go --output docs    
           GOPATH="$HOME/go" go mod tidy
 
