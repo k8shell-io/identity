@@ -10,9 +10,6 @@ blueprint:
       cpu: 8
       memory: 16Gi
 
-  env:
-    TEST: "value1"
-
   init_scripts:
     files:
       - init_repo@&: |
