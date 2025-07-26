@@ -10,10 +10,12 @@ blueprint:
       cpu: 8
       memory: 16Gi
 
+  env:
+    TEST: "value1"
+
   init_scripts:
     files:
       - init_repo@&: |
-          kbox uptime
           go env -w GOPRIVATE=github.com/k8shell-io/*
           cd $HOME/identity
           swag init --generalInfo internal/server/restapi.go --output docs    
