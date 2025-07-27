@@ -5,6 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/k8shell-io/identity/internal/log"
 	"github.com/k8shell-io/identity/internal/server"
@@ -72,5 +74,8 @@ func main() {
 		return
 	}
 
-	server.RestApi.Serve(context.Background())
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	server.RestApi.Serve(ctx)
 }
