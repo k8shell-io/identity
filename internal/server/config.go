@@ -4,20 +4,15 @@ package server
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
-	"regexp"
-	"strings"
 
 	"github.com/k8shell-io/identity/internal/backend"
 	"github.com/k8shell-io/identity/internal/providers/file"
 	"github.com/k8shell-io/identity/internal/providers/github"
 	"github.com/k8shell-io/identity/internal/providers/usermap"
+	"github.com/k8shell-io/yaml-config/pkg/yamlconfig"
 	"gopkg.in/yaml.v3"
 )
-
-// envVarRegex is a regular expression to match environment variable placeholders in the form ${VAR_NAME}.
-var envVarRegex = regexp.MustCompile(`\$\{([^}]+)\}`)
 
 // Config represents the server configuration structure.
 type Config struct {
@@ -34,13 +29,10 @@ type Config struct {
 // It processes environment variable substitutions and custom tags like !file.
 // It also validates the identity providers defined in the configuration.
 func LoadConfig(configFile string) (*Config, error) {
-	root, err := loadYaml(configFile)
-	if err != nil {
-		return nil, fmt.Errorf("load YAML config '%s': %w", configFile, err)
-	}
 	var config Config
-	if err := root.Decode(&config); err != nil {
-		return nil, fmt.Errorf("decode config: %w", err)
+	err := yamlconfig.LoadConfig(configFile, &config)
+	if err != nil {
+		return nil, fmt.Errorf("load config: %w", err)
 	}
 
 	absPath, err := filepath.Abs(configFile)
@@ -86,86 +78,4 @@ func LoadConfig(configFile string) (*Config, error) {
 
 	}
 	return &config, nil
-}
-
-// loadYaml reads a YAML file, processes environment variables and custom tags,
-func loadYaml(path string) (*yaml.Node, error) {
-	rawYAML, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read YAML file '%s': %w", path, err)
-	}
-
-	var root yaml.Node
-	if err := yaml.Unmarshal(rawYAML, &root); err != nil {
-		return nil, fmt.Errorf("unmarshal YAML file '%s': %w", path, err)
-	}
-
-	if len(root.Content) == 0 {
-		return nil, fmt.Errorf("YAML file '%s' is empty", path)
-	}
-
-	if err := processNode(root.Content[0]); err != nil {
-		return nil, fmt.Errorf("process YAML nodes: %w", err)
-	}
-
-	if len(root.Content) == 0 {
-		return nil, fmt.Errorf("YAML file '%s' is empty", path)
-	}
-
-	return &root, nil
-}
-
-// processNode recursively processes a YAML node, expanding environment variables
-// and handling custom tags like !file.
-func processNode(node *yaml.Node) error {
-	switch node.Kind {
-	case yaml.ScalarNode:
-		// ENV substitution
-		val, err := expandEnvVars(node.Value)
-		if err != nil {
-			return fmt.Errorf("expand env vars in '%s': %w", node.Value, err)
-		}
-		node.Value = val
-
-		// Custom !file tag
-		if node.Tag == "!file" {
-			path := node.Value
-			content, err := os.ReadFile(filepath.Clean(path))
-			if err != nil {
-				return fmt.Errorf("read !file '%s': %w", path, err)
-			}
-			node.Tag = "!!str"
-			node.Value = strings.TrimSpace(string(content))
-		}
-
-	case yaml.SequenceNode, yaml.MappingNode:
-		for _, n := range node.Content {
-			if err := processNode(n); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// expandEnvVars replaces environment variable placeholders in the input string
-// with their actual values. It returns an error if any variable is not set.
-func expandEnvVars(input string) (string, error) {
-	result := envVarRegex.ReplaceAllStringFunc(input, func(match string) string {
-		return match
-	})
-
-	matches := envVarRegex.FindAllStringSubmatch(result, -1)
-
-	for _, match := range matches {
-		placeholder := match[0]
-		varName := match[1]
-		val, exists := os.LookupEnv(varName)
-		if !exists {
-			return "", fmt.Errorf("environment variable '%s' not set", varName)
-		}
-		result = strings.ReplaceAll(result, placeholder, val)
-	}
-
-	return result, nil
 }

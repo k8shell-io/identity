@@ -89,6 +89,8 @@ github.com/josharian/intern v1.0.0 h1:vlS4z54oSdjm0bgjRigI+G1HpF+tI+9rE5LLzOg8Hm
 github.com/josharian/intern v1.0.0/go.mod h1:5DoeVV0s6jJacbCEi61lwdGj/aVlrQvzHFFd8Hwg//Y=
 github.com/k8shell-io/yaml-cel v0.1.1 h1:UrfFNTIlSpDA0WEOA/fCLeypPQFuSan2/nCfHxm6Nok=
 github.com/k8shell-io/yaml-cel v0.1.1/go.mod h1:R7nBHYCwxLcYS+RO4d30RMLcchp0UVHCI0SIJmd0fV0=
+github.com/k8shell-io/yaml-config v0.1.0 h1:mLyA/iQgzzAAcTjfw4tTltnHsIkVCLt6lvxrZ6Kzqyw=
+github.com/k8shell-io/yaml-config v0.1.0/go.mod h1:e0hBGrhGNCqkE+fBe2tIvAFSiGk1SGnMnH7R7DahTcE=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=
 github.com/kisielk/gotool v1.0.0/go.mod h1:XhKaO+MFFWcvkIS/tQcRk01m1F5IRFswLeQ+oQHNcck=
 github.com/kr/pretty v0.1.0/go.mod h1:dAy3ld7l9f0ibDNOQOHHMYYIIbhfbHSm3C4ZsoJORNo=
