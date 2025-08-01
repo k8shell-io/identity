@@ -29,7 +29,7 @@ func TestClient_ListUsers(t *testing.T) {
 		// Check query parameters
 		limit := r.URL.Query().Get("limit")
 		offset := r.URL.Query().Get("offset")
-		
+
 		if limit != "10" || offset != "5" {
 			http.Error(w, "Invalid parameters", http.StatusBadRequest)
 			return
@@ -126,7 +126,7 @@ func TestClient_AuthenticateUser(t *testing.T) {
 			return
 		}
 
-		var req AuthenticateUserRequest
+		var req models.AuthenticateUserRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
 			return
@@ -137,7 +137,7 @@ func TestClient_AuthenticateUser(t *testing.T) {
 			return
 		}
 
-		resp := AuthenticateUserResponse{
+		resp := models.AuthenticateUserResponse{
 			Authenticated: true,
 		}
 
@@ -173,7 +173,7 @@ func TestClient_CreateSSHSession(t *testing.T) {
 			return
 		}
 
-		var req CreateSSHSessionRequest
+		var req models.CreateSSHSessionRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
 			return
@@ -236,7 +236,7 @@ func TestClient_UpdateSSHSession(t *testing.T) {
 			return
 		}
 
-		var req UpdateSSHSessionRequest
+		var req models.UpdateSSHSessionRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
 			return

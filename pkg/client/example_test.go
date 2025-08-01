@@ -111,7 +111,7 @@ func TestExample(t *testing.T) {
 func Example() {
 	// Create a new client
 	c := client.New(client.Config{
-		BaseURL: "http://localhost:8080",
+		BaseURL: "http://localhost:9090",
 		APIKey:  "your-api-key-here",
 		Timeout: 30 * time.Second,
 	})

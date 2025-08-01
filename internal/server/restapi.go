@@ -73,34 +73,7 @@ func writeJSONError(w http.ResponseWriter, status int, msg string) {
 	})
 }
 
-// * Models for REST API requests and responses
-
-// AuthenticateUserRequest represents the request body for user authentication
-type AuthenticateUserRequest struct {
-	PublicKey string `json:"public_key"`
-}
-
-// AuthenticateUserResponse represents the response body for user authentication
-type AuthenticateUserResponse struct {
-	Authenticated bool `json:"authenticated"`
-}
-
-// CreateSSHSessionRequest represents the request body for creating an SSH session
-type CreateSSHSessionRequest struct {
-	Workspace string `json:"workspace"`
-	ProxyID   string `json:"proxy_id"`
-	ProxyPID  int    `json:"proxy_pid"`
-	ClientIP  string `json:"client_ip"`
-}
-
-// UpdateSSHSessionRequest represents the request body for updating an SSH session
-type UpdateSSHSessionRequest struct {
-	BytesIn  int64    `json:"bytes_in"`
-	BytesOut int64    `json:"bytes_out"`
-	Client   string   `json:"client"`
-	ProvTime float32  `json:"prov_time"`
-	Channels []string `json:"channels"`
-}
+// * Models for REST API requests and responses are defined in pkg/models
 
 // NewRESTAPI creates a new REST API service
 func NewRESTAPI(httpConfig HttpConfig, server *Server) (*RESTApiService, error) {
@@ -335,8 +308,8 @@ func (a *RESTApiService) FindUser(w http.ResponseWriter, r *http.Request) {
 // @Accept       json
 // @Produce      json
 // @Param        username  path      string                      true  "Username to authenticate"
-// @Param        request   body      AuthenticateUserRequest     true  "Public key request payload"
-// @Success      200       {object}  AuthenticateUserResponse
+// @Param        request   body      models.AuthenticateUserRequest     true  "Public key request payload"
+// @Success      200       {object}  models.AuthenticateUserResponse
 // @Failure      400       {string}  string  "Missing or invalid data"
 // @Security     BearerAuth
 // @Router       /api/v1/users/{username}/authenticate [post]
@@ -349,7 +322,7 @@ func (a *RESTApiService) AuthenticateUser(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var req AuthenticateUserRequest
+	var req models.AuthenticateUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		a.log.Error().Err(err).Msg("Failed to decode request body")
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -370,7 +343,7 @@ func (a *RESTApiService) AuthenticateUser(w http.ResponseWriter, r *http.Request
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	var response AuthenticateUserResponse = AuthenticateUserResponse{
+	var response models.AuthenticateUserResponse = models.AuthenticateUserResponse{
 		Authenticated: isAuthenticated,
 	}
 	if err := json.NewEncoder(w).Encode(response); err != nil {
@@ -621,7 +594,7 @@ func (a *RESTApiService) GetSSHSession(w http.ResponseWriter, r *http.Request) {
 // @Accept       json
 // @Produce      json
 // @Param        username  path      string                     true  "Username to create session for"
-// @Param        request   body      CreateSSHSessionRequest    true  "SSH session request payload"
+// @Param        request   body      models.CreateSSHSessionRequest    true  "SSH session request payload"
 // @Success      200       {object}  models.SSHSession
 // @Failure      400       {string}  string  "Missing or invalid data"
 // @Failure      500       {string}  string  "Failed to create SSH session"
@@ -635,7 +608,7 @@ func (a *RESTApiService) CreateSSHSession(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var req CreateSSHSessionRequest
+	var req models.CreateSSHSessionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		a.log.Error().Err(err).Msg("Failed to decode request body")
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -667,7 +640,7 @@ func (a *RESTApiService) CreateSSHSession(w http.ResponseWriter, r *http.Request
 // @Produce      json
 // @Param        username   path      string                     true  "Username to update session for"
 // @Param        sessionId  path      int                        true  "Session ID to update"
-// @Param        request    body      UpdateSSHSessionRequest    true  "SSH session update request payload"
+// @Param        request    body      models.UpdateSSHSessionRequest    true  "SSH session update request payload"
 // @Success      204       {string}  string  "SSH session updated successfully"
 // @Failure      400       {string}  string  "Missing or invalid data"
 // @Failure      404       {string}  string  "Session not found"
@@ -689,7 +662,7 @@ func (a *RESTApiService) UpdateSSHSession(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var req UpdateSSHSessionRequest
+	var req models.UpdateSSHSessionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		a.log.Error().Err(err).Msg("Failed to decode request body")
 		http.Error(w, "Invalid request body", http.StatusBadRequest)

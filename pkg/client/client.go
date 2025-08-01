@@ -42,33 +42,6 @@ func (e ErrorResponse) Error() string {
 	return fmt.Sprintf("API error %d: %s", e.Status, e.Msg)
 }
 
-// AuthenticateUserRequest represents the request body for user authentication.
-type AuthenticateUserRequest struct {
-	PublicKey string `json:"public_key"`
-}
-
-// AuthenticateUserResponse represents the response body for user authentication.
-type AuthenticateUserResponse struct {
-	Authenticated bool `json:"authenticated"`
-}
-
-// CreateSSHSessionRequest represents the request body for creating an SSH session.
-type CreateSSHSessionRequest struct {
-	Workspace string `json:"workspace"`
-	ProxyID   string `json:"proxy_id"`
-	ProxyPID  int    `json:"proxy_pid"`
-	ClientIP  string `json:"client_ip"`
-}
-
-// UpdateSSHSessionRequest represents the request body for updating an SSH session.
-type UpdateSSHSessionRequest struct {
-	BytesIn  int64               `json:"bytes_in"`
-	BytesOut int64               `json:"bytes_out"`
-	Client   string              `json:"client"`
-	ProvTime float32             `json:"prov_time"`
-	Channels []models.ChannelShort `json:"channels"`
-}
-
 // New creates a new Identity API client with the given configuration.
 func New(config Config) *Client {
 	if config.Timeout == 0 {
@@ -167,7 +140,7 @@ func (c *Client) ListUsers(ctx context.Context, limit, offset int) ([]models.Use
 // GetUser retrieves a user by their username.
 func (c *Client) GetUser(ctx context.Context, username string) (*models.User, error) {
 	path := fmt.Sprintf("/api/v1/users/%s", url.PathEscape(username))
-	
+
 	var user models.User
 	err := c.doRequest(ctx, http.MethodGet, path, nil, &user)
 	if err != nil {
@@ -177,11 +150,11 @@ func (c *Client) GetUser(ctx context.Context, username string) (*models.User, er
 }
 
 // AuthenticateUser validates a user's SSH public key.
-func (c *Client) AuthenticateUser(ctx context.Context, username, publicKey string) (*AuthenticateUserResponse, error) {
+func (c *Client) AuthenticateUser(ctx context.Context, username, publicKey string) (*models.AuthenticateUserResponse, error) {
 	path := fmt.Sprintf("/api/v1/users/%s/authenticate", url.PathEscape(username))
-	req := AuthenticateUserRequest{PublicKey: publicKey}
-	
-	var resp AuthenticateUserResponse
+	req := models.AuthenticateUserRequest{PublicKey: publicKey}
+
+	var resp models.AuthenticateUserResponse
 	err := c.doRequest(ctx, http.MethodPost, path, req, &resp)
 	if err != nil {
 		return nil, err
@@ -192,7 +165,7 @@ func (c *Client) AuthenticateUser(ctx context.Context, username, publicKey strin
 // OnboardUser initiates the Device Authorization Flow to onboard a user.
 func (c *Client) OnboardUser(ctx context.Context, username string) (*models.OnboardUser, error) {
 	path := fmt.Sprintf("/api/v1/users/%s/onboard", url.PathEscape(username))
-	
+
 	var onboardUser models.OnboardUser
 	err := c.doRequest(ctx, http.MethodPost, path, nil, &onboardUser)
 	if err != nil {
@@ -204,7 +177,7 @@ func (c *Client) OnboardUser(ctx context.Context, username string) (*models.Onbo
 // GetOnboardCapability checks if a user can be onboarded.
 func (c *Client) GetOnboardCapability(ctx context.Context, username string) (*models.OnBoardCapability, error) {
 	path := fmt.Sprintf("/api/v1/users/%s/onboardcap", url.PathEscape(username))
-	
+
 	var capability models.OnBoardCapability
 	err := c.doRequest(ctx, http.MethodGet, path, nil, &capability)
 	if err != nil {
@@ -216,7 +189,7 @@ func (c *Client) GetOnboardCapability(ctx context.Context, username string) (*mo
 // GetUserToken retrieves a user token for the specified username.
 func (c *Client) GetUserToken(ctx context.Context, username string) (*models.UserToken, error) {
 	path := fmt.Sprintf("/api/v1/users/%s/token", url.PathEscape(username))
-	
+
 	var token models.UserToken
 	err := c.doRequest(ctx, http.MethodGet, path, nil, &token)
 	if err != nil {
@@ -253,7 +226,7 @@ func (c *Client) ListSSHSessions(ctx context.Context, username string, limit, of
 // GetSSHSession retrieves a specific SSH session by its ID for a user.
 func (c *Client) GetSSHSession(ctx context.Context, username string, sessionID int32) (*models.SSHSession, error) {
 	path := fmt.Sprintf("/api/v1/users/%s/sessions/%d", url.PathEscape(username), sessionID)
-	
+
 	var session models.SSHSession
 	err := c.doRequest(ctx, http.MethodGet, path, nil, &session)
 	if err != nil {
@@ -265,13 +238,13 @@ func (c *Client) GetSSHSession(ctx context.Context, username string, sessionID i
 // CreateSSHSession creates a new SSH session for a user in a specified workspace.
 func (c *Client) CreateSSHSession(ctx context.Context, username, workspace, proxyID string, proxyPID int, clientIP string) (*models.SSHSession, error) {
 	path := fmt.Sprintf("/api/v1/users/%s/sessions", url.PathEscape(username))
-	req := CreateSSHSessionRequest{
+	req := models.CreateSSHSessionRequest{
 		Workspace: workspace,
 		ProxyID:   proxyID,
 		ProxyPID:  proxyPID,
 		ClientIP:  clientIP,
 	}
-	
+
 	var session models.SSHSession
 	err := c.doRequest(ctx, http.MethodPost, path, req, &session)
 	if err != nil {
@@ -283,20 +256,27 @@ func (c *Client) CreateSSHSession(ctx context.Context, username, workspace, prox
 // UpdateSSHSession updates an existing SSH session with new data.
 func (c *Client) UpdateSSHSession(ctx context.Context, username string, sessionID int32, bytesIn, bytesOut int64, client string, provTime float32, channels []models.ChannelShort) error {
 	path := fmt.Sprintf("/api/v1/users/%s/sessions/%d", url.PathEscape(username), sessionID)
-	req := UpdateSSHSessionRequest{
+
+	// Convert ChannelShort to string
+	stringChannels := make([]string, len(channels))
+	for i, ch := range channels {
+		stringChannels[i] = string(ch)
+	}
+
+	req := models.UpdateSSHSessionRequest{
 		BytesIn:  bytesIn,
 		BytesOut: bytesOut,
 		Client:   client,
 		ProvTime: provTime,
-		Channels: channels,
+		Channels: stringChannels,
 	}
-	
+
 	return c.doRequest(ctx, http.MethodPatch, path, req, nil)
 }
 
 // EndSSHSession marks an SSH session as ended by setting the end time.
 func (c *Client) EndSSHSession(ctx context.Context, username string, sessionID int32) error {
 	path := fmt.Sprintf("/api/v1/users/%s/sessions/%d/end", url.PathEscape(username), sessionID)
-	
+
 	return c.doRequest(ctx, http.MethodPost, path, nil, nil)
 }
