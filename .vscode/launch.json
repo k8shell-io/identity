@@ -26,6 +26,23 @@
             ],
             "showLog": true,
             //"stopOnEntry": true
+        },
+        {
+            "name": "Attach to running identity",
+            "type": "go",
+            "request": "attach",
+            "mode": "local",
+            "processId": 0,
+            "showLog": true
+        },
+        {
+            "name": "Connect to Delve server",
+            "type": "go",
+            "request": "attach",
+            "mode": "remote",
+            "remotePath": "${workspaceFolder}",
+            "port": 2345,
+            "host": "127.0.0.1"
         }
     ]
 }
