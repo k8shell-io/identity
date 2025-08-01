@@ -1,8 +1,7 @@
 blueprint:
   template: development
 
-  #shell: /bin/zsh
-  shell: /bin/bash
+  shell: /bin/zsh
   image: ${WORKSPACE_REGISTRY}/workspaces/dev:0.8-1.9
   sudo: true
   network_policy: system
