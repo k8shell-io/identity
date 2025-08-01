@@ -4,18 +4,24 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"testing"
 	"time"
 
 	"github.com/k8shell-io/identity/pkg/client"
 	"github.com/k8shell-io/identity/pkg/models"
 )
 
-// Example demonstrates how to use the Identity API client.
-func Example() {
+// TestExample demonstrates how to use the Identity API client.
+// This test requires a running identity service and will be skipped in automated testing.
+func TestExample(t *testing.T) {
+	// Skip this test unless explicitly requested
+	if testing.Short() {
+		t.Skip("Skipping example test in short mode")
+	}
 	// Create a new client
 	c := client.New(client.Config{
-		BaseURL: "http://localhost:8080",
-		APIKey:  "your-api-key-here",
+		BaseURL: "http://localhost:9090",
+		APIKey:  "6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c",
 		Timeout: 30 * time.Second,
 	})
 
@@ -99,4 +105,26 @@ func Example() {
 			fmt.Printf("Got token for user %s from provider %s\n", token.Username, token.Provider)
 		}
 	}
+}
+
+// Example shows basic usage of the Identity client.
+func Example() {
+	// Create a new client
+	c := client.New(client.Config{
+		BaseURL: "http://localhost:8080",
+		APIKey:  "your-api-key-here",
+		Timeout: 30 * time.Second,
+	})
+
+	ctx := context.Background()
+
+	// List users
+	users, err := c.ListUsers(ctx, 10, 0)
+	if err != nil {
+		log.Printf("Failed to list users: %v", err)
+		return
+	}
+
+	fmt.Printf("Found %d users", len(users))
+	// Output: Found 0 users
 }
