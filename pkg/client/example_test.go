@@ -73,7 +73,7 @@ func Example() {
 		if err != nil {
 			log.Fatalf("Failed to get SSH session: %v", err)
 		}
-		fmt.Printf("SSH session %d has %d bytes in, %d bytes out\n", 
+		fmt.Printf("SSH session %d has %d bytes in, %d bytes out\n",
 			updatedSession.SessionID, updatedSession.BytesIn, updatedSession.BytesOut)
 
 		// List SSH sessions
