@@ -10,6 +10,10 @@ blueprint:
       cpu: 8
       memory: 16Gi
 
+  storage:
+    home:
+      path: /tmp/bruckins
+
   init_scripts:
     files:
       - init_repo@&: |
