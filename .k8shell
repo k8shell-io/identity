@@ -10,9 +10,9 @@ blueprint:
       cpu: 8
       memory: 16Gi
 
-  storages:
-    home:
-      path: /tmp/bruckins
+  #storages:
+  #  home:
+  #    path: /tmp/bruckins
 
   init_scripts:
     files:
