@@ -10,7 +10,7 @@ blueprint:
       cpu: 8
       memory: 16Gi
 
-  storage:
+  storages:
     home:
       path: /tmp/bruckins
 
