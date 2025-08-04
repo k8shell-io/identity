@@ -1,15 +1,18 @@
 blueprint:
   template: development
 
-  #shell: /bin/zsh
-  shell: /bin/bash
-  image: ${WORKSPACE_REGISTRY}/workspaces/dev:0.8-1.9
+  shell: /bin/zsh
+  image: ${WORKSPACE_REGISTRY}/workspaces/dev:1.10
   sudo: true
   network_policy: system
   resources:
     limits:
       cpu: 8
       memory: 16Gi
+
+  #storages:
+  #  home:
+  #    path: /tmp/bruckins
 
   init_scripts:
     files:
