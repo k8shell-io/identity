@@ -29,6 +29,7 @@ users:
     # cvutfit95
     password: $2y$10$FJRWdVEBZRlPk8lW3qcEwejjbu18KM27P6l94.vHXbFPt7mH7DET2
     roles: [workspace-user]
+    organization: "default"
 
   - username: nvkptr
     isValid: true
@@ -46,6 +47,7 @@ users:
     blueprints: [dev]
     authProviders: [self]
     roles: [workspace-user, workspace-admin]
+    organization: "default"
 
 
 

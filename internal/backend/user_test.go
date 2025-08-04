@@ -45,6 +45,7 @@ func TestUserCRUDLifecycle(t *testing.T) {
 			Roles:        []models.Role{"user"},
 			Blueprints:   []string{"blueprint1"},
 			Source:       "test",
+			Organization: "default",
 		}
 		if i == 0 {
 			firstUser = user
@@ -80,6 +81,7 @@ func TestUserCRUDLifecycle(t *testing.T) {
 	assert.Equal(t, firstUser.Locked, foundUser.Locked)
 	assert.Equal(t, firstUser.FailedLogins, foundUser.FailedLogins)
 	assert.WithinDuration(t, firstUser.ExpiresAt, foundUser.ExpiresAt, time.Millisecond)
+	assert.Equal(t, firstUser.Organization, foundUser.Organization)
 
 	// Update the user
 	firstUser.IsValid = false
@@ -99,6 +101,7 @@ func TestUserCRUDLifecycle(t *testing.T) {
 	firstUser.Roles = []models.Role{"admin"}
 	firstUser.Blueprints = []string{"blueprint2"}
 	firstUser.Source = "test_updated"
+	firstUser.Organization = "ctu"
 	err = db.UpdateUser(firstUser)
 	require.NoError(t, err)
 
@@ -123,6 +126,7 @@ func TestUserCRUDLifecycle(t *testing.T) {
 	assert.Equal(t, firstUser.Locked, updatedUser.Locked)
 	assert.Equal(t, firstUser.FailedLogins, updatedUser.FailedLogins)
 	assert.WithinDuration(t, firstUser.ExpiresAt, updatedUser.ExpiresAt, time.Millisecond)
+	assert.Equal(t, firstUser.Organization, updatedUser.Organization)
 
 	// Delete the user
 	err = db.DeleteUser(foundUser.Username)

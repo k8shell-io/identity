@@ -15,3 +15,4 @@ user:
   blueprints: ["*"]
   roles: ["workspace-user"]
   isValid: true
+  organization: "github"

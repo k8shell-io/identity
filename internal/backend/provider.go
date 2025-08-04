@@ -7,29 +7,16 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/k8shell-io/identity/pkg/models"
 )
 
-type ProviderInfo struct {
-	Status          string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	Username        string
-	Provider        string
-	UserCode        string
-	DeviceCode      string
-	ExpiresAt       *time.Time
-	VerificationURI string
-	AccessToken     string
-	RefreshToken    string
-}
-
-func (d *DB) GetUserProviderInfo(username string, provider string) (*ProviderInfo, error) {
+func (d *DB) GetUserProviderInfo(username string, provider string) (*models.ProviderInfo, error) {
 	query := `SELECT status, created_at, updated_at, username, provider, user_code, device_code, 
 					 expires_at, verification_uri, access_token, refresh_token
 			  FROM provider_info WHERE username = $1 AND provider = $2`
 	row := d.pool.QueryRow(context.Background(), query, username, provider)
 
-	var info ProviderInfo
+	var info models.ProviderInfo
 	err := row.Scan(
 		&info.Status, &info.CreatedAt, &info.UpdatedAt, &info.Username, &info.Provider,
 		&info.UserCode, &info.DeviceCode, &info.ExpiresAt, &info.VerificationURI,
@@ -44,7 +31,7 @@ func (d *DB) GetUserProviderInfo(username string, provider string) (*ProviderInf
 	return &info, nil
 }
 
-func (d *DB) CreateUserProviderInfo(info *ProviderInfo) error {
+func (d *DB) CreateUserProviderInfo(info *models.ProviderInfo) error {
 	query := `INSERT INTO provider_info (
 		username, provider, status, created_at, updated_at,
 		user_code, device_code, expires_at, verification_uri, access_token, refresh_token

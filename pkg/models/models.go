@@ -61,6 +61,7 @@ var ErrUserTokenNotSupported = errors.New("user token not supported by provider"
 
 type User struct {
 	Username     string       `yaml:"username"`
+	Organization string       `yaml:"organization"`
 	IsValid      bool         `yaml:"isValid"`
 	ExpiresAt    time.Time    `yaml:"expiresAt"`
 	UID          uint32       `yaml:"uid"`
@@ -98,6 +99,26 @@ type SSHSession struct {
 
 func CreateSessionID(channel ChannelShort, proxyID string, proxyPID int, channelNumber int) string {
 	return fmt.Sprintf("%s-%s-%d-%d", channel, proxyID, proxyPID, channelNumber)
+}
+
+type Organization struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
+}
+
+// ProviderInfo holds information about a identity provider
+type ProviderInfo struct {
+	Status          string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	Username        string
+	Provider        string
+	UserCode        string
+	DeviceCode      string
+	ExpiresAt       *time.Time
+	VerificationURI string
+	AccessToken     string
+	RefreshToken    string
 }
 
 // API Request and Response Types

@@ -205,7 +205,7 @@ func (p *GitHubProvider) OnboardUserDeviceFlow(username string) (*models.Onboard
 	}
 
 	expiresAt := time.Now().Add(time.Duration(resp.ExpiresIn) * time.Second)
-	err = p.db.CreateUserProviderInfo(&backend.ProviderInfo{
+	err = p.db.CreateUserProviderInfo(&models.ProviderInfo{
 		Status:          "pending",
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),

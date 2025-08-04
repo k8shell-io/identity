@@ -39,3 +39,5 @@ user:
         role.matches(".*(AM2|DDW|SQL|TDP|BAP|BPR|DIP|MPR).*-UCITEL.*")
       )
     ))
+
+  organization: "ctu"

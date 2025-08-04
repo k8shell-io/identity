@@ -1,8 +1,15 @@
 -- This SQL script creates the initial schema for the database
 
+-- organizations table to store organization information
+CREATE TABLE organizations (
+    name          varchar      not null primary key,
+    description   text
+);
+
 -- users table to store user information
 CREATE TABLE users (
     username       varchar      not null    primary key,
+    organization   varchar      not null    references organizations(name),
     is_valid       boolean      not null,
     expires_at     TIMESTAMPTZ  not null,
     uid            integer      not null    unique,
@@ -58,3 +65,8 @@ CREATE TABLE provider_info (
     
     PRIMARY KEY (username, provider)
 );
+
+INSERT INTO organizations (name, description) VALUES
+    ('default', 'Default organization'),
+    ('ctu', 'Users onboarded via Usermap'),
+    ('github', 'Users onboarded via GitHub');

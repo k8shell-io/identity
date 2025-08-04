@@ -42,6 +42,7 @@ func TestSSHSessionCRUDLifecycle(t *testing.T) {
 		Roles:        []models.Role{"user"},
 		Blueprints:   []string{"blueprint1"},
 		Source:       "test",
+		Organization: "default",
 	}
 	err = db.CreateUser(user)
 	require.NoError(t, err)

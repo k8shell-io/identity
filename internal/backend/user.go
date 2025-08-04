@@ -12,7 +12,7 @@ func (d *DB) FindUser(username string) (*models.User, error) {
 	query := `
 		SELECT username, is_valid, expires_at, uid, gid, fullname, 
 		       access_token, email, password, locked, failed_logins,
-		       auths, auth_keys, channels, envs, roles, blueprints, source
+		       auths, auth_keys, channels, envs, roles, blueprints, source, organization
 		FROM public.users
 		WHERE username=$1
 	`
@@ -37,6 +37,7 @@ func (d *DB) FindUser(username string) (*models.User, error) {
 		&user.Roles,
 		&user.Blueprints,
 		&user.Source,
+		&user.Organization,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, models.ErrUserNotFound
@@ -51,14 +52,14 @@ func (d *DB) CreateUser(user *models.User) error {
 	query := `INSERT INTO public.users (
 		username, is_valid, expires_at, uid, gid, fullname,
 		access_token, email, password, locked, failed_logins,
-		auths, auth_keys, channels, envs, roles, blueprints, source
+		auths, auth_keys, channels, envs, roles, blueprints, source, organization
 	) VALUES (
-		$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+		$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
 	)`
 	_, err := d.pool.Exec(context.Background(), query,
 		user.Username, user.IsValid, user.ExpiresAt, user.UID, user.GID, user.Fullname, user.AccessToken, user.Email,
 		user.Password, user.Locked, user.FailedLogins, user.Auths, user.AuthKeys, user.Channels,
-		user.Envs, user.Roles, user.Blueprints, user.Source)
+		user.Envs, user.Roles, user.Blueprints, user.Source, user.Organization)
 	return err
 }
 
@@ -80,8 +81,9 @@ func (d *DB) UpdateUser(user *models.User) error {
 		envs=$14,
 		roles=$15,
 		blueprints=$16,
-		source=$17
-	WHERE username=$18`
+		source=$17,
+		organization=$18
+	WHERE username=$19`
 
 	_, err := d.pool.Exec(context.Background(), query,
 		user.IsValid,
@@ -101,6 +103,7 @@ func (d *DB) UpdateUser(user *models.User) error {
 		user.Roles,
 		user.Blueprints,
 		user.Source,
+		user.Organization,
 		user.Username,
 	)
 	return err
@@ -123,7 +126,7 @@ func (d *DB) ListUsers(limit, offset int) ([]*models.User, error) {
 	query := `
 		SELECT username, is_valid, expires_at, uid, gid, fullname,
 		       access_token, email, password, locked, failed_logins,
-		       auths, auth_keys, channels, envs, roles, blueprints, source
+		       auths, auth_keys, channels, envs, roles, blueprints, source, organization
 		FROM public.users
 		ORDER BY username
 		LIMIT $1 OFFSET $2
@@ -157,6 +160,7 @@ func (d *DB) ListUsers(limit, offset int) ([]*models.User, error) {
 			&user.Roles,
 			&user.Blueprints,
 			&user.Source,
+			&user.Organization,
 		); err != nil {
 			return nil, err
 		}

@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/k8shell-io/identity/internal/backend"
 	"github.com/k8shell-io/identity/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,10 +41,11 @@ func TestProviderCRUDLifecycle(t *testing.T) {
 		Roles:        []models.Role{"user"},
 		Blueprints:   []string{"blueprint1"},
 		Source:       "test",
+		Organization: "default",
 	})
 	require.NoError(t, err)
 
-	db.CreateUserProviderInfo(&backend.ProviderInfo{
+	db.CreateUserProviderInfo(&models.ProviderInfo{
 		Status:          "pending",
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),
