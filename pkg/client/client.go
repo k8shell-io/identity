@@ -16,19 +16,18 @@ import (
 	"github.com/k8shell-io/identity/pkg/models"
 )
 
+// Config represents the configuration for the Identity API client.
+type Config struct {
+	BaseURL string // Base URL of the identity service
+	APIKey  string // API key for authentication
+	Timeout int    // HTTP client timeout in seconds (default: 30 seconds)
+}
+
 // Client represents a client for the K8Shell Identity REST API.
 type Client struct {
 	baseURL    string
 	apiKey     string
 	httpClient *http.Client
-}
-
-// Config represents the configuration for the Identity API client.
-type Config struct {
-	BaseURL    string        // Base URL of the identity service (e.g., "http://localhost:8080")
-	APIKey     string        // API key for authentication
-	Timeout    time.Duration // HTTP client timeout (default: 30 seconds)
-	HTTPClient *http.Client  // Custom HTTP client (optional)
 }
 
 // ErrorResponse represents an error response from the API.
@@ -43,22 +42,17 @@ func (e ErrorResponse) Error() string {
 }
 
 // New creates a new Identity API client with the given configuration.
-func New(config Config) *Client {
+func NewClient(config Config) *Client {
 	if config.Timeout == 0 {
-		config.Timeout = 30 * time.Second
-	}
-
-	httpClient := config.HTTPClient
-	if httpClient == nil {
-		httpClient = &http.Client{
-			Timeout: config.Timeout,
-		}
+		config.Timeout = 30
 	}
 
 	return &Client{
-		baseURL:    config.BaseURL,
-		apiKey:     config.APIKey,
-		httpClient: httpClient,
+		baseURL: config.BaseURL,
+		apiKey:  config.APIKey,
+		httpClient: &http.Client{
+			Timeout: time.Duration(config.Timeout) * time.Second,
+		},
 	}
 }
 
