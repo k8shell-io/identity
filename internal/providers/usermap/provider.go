@@ -90,7 +90,7 @@ func (p *UserMapProvider) FindUser(username string) (*models.User, error) {
 	return userObj, nil
 }
 
-func (p *UserMapProvider) OnboardCapability(username string) (*models.OnBoardCapability, error) {
+func (p *UserMapProvider) OnboardCapability(username string) (*models.OnboardCapability, error) {
 	// Usermap provider does not support onboarding via device code
 	return nil, fmt.Errorf("%w: usermap provider does not support onboarding via device flow",
 		models.ErrMethodNotSupported)

@@ -149,12 +149,12 @@ func (c *Client) GetUser(ctx context.Context, username string) (*models.User, er
 	return &user, nil
 }
 
-// AuthenticateUser validates a user's SSH public key.
-func (c *Client) AuthenticateUser(ctx context.Context, username, publicKey string) (*models.AuthenticateUserResponse, error) {
-	path := fmt.Sprintf("/api/v1/users/%s/authenticate", url.PathEscape(username))
-	req := models.AuthenticateUserRequest{PublicKey: publicKey}
+// AuthPublicKey validates a user's SSH public key.
+func (c *Client) AuthPublicKey(ctx context.Context, username, publicKey string) (*models.AuthPublicKeyResponse, error) {
+	path := fmt.Sprintf("/api/v1/users/%s/authpublickey", url.PathEscape(username))
+	req := models.AuthPublicKeyRequest{PublicKey: publicKey}
 
-	var resp models.AuthenticateUserResponse
+	var resp models.AuthPublicKeyResponse
 	err := c.doRequest(ctx, http.MethodPost, path, req, &resp)
 	if err != nil {
 		return nil, err
@@ -175,10 +175,10 @@ func (c *Client) OnboardUser(ctx context.Context, username string) (*models.Onbo
 }
 
 // GetOnboardCapability checks if a user can be onboarded.
-func (c *Client) GetOnboardCapability(ctx context.Context, username string) (*models.OnBoardCapability, error) {
+func (c *Client) GetOnboardCapability(ctx context.Context, username string) (*models.OnboardCapability, error) {
 	path := fmt.Sprintf("/api/v1/users/%s/onboardcap", url.PathEscape(username))
 
-	var capability models.OnBoardCapability
+	var capability models.OnboardCapability
 	err := c.doRequest(ctx, http.MethodGet, path, nil, &capability)
 	if err != nil {
 		return nil, err
@@ -254,7 +254,8 @@ func (c *Client) CreateSSHSession(ctx context.Context, username, workspace, prox
 }
 
 // UpdateSSHSession updates an existing SSH session with new data.
-func (c *Client) UpdateSSHSession(ctx context.Context, username string, sessionID int32, bytesIn, bytesOut int64, client string, provTime float32, channels []models.ChannelShort) error {
+func (c *Client) UpdateSSHSession(ctx context.Context, username string, sessionID int32, bytesIn, bytesOut int64,
+	client string, provTime float32, channels []string) error {
 	path := fmt.Sprintf("/api/v1/users/%s/sessions/%d", url.PathEscape(username), sessionID)
 
 	// Convert ChannelShort to string

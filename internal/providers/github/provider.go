@@ -120,8 +120,8 @@ func (p *GitHubProvider) FindUser(username string) (*models.User, error) {
 	return user, nil
 }
 
-func (p *GitHubProvider) OnboardCapability(username string) (*models.OnBoardCapability, error) {
-	cap := &models.OnBoardCapability{
+func (p *GitHubProvider) OnboardCapability(username string) (*models.OnboardCapability, error) {
+	cap := &models.OnboardCapability{
 		Provider:   p.Name(),
 		Username:   username,
 		CanOnboard: false,

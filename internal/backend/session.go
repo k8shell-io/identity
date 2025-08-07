@@ -78,7 +78,7 @@ func (d *DB) CreateSSHSession(username string, workspace string, proxy_id string
 		Workspace: workspace,
 		BytesIn:   0,
 		BytesOut:  0,
-		Channels:  []models.ChannelShort{},
+		Channels:  []string{},
 		ProvTime:  0.0,
 	}
 	query := ` INSERT INTO sessions (

@@ -6,46 +6,39 @@ import (
 	"time"
 )
 
-type Channel string
-
 const (
-	ChannelShell        Channel = "shell"
-	ChannelPty          Channel = "pty"
-	ChannelPortForward  Channel = "port_forward"
-	ChannelSFTP         Channel = "sftp"
-	ChannelSCP          Channel = "scp"
-	ChannelExec         Channel = "exec"
-	ChannelForwardAgent Channel = "forward_agent"
-	ChannelSystemExec   Channel = "system_exec"
+	ChannelSession      string = "session"
+	ChannelShell        string = "shell"
+	ChannelPty          string = "pty"
+	ChannelPortForward  string = "port-forward"
+	ChannelSFTP         string = "sftp"
+	ChannelSCP          string = "scp"
+	ChannelExec         string = "exec"
+	ChannelForwardAgent string = "forward-agent"
+	ChannelSystemExec   string = "system-exec"
 )
 
-type ChannelShort string
-
 const (
-	ChannelShortSh ChannelShort = "sh"
-	ChannelShortPt ChannelShort = "pt"
-	ChannelShortPf ChannelShort = "pf"
-	ChannelShortSf ChannelShort = "sf"
-	ChannelShortSc ChannelShort = "sc"
-	ChannelShortEx ChannelShort = "ex"
-	ChannelShortAf ChannelShort = "af"
-	ChannelShortSe ChannelShort = "se"
+	ChannelShortSh string = "sh"
+	ChannelShortPt string = "pt"
+	ChannelShortPf string = "pf"
+	ChannelShortSf string = "sf"
+	ChannelShortSc string = "sc"
+	ChannelShortEx string = "ex"
+	ChannelShortAf string = "af"
+	ChannelShortSe string = "se"
 )
 
-type Role string
-
 const (
-	RoleAdmin          Role = "admin"
-	RoleOrgAdmin       Role = "org-admin"
-	RoleWorkspaceAdmin Role = "workspace-admin"
-	RoleWorkspaceUser  Role = "workspace-user"
+	RoleAdmin          string = "admin"
+	RoleOrgAdmin       string = "org-admin"
+	RoleWorkspaceAdmin string = "workspace-admin"
+	RoleWorkspaceUser  string = "workspace-user"
 )
 
-type AuthMethod string
-
 const (
-	AuthMethodPublicKey AuthMethod = "publickey"
-	AuthMethodPassword  AuthMethod = "password"
+	AuthMethodPublicKey string = "publickey"
+	AuthMethodPassword  string = "password"
 )
 
 var ErrMethodNotSupported = errors.New("method not supported")
@@ -60,25 +53,25 @@ var ErrUserNotAllowedOnboard = errors.New("user not allowed to onboard")
 var ErrUserTokenNotSupported = errors.New("user token not supported by provider")
 
 type User struct {
-	Username     string       `yaml:"username"`
-	Organization string       `yaml:"organization"`
-	IsValid      bool         `yaml:"isValid"`
-	ExpiresAt    time.Time    `yaml:"expiresAt"`
-	UID          uint32       `yaml:"uid"`
-	GID          uint32       `yaml:"gid"`
-	Fullname     string       `yaml:"fullname"`
-	AccessToken  string       `yaml:"accessToken"`
-	Email        string       `yaml:"email"`
-	Password     string       `yaml:"password,omitempty"`
-	Auths        []AuthMethod `yaml:"auths"`
-	AuthKeys     []string     `yaml:"authKeys"`
-	Locked       bool         `yaml:"locked"`
-	FailedLogins int          `yaml:"failedLogins"`
-	Channels     []Channel    `yaml:"channels"`
-	Envs         []string     `yaml:"envs"`
-	Roles        []Role       `yaml:"roles"`
-	Blueprints   []string     `yaml:"blueprints"`
-	Source       string       `yaml:"source"`
+	Username     string    `yaml:"username"`
+	Organization string    `yaml:"organization"`
+	IsValid      bool      `yaml:"isValid"`
+	ExpiresAt    time.Time `yaml:"expiresAt"`
+	UID          uint32    `yaml:"uid"`
+	GID          uint32    `yaml:"gid"`
+	Fullname     string    `yaml:"fullname"`
+	AccessToken  string    `yaml:"accessToken"`
+	Email        string    `yaml:"email"`
+	Password     string    `yaml:"password,omitempty"`
+	Auths        []string  `yaml:"auths"`
+	AuthKeys     []string  `yaml:"authKeys"`
+	Locked       bool      `yaml:"locked"`
+	FailedLogins int       `yaml:"failedLogins"`
+	Channels     []string  `yaml:"channels"`
+	Envs         []string  `yaml:"envs"`
+	Roles        []string  `yaml:"roles"`
+	Blueprints   []string  `yaml:"blueprints"`
+	Source       string    `yaml:"source"`
 }
 
 type SSHSession struct {
@@ -93,11 +86,11 @@ type SSHSession struct {
 	Workspace string
 	BytesIn   int64
 	BytesOut  int64
-	Channels  []ChannelShort
+	Channels  []string
 	ProvTime  float32
 }
 
-func CreateSessionID(channel ChannelShort, proxyID string, proxyPID int, channelNumber int) string {
+func CreateSessionID(channel string, proxyID string, proxyPID int, channelNumber int) string {
 	return fmt.Sprintf("%s-%s-%d-%d", channel, proxyID, proxyPID, channelNumber)
 }
 
@@ -123,13 +116,13 @@ type ProviderInfo struct {
 
 // API Request and Response Types
 
-// AuthenticateUserRequest represents the request body for user authentication
-type AuthenticateUserRequest struct {
+// AuthPublicKeyRequest represents the request body for user authentication
+type AuthPublicKeyRequest struct {
 	PublicKey string `json:"public_key"`
 }
 
-// AuthenticateUserResponse represents the response body for user authentication
-type AuthenticateUserResponse struct {
+// AuthPublicKeyResponse represents the response body for user authentication
+type AuthPublicKeyResponse struct {
 	Authenticated bool `json:"authenticated"`
 }
 

@@ -87,7 +87,7 @@ func TestClient_GetUser(t *testing.T) {
 			IsValid:  true,
 			UID:      1001,
 			GID:      1001,
-			Roles:    []models.Role{models.RoleWorkspaceUser},
+			Roles:    []string{models.RoleWorkspaceUser},
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -126,7 +126,7 @@ func TestClient_AuthenticateUser(t *testing.T) {
 			return
 		}
 
-		var req models.AuthenticateUserRequest
+		var req models.AuthPublicKeyRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
 			return
@@ -137,7 +137,7 @@ func TestClient_AuthenticateUser(t *testing.T) {
 			return
 		}
 
-		resp := models.AuthenticateUserResponse{
+		resp := models.AuthPublicKeyResponse{
 			Authenticated: true,
 		}
 
@@ -151,9 +151,9 @@ func TestClient_AuthenticateUser(t *testing.T) {
 		APIKey:  "test-api-key",
 	})
 
-	resp, err := client.AuthenticateUser(context.Background(), "testuser", "ssh-rsa AAAAB3NzaC1yc2E...")
+	resp, err := client.AuthPublicKey(context.Background(), "testuser", "ssh-rsa AAAAB3NzaC1yc2E...")
 	if err != nil {
-		t.Fatalf("AuthenticateUser failed: %v", err)
+		t.Fatalf("AuthPublicKey failed: %v", err)
 	}
 
 	if !resp.Authenticated {
@@ -256,7 +256,7 @@ func TestClient_UpdateSSHSession(t *testing.T) {
 		APIKey:  "test-api-key",
 	})
 
-	channels := []models.ChannelShort{models.ChannelShortSh, models.ChannelShortPt}
+	channels := []string{models.ChannelShortSh, models.ChannelShortPt}
 	err := client.UpdateSSHSession(context.Background(), "testuser", 123, 1024, 2048, "ssh-client", 0.5, channels)
 	if err != nil {
 		t.Fatalf("UpdateSSHSession failed: %v", err)

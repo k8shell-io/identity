@@ -146,7 +146,7 @@ func (s *Server) OnboardUserDeviceFlow(username string) (*models.OnboardUser, er
 	return nil, fmt.Errorf("no suitable identity provider found for onboarding user '%s'", username)
 }
 
-func (s *Server) OnboardCapability(username string) (*models.OnBoardCapability, error) {
+func (s *Server) OnboardCapability(username string) (*models.OnboardCapability, error) {
 	for _, provider := range s.IdentityProviders {
 		cap, err := provider.OnboardCapability(username)
 		if err != nil && !errors.Is(err, models.ErrMethodNotSupported) && !errors.Is(err, models.ErrUserNotAllowedOnboard) {
@@ -178,6 +178,6 @@ func (s *Server) GetUserToken(username string) (*models.UserToken, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("no suitable identity provider found for user '%s': %w", username, 
-		models.ErrUserTokenNotSupported)  
+	return nil, fmt.Errorf("no suitable identity provider found for user '%s': %w", username,
+		models.ErrUserTokenNotSupported)
 }

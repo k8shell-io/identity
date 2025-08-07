@@ -134,7 +134,7 @@ func (a *RESTApiService) initializeRouter() *mux.Router {
 	apiRouter.HandleFunc("/users/{username}", a.FindUser).Methods(http.MethodGet)
 	apiRouter.HandleFunc("/users/{username}/onboardcap", a.OnBoardCapability).Methods(http.MethodGet)
 	apiRouter.HandleFunc("/users/{username}/onboard", a.OnboardUserDeviceFlow).Methods(http.MethodPost)
-	apiRouter.HandleFunc("/users/{username}/authenticate", a.AuthenticateUser).Methods(http.MethodPost)
+	apiRouter.HandleFunc("/users/{username}/authpublickey", a.AuthPublicKey).Methods(http.MethodPost)
 
 	apiRouter.HandleFunc("/users/{username}/sessions", a.GetSSHSessions).Methods(http.MethodGet)
 	apiRouter.HandleFunc("/users/{username}/sessions", a.CreateSSHSession).Methods(http.MethodPost)
@@ -301,20 +301,20 @@ func (a *RESTApiService) FindUser(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// AuthenticateUser godoc
+// AuthPublicKey godoc
 // @Summary      Authenticate user by public key
 // @Description  Validates a user's SSH public key to determine if authentication is allowed.
 // @Tags         users
 // @Accept       json
 // @Produce      json
-// @Param        username  path      string                      true  "Username to authenticate"
-// @Param        request   body      models.AuthenticateUserRequest     true  "Public key request payload"
-// @Success      200       {object}  models.AuthenticateUserResponse
+// @Param        username  path      string              			 true  "Username to authenticate"
+// @Param        request   body      models.AuthPublicKeyRequest     true  "Public key request payload"
+// @Success      200       {object}  models.AuthPublicKeyResponse
 // @Failure      400       {string}  string  "Missing or invalid data"
 // @Security     BearerAuth
-// @Router       /api/v1/users/{username}/authenticate [post]
+// @Router       /api/v1/users/{username}/authpublickey [post]
 // AuthenticateUser checks if the user exists and is valid, then authenticates them using the provided public key.
-func (a *RESTApiService) AuthenticateUser(w http.ResponseWriter, r *http.Request) {
+func (a *RESTApiService) AuthPublicKey(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	if username == "" {
@@ -322,7 +322,7 @@ func (a *RESTApiService) AuthenticateUser(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var req models.AuthenticateUserRequest
+	var req models.AuthPublicKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		a.log.Error().Err(err).Msg("Failed to decode request body")
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -343,7 +343,7 @@ func (a *RESTApiService) AuthenticateUser(w http.ResponseWriter, r *http.Request
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	var response models.AuthenticateUserResponse = models.AuthenticateUserResponse{
+	var response models.AuthPublicKeyResponse = models.AuthPublicKeyResponse{
 		Authenticated: isAuthenticated,
 	}
 	if err := json.NewEncoder(w).Encode(response); err != nil {

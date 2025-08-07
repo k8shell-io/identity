@@ -38,11 +38,11 @@ func TestUserCRUDLifecycle(t *testing.T) {
 			Password:     "password" + idstr,
 			Locked:       false,
 			FailedLogins: 0,
-			Auths:        []models.AuthMethod{"auth1"},
+			Auths:        []string{"auth1"},
 			AuthKeys:     []string{"key1"},
-			Channels:     []models.Channel{"channel1"},
+			Channels:     []string{"channel1"},
 			Envs:         []string{"env1"},
-			Roles:        []models.Role{"user"},
+			Roles:        []string{"user"},
 			Blueprints:   []string{"blueprint1"},
 			Source:       "test",
 			Organization: "default",
@@ -94,11 +94,11 @@ func TestUserCRUDLifecycle(t *testing.T) {
 	firstUser.Password = "updated_password"
 	firstUser.Locked = true
 	firstUser.FailedLogins = 1
-	firstUser.Auths = []models.AuthMethod{"auth2"}
+	firstUser.Auths = []string{"auth2"}
 	firstUser.AuthKeys = []string{"key2"}
-	firstUser.Channels = []models.Channel{"channel2"}
+	firstUser.Channels = []string{"channel2"}
 	firstUser.Envs = []string{"env2"}
-	firstUser.Roles = []models.Role{"admin"}
+	firstUser.Roles = []string{"admin"}
 	firstUser.Blueprints = []string{"blueprint2"}
 	firstUser.Source = "test_updated"
 	firstUser.Organization = "ctu"

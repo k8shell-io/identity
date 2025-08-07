@@ -12,7 +12,7 @@ type OnboardUser struct {
 	ExpiresIn       int    `json:"expires_in"`
 }
 
-type OnBoardCapability struct {
+type OnboardCapability struct {
 	Provider   string `json:"provider"`
 	Username   string `json:"username"`
 	CanOnboard bool   `json:"can_onboard"`
@@ -30,7 +30,7 @@ type IdentityProvider interface {
 	UserMaxAge() int
 
 	FindUser(username string) (*User, error)
-	OnboardCapability(username string) (*OnBoardCapability, error)
+	OnboardCapability(username string) (*OnboardCapability, error)
 	OnboardUserDeviceFlow(username string) (*OnboardUser, error)
 	AuthPublicKey(user *User, key ssh.PublicKey) (bool, error)
 	GetUserToken(user *User) (*UserToken, error)

@@ -53,7 +53,7 @@ func TestExample(t *testing.T) {
 
 		// Authenticate user (example public key)
 		publicKey := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ..."
-		authResp, err := c.AuthenticateUser(ctx, username, publicKey)
+		authResp, err := c.AuthPublicKey(ctx, username, publicKey)
 		if err != nil {
 			log.Fatalf("Failed to authenticate user: %v", err)
 		}
@@ -67,7 +67,7 @@ func TestExample(t *testing.T) {
 		fmt.Printf("Created SSH session %d for user %s\n", session.SessionID, username)
 
 		// Update SSH session
-		channels := []models.ChannelShort{models.ChannelShortSh, models.ChannelShortPt}
+		channels := []string{models.ChannelShortSh, models.ChannelShortPt}
 		err = c.UpdateSSHSession(ctx, username, session.SessionID, 1024, 2048, "ssh-client", 0.5, channels)
 		if err != nil {
 			log.Fatalf("Failed to update SSH session: %v", err)
