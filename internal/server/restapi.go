@@ -132,7 +132,7 @@ func (a *RESTApiService) initializeRouter() *mux.Router {
 	// Define API endpoints
 	apiRouter.HandleFunc("/users", a.GetUsers).Methods(http.MethodGet)
 	apiRouter.HandleFunc("/users/{username}", a.FindUser).Methods(http.MethodGet)
-	apiRouter.HandleFunc("/users/{username}/onboardcap", a.OnBoardCapability).Methods(http.MethodGet)
+	apiRouter.HandleFunc("/users/{username}/onboardcap", a.OnboardCapability).Methods(http.MethodGet)
 	apiRouter.HandleFunc("/users/{username}/onboard", a.OnboardUserDeviceFlow).Methods(http.MethodPost)
 	apiRouter.HandleFunc("/users/{username}/authpublickey", a.AuthPublicKey).Methods(http.MethodPost)
 
@@ -407,13 +407,13 @@ func (a *RESTApiService) OnboardUserDeviceFlow(w http.ResponseWriter, r *http.Re
 // @Accept       json
 // @Produce      json
 // @Param        username  path      string  true  "Username to check onboarding capability"
-// @Success      200       {object}  models.OnBoardCapability
+// @Success      200       {object}  models.OnboardCapability
 // @Failure      404       {string}  string  "User not found"
 // @Failure      500       {string}  string  "Failed to check onboarding capability
 // @Security     BearerAuth
 // @Router       /api/v1/users/{username}/onboardcap [get]
 // CanOnboardUser checks if a user can be onboarded using the Device Authorization Flow.
-func (a *RESTApiService) OnBoardCapability(w http.ResponseWriter, r *http.Request) {
+func (a *RESTApiService) OnboardCapability(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	username := vars["username"]
 	if username == "" {
