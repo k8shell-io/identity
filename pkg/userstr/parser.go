@@ -1,9 +1,8 @@
-// K8shell Workspace Identifier parser
+// K8shell user string parser
 //
 // Spec summary (v1.0):
 //
-//	WID   = local "@" addr
-//	local = user [ "~" ws-spec ]
+//	USERSTR = user [ "~" ws-spec ]
 //	ws-spec = bp-name | param-list
 //	param-list = kv *( "+" kv )
 //	kv = key "=" value
@@ -12,7 +11,7 @@
 // - Keys are normalized to lowercase.
 // - Slash "/" is allowed; when escaped as %2F it is decoded back to "/".
 // - Reserved delimiters: @ ~ + = (use %XX inside values if literal needed).
-package wid
+package userstr
 
 import (
 	"errors"
@@ -28,50 +27,34 @@ const (
 )
 
 var (
-	ErrBadFormat = errors.New("wid: bad format (expected local@addr)")
-	ErrEmptyUser = errors.New("wid: empty user")
-	ErrEmptyAddr = errors.New("wid: empty addr")
-	ErrBadParam  = errors.New("wid: bad param (expected key=value)")
-	ErrTooLong   = errors.New("wid: identifier too long")
+	ErrBadParam = errors.New("userstr: bad param (expected key=value)")
+	ErrTooLong  = errors.New("userstr: identifier too long")
 )
 
-// WID is the parsed representation of a Workspace Identifier.
-type WID struct {
+// UserStr is the parsed representation of a user string.
+type UserStr struct {
 	Raw       string            // original input
 	User      string            // user (left of ~ or whole local if no ~)
-	Addr      string            // right of @
 	Blueprint *string           // direct blueprint name (if no params)
 	Params    map[string]string // normalized keys to values (if params form)
 }
 
-// Parse parses a WID using default length constraints.
-func Parse(input string) (*WID, error) {
+// Parse parses a user string using default length constraints.
+func Parse(input string) (*UserStr, error) {
 	if MAX_TOTAL_LEN > 0 && utf8.RuneCountInString(input) > MAX_TOTAL_LEN {
 		return nil, fmt.Errorf("%w: total>%d", ErrTooLong, MAX_TOTAL_LEN)
 	}
 
-	local, addr, ok := cutOnce(input, "@")
-	if !ok {
-		return nil, ErrBadFormat
-	}
-	if local == "" {
-		return nil, ErrEmptyUser
-	}
-	if addr == "" {
-		return nil, ErrEmptyAddr
-	}
-
-	if MAX_LOCAL_LEN > 0 && utf8.RuneCountInString(local) > MAX_LOCAL_LEN {
+	if MAX_LOCAL_LEN > 0 && utf8.RuneCountInString(input) > MAX_LOCAL_LEN {
 		return nil, fmt.Errorf("%w: local>%d", ErrTooLong, MAX_LOCAL_LEN)
 	}
 
-	user, wsSpec, _ := cutOnce(local, "~")
+	user, wsSpec, _ := cutOnce(input, "~")
 
 	if wsSpec == "" {
-		return &WID{
+		return &UserStr{
 			Raw:       input,
 			User:      user,
-			Addr:      addr,
 			Blueprint: nil,
 			Params:    nil,
 		}, nil
@@ -80,12 +63,11 @@ func Parse(input string) (*WID, error) {
 	if !strings.Contains(wsSpec, "=") {
 		decoded, err := url.PathUnescape(wsSpec)
 		if err != nil {
-			return nil, fmt.Errorf("wid: blueprint percent-decode: %w", err)
+			return nil, fmt.Errorf("userstr: blueprint percent-decode: %w", err)
 		}
-		return &WID{
+		return &UserStr{
 			Raw:       input,
 			User:      user,
-			Addr:      addr,
 			Blueprint: &decoded,
 			Params:    nil,
 		}, nil
@@ -116,10 +98,9 @@ func Parse(input string) (*WID, error) {
 		params[k] = val
 	}
 
-	return &WID{
+	return &UserStr{
 		Raw:       input,
 		User:      user,
-		Addr:      addr,
 		Blueprint: nil,
 		Params:    params,
 	}, nil

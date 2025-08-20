@@ -1,14 +1,14 @@
-package wid
+package userstr
 
 import "testing"
 
 func TestDirectBlueprint(t *testing.T) {
-	r, err := Parse("tomas~dev@edge")
+	r, err := Parse("tomas~dev")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.User != "tomas" || r.Addr != "edge" {
-		t.Fatalf("unexpected user/addr: %+v", r)
+	if r.User != "tomas" {
+		t.Fatalf("unexpected user: %+v", r)
 	}
 	if r.Blueprint == nil || *r.Blueprint != "dev" {
 		t.Fatalf("unexpected blueprint: %+v", r.Blueprint)
@@ -19,7 +19,7 @@ func TestDirectBlueprint(t *testing.T) {
 }
 
 func TestParams(t *testing.T) {
-	r, err := Parse("tomas~repo=org/svc+ref=feat%2Fabc+mode=inspect@edge")
+	r, err := Parse("tomas~repo=org/svc+ref=feat%2Fabc+mode=inspect")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,11 +35,11 @@ func TestParams(t *testing.T) {
 }
 
 func TestNoSpec(t *testing.T) {
-	r, err := Parse("alice@host")
+	r, err := Parse("alice")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.User != "alice" || r.Addr != "host" {
+	if r.User != "alice" {
 		t.Fatalf("unexpected: %+v", r)
 	}
 	if r.Blueprint != nil || r.Params != nil {
@@ -49,16 +49,8 @@ func TestNoSpec(t *testing.T) {
 
 func TestErrors(t *testing.T) {
 	_, err := Parse("noat")
-	if err == nil {
-		t.Fatal("expected error for missing @")
-	}
-	_, err = Parse("@addr")
-	if err == nil {
-		t.Fatal("expected error for empty user")
-	}
-	_, err = Parse("user@")
-	if err == nil {
-		t.Fatal("expected error for empty addr")
+	if err != nil {
+		t.Fatal("expected user")
 	}
 	_, err = Parse("u~a=b=c@h")
 	if err == nil {
