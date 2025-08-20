@@ -11,9 +11,7 @@ package server
 // @name Authorization
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -21,13 +19,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gorilla/mux"
+	"github.com/gin-gonic/gin"
 	_ "github.com/k8shell-io/identity/docs"
 	"github.com/k8shell-io/identity/internal/backend"
 	"github.com/k8shell-io/identity/internal/log"
 	"github.com/k8shell-io/identity/pkg/models"
 	"github.com/rs/zerolog"
-	httpSwagger "github.com/swaggo/http-swagger"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
 // HttpConfig represents the HTTP server configuration.
@@ -41,43 +40,14 @@ type RESTApiService struct {
 	httpConfig HttpConfig
 	log        *zerolog.Logger
 	server     *Server
+	ginEngine  *gin.Engine
 }
-
-// responseRecorder is a wrapper for http.ResponseWriter
-// to capture the status code and response body.
-type responseRecorder struct {
-	http.ResponseWriter
-	statusCode int
-	body       bytes.Buffer
-}
-
-// WriteHeader captures the status code and forwards it to the original ResponseWriter
-func (rec *responseRecorder) WriteHeader(code int) {
-	rec.statusCode = code
-	rec.ResponseWriter.WriteHeader(code)
-}
-
-// Write captures the response body and writes it to the original ResponseWriter
-func (rec *responseRecorder) Write(data []byte) (int, error) {
-	rec.body.Write(data)
-	return rec.ResponseWriter.Write(data)
-}
-
-// writeJSONError writes a JSON error response with the given status code and message.
-func writeJSONError(w http.ResponseWriter, status int, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"status": status,
-		"msg":    msg,
-	})
-}
-
-// * Models for REST API requests and responses are defined in pkg/models
 
 // NewRESTAPI creates a new REST API service
 func NewRESTAPI(httpConfig HttpConfig, server *Server) (*RESTApiService, error) {
 	log := log.NewLogger("api")
+
+	gin.SetMode(gin.ReleaseMode)
 
 	return &RESTApiService{
 		httpConfig: httpConfig,
@@ -87,14 +57,17 @@ func NewRESTAPI(httpConfig HttpConfig, server *Server) (*RESTApiService, error) 
 }
 
 // apiKeyMiddleware checks for the presence of a valid API key in the request header
-// and allows access to the API endpoints only if the key matches the configured one.
-func (a *RESTApiService) apiKeyMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		authHeader := r.Header.Get("Authorization")
+func (a *RESTApiService) apiKeyMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
 		const prefix = "Bearer "
 
 		if !strings.HasPrefix(authHeader, prefix) {
-			http.Error(w, "Unauthorized: missing or malformed Authorization header", http.StatusUnauthorized)
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"status": http.StatusUnauthorized,
+				"msg":    "Unauthorized: missing or malformed Authorization header",
+			})
+			c.Abort()
 			return
 		}
 
@@ -102,63 +75,83 @@ func (a *RESTApiService) apiKeyMiddleware(next http.Handler) http.Handler {
 		expectedKey := a.httpConfig.APIKey
 
 		if providedKey != expectedKey {
-			http.Error(w, "Unauthorized: invalid API key", http.StatusUnauthorized)
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"status": http.StatusUnauthorized,
+				"msg":    "Unauthorized: invalid API key",
+			})
+			c.Abort()
 			return
 		}
 
-		next.ServeHTTP(w, r)
-	})
+		c.Next()
+	}
 }
 
-// Middleware to log requests and responses
-func (a *RESTApiService) loggingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		a.log.Debug().Msgf("Request: method %s, path %s", r.Method, r.URL.Path)
-		rec := &responseRecorder{ResponseWriter: w, statusCode: http.StatusOK}
-		next.ServeHTTP(rec, r)
-		a.log.Debug().Msgf("Response: status %d, body: %s", rec.statusCode, rec.body.String())
-	})
+// loggingMiddleware logs requests and responses
+func (a *RESTApiService) loggingMiddleware() gin.HandlerFunc {
+	return gin.LoggerWithWriter(a.log)
 }
 
 // Initialize the router
-func (a *RESTApiService) initializeRouter() *mux.Router {
-	router := mux.NewRouter()
+func (a *RESTApiService) initializeRouter() *gin.Engine {
+	router := gin.New()
 
-	// api router with API key middleware
-	apiRouter := router.PathPrefix("/api/v1").Subrouter()
-	apiRouter.Use(a.apiKeyMiddleware)
-	apiRouter.Use(a.loggingMiddleware)
+	// Add recovery middleware
+	router.Use(gin.Recovery())
 
-	// Define API endpoints
-	apiRouter.HandleFunc("/users", a.GetUsers).Methods(http.MethodGet)
-	apiRouter.HandleFunc("/users/{username}", a.FindUser).Methods(http.MethodGet)
-	apiRouter.HandleFunc("/users/{username}/onboardcap", a.OnboardCapability).Methods(http.MethodGet)
-	apiRouter.HandleFunc("/users/{username}/onboard", a.OnboardUserDeviceFlow).Methods(http.MethodPost)
-	apiRouter.HandleFunc("/users/{username}/authpublickey", a.AuthPublicKey).Methods(http.MethodPost)
+	// Add custom logging middleware
+	router.Use(a.loggingMiddleware())
 
-	apiRouter.HandleFunc("/users/{username}/sessions", a.GetSSHSessions).Methods(http.MethodGet)
-	apiRouter.HandleFunc("/users/{username}/sessions", a.CreateSSHSession).Methods(http.MethodPost)
-	apiRouter.HandleFunc("/users/{username}/sessions/{sessionId}", a.GetSSHSession).Methods(http.MethodGet)
-	apiRouter.HandleFunc("/users/{username}/sessions/{sessionId}", a.UpdateSSHSession).Methods(http.MethodPatch)
-	apiRouter.HandleFunc("/users/{username}/sessions/{sessionId}/end", a.EndSSHSession).Methods(http.MethodPost)
+	// API routes with authentication
+	v1 := router.Group("/api/v1")
+	v1.Use(a.apiKeyMiddleware())
+	{
+		// User endpoints
+		users := v1.Group("/users")
+		{
+			users.GET("/", a.GetUsers)
+			users.GET("/lookup", a.FindUserByUserStr)
+			users.GET("/:username", a.FindUser)
+			users.GET("/:username/onboardcap", a.OnboardCapability)
+			users.POST("/:username/onboard", a.OnboardUserDeviceFlow)
+			users.POST("/:username/authpublickey", a.AuthPublicKey)
+			users.GET("/:username/token", a.GetUserToken)
 
-	apiRouter.HandleFunc("/users/{username}/token", a.GetUserToken).Methods(http.MethodGet)
+			// Session endpoints
+			users.GET("/:username/sessions", a.GetSSHSessions)
+			users.POST("/:username/sessions", a.CreateSSHSession)
+			users.GET("/:username/sessions/:sessionId", a.GetSSHSession)
+			users.PATCH("/:username/sessions/:sessionId", a.UpdateSSHSession)
+			users.POST("/:username/sessions/:sessionId/end", a.EndSSHSession)
+		}
 
-	a.logRoutes(router)
+		// Blueprint endpoints
+		// blueprints := v1.Group("/blueprints")
+		// {
+		// 	blueprints.GET("/lookup", a.GetBlueprintByUserStr)
+		// }
+	}
 
-	router.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		a.log.Debug().Msgf("404 Not Found: %s %s", r.Method, r.URL.Path)
-		http.Error(w, "404 route not found", http.StatusNotFound)
+	// Swagger documentation
+	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+
+	// 404 handler
+	router.NoRoute(func(c *gin.Context) {
+		a.log.Debug().Msgf("404 Not Found: %s %s", c.Request.Method, c.Request.URL.Path)
+		c.JSON(http.StatusNotFound, gin.H{
+			"status": http.StatusNotFound,
+			"msg":    "404 route not found",
+		})
 	})
-
-	router.PathPrefix("/swagger/").Handler(httpSwagger.WrapHandler)
 
 	return router
 }
 
 func (a *RESTApiService) Serve(ctx context.Context) {
+	a.ginEngine = a.initializeRouter()
+
 	server := &http.Server{
-		Handler: a.initializeRouter(),
+		Handler: a.ginEngine,
 		Addr:    fmt.Sprintf(":%d", a.httpConfig.Port),
 	}
 
@@ -185,28 +178,6 @@ func (a *RESTApiService) Serve(ctx context.Context) {
 	<-idleConnsClosed
 }
 
-// logRoutes logs all registered routes in the router
-func (a *RESTApiService) logRoutes(router *mux.Router) {
-	err := router.Walk(func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
-		path, err := route.GetPathTemplate()
-		if err != nil {
-			path = "<undefined>"
-		}
-
-		methods, err := route.GetMethods()
-		if err != nil {
-			methods = []string{"<any>"}
-		}
-
-		a.log.Debug().Msgf("Route: %s Methods: %v", path, methods)
-		return nil
-	})
-
-	if err != nil {
-		a.log.Error().Msgf("Error walking routes: %v", err)
-	}
-}
-
 // parseQueryInt parses an integer from a query parameter string.
 func parseQueryInt(val string, defaultVal int) int {
 	if val == "" {
@@ -228,32 +199,26 @@ func parseQueryInt(val string, defaultVal int) int {
 // @Tags         users
 // @Accept       json
 // @Produce      json
-// @Param        limit   query     int  		false  "Number of users to return"
-// @Param        offset  query     int  		false  "Offset for pagination"
+// @Param        limit   query     int  false  "Number of users to return"
+// @Param        offset  query     int  false  "Offset for pagination"
 // @Success      200     {array}   models.User
 // @Security     BearerAuth
 // @Router       /api/v1/users [get]
-// GetUsers retrieves a list of users with pagination support.
-func (a *RESTApiService) GetUsers(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query()
-	limit := parseQueryInt(query.Get("limit"), backend.DefaultListLimit)
-	offset := parseQueryInt(query.Get("offset"), 0)
+func (a *RESTApiService) GetUsers(c *gin.Context) {
+	limit := parseQueryInt(c.Query("limit"), backend.DefaultListLimit)
+	offset := parseQueryInt(c.Query("offset"), 0)
 
 	users, err := a.server.DB.ListUsers(limit, offset)
 	if err != nil {
 		a.log.Error().Err(err).Msg("Failed to list users from database")
-		writeJSONError(w, http.StatusInternalServerError, "Failed to list users")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status": http.StatusInternalServerError,
+			"msg":    "Failed to list users",
+		})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-
-	if err := json.NewEncoder(w).Encode(users); err != nil {
-		a.log.Error().Err(err).Msg("Failed to encode users to JSON")
-		writeJSONError(w, http.StatusInternalServerError, "Failed to encode users")
-		return
-	}
+	c.JSON(http.StatusOK, users)
 }
 
 // FindUser godoc
@@ -262,18 +227,19 @@ func (a *RESTApiService) GetUsers(w http.ResponseWriter, r *http.Request) {
 // @Tags         users
 // @Accept       json
 // @Produce      json
-// @Param        username  path      string         true  "Username to look up"
+// @Param        username  path      string  true  "Username to look up"
 // @Success      200       {object}  models.User
-// @Failure      400       {string}  string  		"Missing username"
-// @Failure      404       {string}  string  		"User not found"
+// @Failure      400       {string}  string  "Missing username"
+// @Failure      404       {string}  string  "User not found"
 // @Security     BearerAuth
 // @Router       /api/v1/users/{username} [get]
-// FindUser retrieves a user by their username and returns their details.
-func (a *RESTApiService) FindUser(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	username := vars["username"]
+func (a *RESTApiService) FindUser(c *gin.Context) {
+	username := c.Param("username")
 	if username == "" {
-		writeJSONError(w, http.StatusBadRequest, "Username is required")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "Username is required",
+		})
 		return
 	}
 
@@ -281,24 +247,94 @@ func (a *RESTApiService) FindUser(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		a.log.Error().Err(err).Msgf("Failed to find user '%s'", username)
 		if errors.Is(err, models.ErrUserNotFound) || errors.Is(err, models.ErrUserIsNotValid) {
-			writeJSONError(w, http.StatusNotFound, fmt.Sprintf("User '%s' not found or invalid", username))
+			c.JSON(http.StatusNotFound, gin.H{
+				"status": http.StatusNotFound,
+				"msg":    fmt.Sprintf("User '%s' not found or invalid", username),
+			})
 		} else {
-			writeJSONError(w, http.StatusInternalServerError, "Failed to find user")
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"status": http.StatusInternalServerError,
+				"msg":    "Failed to find user",
+			})
 		}
 		return
 	}
+
 	if user == nil {
-		writeJSONError(w, http.StatusNotFound, fmt.Sprintf("User '%s' not found", username))
+		c.JSON(http.StatusNotFound, gin.H{
+			"status": http.StatusNotFound,
+			"msg":    fmt.Sprintf("User '%s' not found", username),
+		})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(user); err != nil {
-		a.log.Error().Err(err).Msg("Failed to encode user JSON")
-		writeJSONError(w, http.StatusInternalServerError, "Failed to encode user response")
+	c.JSON(http.StatusOK, user)
+}
+
+// FindUserByUserStr godoc
+// @Summary      Find user by userstr
+// @Description  Retrieves a user by parsing a userstr structure.
+// @Tags         users
+// @Accept       json
+// @Produce      json
+// @Param        userstr   query     string  true  "Userstr to parse and lookup user"
+// @Success      200       {object}  models.User
+// @Failure      400       {string}  string  "Missing or invalid userstr"
+// @Failure      404       {string}  string  "User not found"
+// @Security     BearerAuth
+// @Router       /api/v1/users/lookup [get]
+func (a *RESTApiService) FindUserByUserStr(c *gin.Context) {
+	userstrParam := c.Query("userstr")
+	if userstrParam == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "userstr parameter is required",
+		})
 		return
 	}
+
+	// TODO: Parse the userstr using your pkg/userstr package
+	// parsedUserStr, err := userstr.Parse(userstrParam)
+	// if err != nil {
+	//     a.log.Error().Err(err).Msgf("Failed to parse userstr '%s'", userstrParam)
+	//     c.JSON(http.StatusBadRequest, gin.H{
+	//         "status": http.StatusBadRequest,
+	//         "msg":    fmt.Sprintf("Invalid userstr: %v", err),
+	//     })
+	//     return
+	// }
+
+	// username := parsedUserStr.Username
+
+	// For now, using userstrParam directly as username
+	username := userstrParam
+
+	user, err := a.server.GetUser(username)
+	if err != nil {
+		a.log.Error().Err(err).Msgf("Failed to find user from userstr '%s'", userstrParam)
+		if errors.Is(err, models.ErrUserNotFound) || errors.Is(err, models.ErrUserIsNotValid) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"status": http.StatusNotFound,
+				"msg":    fmt.Sprintf("User not found for userstr '%s'", userstrParam),
+			})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"status": http.StatusInternalServerError,
+				"msg":    "Failed to find user",
+			})
+		}
+		return
+	}
+
+	if user == nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"status": http.StatusNotFound,
+			"msg":    fmt.Sprintf("User not found for userstr '%s'", userstrParam),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, user)
 }
 
 // AuthPublicKey godoc
@@ -313,44 +349,48 @@ func (a *RESTApiService) FindUser(w http.ResponseWriter, r *http.Request) {
 // @Failure      400       {string}  string  "Missing or invalid data"
 // @Security     BearerAuth
 // @Router       /api/v1/users/{username}/authpublickey [post]
-// AuthenticateUser checks if the user exists and is valid, then authenticates them using the provided public key.
-func (a *RESTApiService) AuthPublicKey(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	username := vars["username"]
+func (a *RESTApiService) AuthPublicKey(c *gin.Context) {
+	username := c.Param("username")
 	if username == "" {
-		writeJSONError(w, http.StatusBadRequest, "Username is required")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "Username is required",
+		})
 		return
 	}
 
 	var req models.AuthPublicKeyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := c.ShouldBindJSON(&req); err != nil {
 		a.log.Error().Err(err).Msg("Failed to decode request body")
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "Invalid request body",
+		})
 		return
 	}
 
 	if req.PublicKey == "" {
-		writeJSONError(w, http.StatusBadRequest, "Public key is required")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "Public key is required",
+		})
 		return
 	}
 
 	isAuthenticated, err := a.server.AuthenticateUser(username, req.PublicKey)
 	if err != nil {
 		a.log.Error().Err(err).Msgf("Failed to authenticate user '%s'", username)
-		writeJSONError(w, http.StatusInternalServerError, "Failed to authenticate user")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status": http.StatusInternalServerError,
+			"msg":    "Failed to authenticate user",
+		})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	var response models.AuthPublicKeyResponse = models.AuthPublicKeyResponse{
+	response := models.AuthPublicKeyResponse{
 		Authenticated: isAuthenticated,
 	}
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		a.log.Error().Err(err).Msg("Failed to encode authentication response")
-		writeJSONError(w, http.StatusInternalServerError, "Failed to encode response")
-		return
-	}
+	c.JSON(http.StatusOK, response)
 }
 
 // OnboardUserDeviceFlow godoc
@@ -364,43 +404,47 @@ func (a *RESTApiService) AuthPublicKey(w http.ResponseWriter, r *http.Request) {
 // @Failure      400       {string}  string  "Missing username"
 // @Security     BearerAuth
 // @Router       /api/v1/users/{username}/onboard [post]
-// OnboardUserDeviceFlow initiates the Device Authorization Flow to onboard a user.
-func (a *RESTApiService) OnboardUserDeviceFlow(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	username := vars["username"]
+func (a *RESTApiService) OnboardUserDeviceFlow(c *gin.Context) {
+	username := c.Param("username")
 	if username == "" {
-		writeJSONError(w, http.StatusBadRequest, "Username is required")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "Username is required",
+		})
 		return
 	}
 
 	onboardUser, err := a.server.OnboardUserDeviceFlow(username)
 	if err != nil {
 		if errors.Is(err, models.ErrOnboardingPending) {
-			writeJSONError(w, http.StatusBadRequest, "User onboarding is already in progress")
-			return
+			c.JSON(http.StatusBadRequest, gin.H{
+				"status": http.StatusBadRequest,
+				"msg":    "User onboarding is already in progress",
+			})
 		} else if errors.Is(err, models.ErrUserNotFound) {
-			writeJSONError(w, http.StatusNotFound, fmt.Sprintf("User '%s' not found", username))
-			return
+			c.JSON(http.StatusNotFound, gin.H{
+				"status": http.StatusNotFound,
+				"msg":    fmt.Sprintf("User '%s' not found", username),
+			})
 		} else if errors.Is(err, models.ErrAlreadyOnboarded) {
-			writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("User '%s' is already onboarded", username))
-			return
+			c.JSON(http.StatusBadRequest, gin.H{
+				"status": http.StatusBadRequest,
+				"msg":    fmt.Sprintf("User '%s' is already onboarded", username),
+			})
 		} else {
 			a.log.Error().Err(err).Msgf("Failed to onboard user '%s'", username)
-			writeJSONError(w, http.StatusBadRequest, "Failed to onboard user")
-			return
+			c.JSON(http.StatusBadRequest, gin.H{
+				"status": http.StatusBadRequest,
+				"msg":    "Failed to onboard user",
+			})
 		}
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(onboardUser); err != nil {
-		a.log.Error().Err(err).Msg("Failed to encode onboard user response")
-		writeJSONError(w, http.StatusInternalServerError, "Failed to encode onboard user response")
 		return
 	}
+
+	c.JSON(http.StatusOK, onboardUser)
 }
 
-// CanOnboardUser godoc
+// OnboardCapability godoc
 // @Summary      Check if user can be onboarded
 // @Description  Checks if a user can be onboarded using the Device Authorization Flow.
 // @Tags         users
@@ -409,32 +453,30 @@ func (a *RESTApiService) OnboardUserDeviceFlow(w http.ResponseWriter, r *http.Re
 // @Param        username  path      string  true  "Username to check onboarding capability"
 // @Success      200       {object}  models.OnboardCapability
 // @Failure      404       {string}  string  "User not found"
-// @Failure      500       {string}  string  "Failed to check onboarding capability
+// @Failure      500       {string}  string  "Failed to check onboarding capability"
 // @Security     BearerAuth
 // @Router       /api/v1/users/{username}/onboardcap [get]
-// CanOnboardUser checks if a user can be onboarded using the Device Authorization Flow.
-func (a *RESTApiService) OnboardCapability(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	username := vars["username"]
+func (a *RESTApiService) OnboardCapability(c *gin.Context) {
+	username := c.Param("username")
 	if username == "" {
-		writeJSONError(w, http.StatusBadRequest, "Username is required")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "Username is required",
+		})
 		return
 	}
 
 	cap, err := a.server.OnboardCapability(username)
 	if err != nil {
 		a.log.Error().Err(err).Msgf("Failed to check if user '%s' can be onboarded", username)
-		writeJSONError(w, http.StatusInternalServerError, "Failed to check onboarding capability")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status": http.StatusInternalServerError,
+			"msg":    "Failed to check onboarding capability",
+		})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(cap); err != nil {
-		a.log.Error().Err(err).Msg("Failed to encode onboarding capability response")
-		writeJSONError(w, http.StatusInternalServerError, "Failed to encode onboarding capability response")
-		return
-	}
+	c.JSON(http.StatusOK, cap)
 }
 
 // GetUserToken godoc
@@ -450,41 +492,44 @@ func (a *RESTApiService) OnboardCapability(w http.ResponseWriter, r *http.Reques
 // @Failure      500       {string}  string  "Failed to get user token"
 // @Security     BearerAuth
 // @Router       /api/v1/users/{username}/token [get]
-// GetUserToken retrieves a user token for the specified username.
-func (a *RESTApiService) GetUserToken(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	username := vars["username"]
+func (a *RESTApiService) GetUserToken(c *gin.Context) {
+	username := c.Param("username")
 	if username == "" {
-		writeJSONError(w, http.StatusBadRequest, "Username is required")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "Username is required",
+		})
 		return
 	}
 
 	token, err := a.server.GetUserToken(username)
 	if err != nil {
 		if errors.Is(err, models.ErrUserNotFound) {
-			writeJSONError(w, http.StatusNotFound, fmt.Sprintf("User '%s' not found", username))
-			return
+			c.JSON(http.StatusNotFound, gin.H{
+				"status": http.StatusNotFound,
+				"msg":    fmt.Sprintf("User '%s' not found", username),
+			})
+		} else if errors.Is(err, models.ErrUserIsNotValid) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"status": http.StatusBadRequest,
+				"msg":    fmt.Sprintf("User '%s' is not valid", username),
+			})
+		} else if errors.Is(err, models.ErrUserTokenNotSupported) {
+			c.JSON(http.StatusNotImplemented, gin.H{
+				"status": http.StatusNotImplemented,
+				"msg":    fmt.Sprintf("User token not supported for '%s'", username),
+			})
+		} else {
+			a.log.Error().Err(err).Msgf("Failed to get user token for '%s'", username)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"status": http.StatusInternalServerError,
+				"msg":    "Failed to get user token",
+			})
 		}
-		if errors.Is(err, models.ErrUserIsNotValid) {
-			writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("User '%s' is not valid", username))
-			return
-		}
-		if errors.Is(err, models.ErrUserTokenNotSupported) {
-			writeJSONError(w, http.StatusNotImplemented, fmt.Sprintf("User token not supported for '%s'", username))
-			return
-		}
-		a.log.Error().Err(err).Msgf("Failed to get user token for '%s'", username)
-		writeJSONError(w, http.StatusInternalServerError, "Failed to get user token")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(token); err != nil {
-		a.log.Error().Err(err).Msg("Failed to encode user token response")
-		writeJSONError(w, http.StatusInternalServerError, "Failed to encode user token response")
-		return
-	}
+	c.JSON(http.StatusOK, token)
 }
 
 // ** SSH SESSIONS
@@ -504,32 +549,31 @@ func (a *RESTApiService) GetUserToken(w http.ResponseWriter, r *http.Request) {
 // @Failure      404       {string}  string  "User not found"
 // @Security     BearerAuth
 // @Router       /api/v1/users/{username}/sessions [get]
-// GetSSHSessions retrieves a list of SSH sessions for a user with pagination and sorting options.
-func (a *RESTApiService) GetSSHSessions(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query()
-	limit := parseQueryInt(query.Get("limit"), backend.DefaultListLimit)
-	offset := parseQueryInt(query.Get("offset"), 0)
-	reverse := query.Get("reverse") == "true"
-
-	vars := mux.Vars(r)
-	username := vars["username"]
+func (a *RESTApiService) GetSSHSessions(c *gin.Context) {
+	username := c.Param("username")
 	if username == "" {
-		writeJSONError(w, http.StatusBadRequest, "Username is required")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "Username is required",
+		})
 		return
 	}
+
+	limit := parseQueryInt(c.Query("limit"), backend.DefaultListLimit)
+	offset := parseQueryInt(c.Query("offset"), 0)
+	reverse := c.Query("reverse") == "true"
+
 	sessions, err := a.server.GetSSHSessions(username, limit, offset, reverse)
 	if err != nil {
 		a.log.Error().Err(err).Msgf("Failed to get SSH sessions for user '%s'", username)
-		writeJSONError(w, http.StatusInternalServerError, "Failed to get SSH sessions")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status": http.StatusInternalServerError,
+			"msg":    "Failed to get SSH sessions",
+		})
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(sessions); err != nil {
-		a.log.Error().Err(err).Msg("Failed to encode SSH sessions response")
-		writeJSONError(w, http.StatusInternalServerError, "Failed to encode SSH sessions response")
-		return
-	}
+
+	c.JSON(http.StatusOK, sessions)
 }
 
 // GetSSHSession godoc
@@ -546,45 +590,54 @@ func (a *RESTApiService) GetSSHSessions(w http.ResponseWriter, r *http.Request) 
 // @Failure      500        {string}  string  "Failed to get SSH session"
 // @Security     BearerAuth
 // @Router       /api/v1/users/{username}/sessions/{sessionId} [get]
-// GetSSHSession retrieves a specific SSH session by its ID for a user.
-func (a *RESTApiService) GetSSHSession(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	username := vars["username"]
+func (a *RESTApiService) GetSSHSession(c *gin.Context) {
+	username := c.Param("username")
 	if username == "" {
-		writeJSONError(w, http.StatusBadRequest, "Username is required")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "Username is required",
+		})
 		return
 	}
 
-	sessionIdStr := vars["sessionId"]
+	sessionIdStr := c.Param("sessionId")
 	if sessionIdStr == "" {
-		writeJSONError(w, http.StatusBadRequest, "Session ID is required")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "Session ID is required",
+		})
 		return
 	}
+
 	id64, err := strconv.ParseInt(sessionIdStr, 10, 32)
 	if err != nil {
 		a.log.Error().Err(err).Msgf("Invalid session ID '%s' for user '%s'", sessionIdStr, username)
-		writeJSONError(w, http.StatusBadRequest, "Invalid session ID")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "Invalid session ID",
+		})
 		return
 	}
 	sessionId := int32(id64)
 
-	sessions, err := a.server.GetSSHSession(username, sessionId)
+	session, err := a.server.GetSSHSession(username, sessionId)
 	if err != nil {
 		a.log.Error().Err(err).Msgf("Failed to get SSH session '%d' for user '%s': %s", sessionId, username, err)
 		if errors.Is(err, models.ErrSessionNotFound) {
-			writeJSONError(w, http.StatusNotFound, fmt.Sprintf("Session ID %d for user '%s' not found", sessionId, username))
+			c.JSON(http.StatusNotFound, gin.H{
+				"status": http.StatusNotFound,
+				"msg":    fmt.Sprintf("Session ID %d for user '%s' not found", sessionId, username),
+			})
 		} else {
-			writeJSONError(w, http.StatusInternalServerError, "Failed to get SSH session")
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"status": http.StatusInternalServerError,
+				"msg":    "Failed to get SSH session",
+			})
 		}
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(sessions); err != nil {
-		a.log.Error().Err(err).Msg("Failed to encode SSH session response")
-		writeJSONError(w, http.StatusInternalServerError, "Failed to encode SSH session response")
-		return
-	}
+
+	c.JSON(http.StatusOK, session)
 }
 
 // CreateSSHSession godoc
@@ -600,36 +653,38 @@ func (a *RESTApiService) GetSSHSession(w http.ResponseWriter, r *http.Request) {
 // @Failure      500       {string}  string  "Failed to create SSH session"
 // @Security     BearerAuth
 // @Router       /api/v1/users/{username}/sessions [post]
-func (a *RESTApiService) CreateSSHSession(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	username := vars["username"]
+func (a *RESTApiService) CreateSSHSession(c *gin.Context) {
+	username := c.Param("username")
 	if username == "" {
-		writeJSONError(w, http.StatusBadRequest, "Username is required")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "Username is required",
+		})
 		return
 	}
 
 	var req models.CreateSSHSessionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := c.ShouldBindJSON(&req); err != nil {
 		a.log.Error().Err(err).Msg("Failed to decode request body")
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "Invalid request body",
+		})
 		return
 	}
 
 	session, err := a.server.CreateSSHSession(username, req.Workspace, req.ProxyID, req.ProxyPID, req.ClientIP)
 	if err != nil {
 		a.log.Error().Err(err).Msgf("Failed to create SSH session for user '%s'", username)
-		writeJSONError(w, http.StatusInternalServerError, "Failed to create SSH session")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status": http.StatusInternalServerError,
+			"msg":    "Failed to create SSH session",
+		})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Location", fmt.Sprintf("/api/v1/users/%s/sessions/%d", username, session.SessionID))
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(session); err != nil {
-		a.log.Error().Err(err).Msg("Failed to encode SSH session")
-		writeJSONError(w, http.StatusInternalServerError, "Failed to encode SSH session")
-		return
-	}
+	c.Header("Location", fmt.Sprintf("/api/v1/users/%s/sessions/%d", username, session.SessionID))
+	c.JSON(http.StatusOK, session)
 }
 
 // UpdateSSHSession godoc
@@ -647,25 +702,34 @@ func (a *RESTApiService) CreateSSHSession(w http.ResponseWriter, r *http.Request
 // @Failure      500       {string}  string  "Failed to update SSH session"
 // @Security     BearerAuth
 // @Router       /api/v1/users/{username}/sessions/{sessionId} [patch]
-func (a *RESTApiService) UpdateSSHSession(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	username := vars["username"]
-	sessionIDStr := vars["sessionId"]
+func (a *RESTApiService) UpdateSSHSession(c *gin.Context) {
+	username := c.Param("username")
+	sessionIDStr := c.Param("sessionId")
+
 	if username == "" || sessionIDStr == "" {
-		writeJSONError(w, http.StatusBadRequest, "Username and session ID are required")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "Username and session ID are required",
+		})
 		return
 	}
 
 	sessionID, err := strconv.Atoi(sessionIDStr)
 	if err != nil || sessionID <= 0 {
-		writeJSONError(w, http.StatusBadRequest, "Invalid session ID")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "Invalid session ID",
+		})
 		return
 	}
 
 	var req models.UpdateSSHSessionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := c.ShouldBindJSON(&req); err != nil {
 		a.log.Error().Err(err).Msg("Failed to decode request body")
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "Invalid request body",
+		})
 		return
 	}
 
@@ -674,14 +738,20 @@ func (a *RESTApiService) UpdateSSHSession(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		a.log.Error().Err(err).Msgf("Failed to update SSH session for user '%s': %s", username, err)
 		if errors.Is(err, models.ErrActiveSessionNotFound) {
-			writeJSONError(w, http.StatusNotFound, fmt.Sprintf("Session ID %d for user '%s' not found or already ended", sessionID, username))
+			c.JSON(http.StatusNotFound, gin.H{
+				"status": http.StatusNotFound,
+				"msg":    fmt.Sprintf("Session ID %d for user '%s' not found or already ended", sessionID, username),
+			})
 		} else {
-			writeJSONError(w, http.StatusInternalServerError, "Failed to update SSH session")
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"status": http.StatusInternalServerError,
+				"msg":    "Failed to update SSH session",
+			})
 		}
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	c.Status(http.StatusNoContent)
 }
 
 // EndSSHSession godoc
@@ -698,18 +768,24 @@ func (a *RESTApiService) UpdateSSHSession(w http.ResponseWriter, r *http.Request
 // @Failure      500       {string}  string  "Failed to end SSH session"
 // @Security     BearerAuth
 // @Router       /api/v1/users/{username}/sessions/{sessionId}/end [post]
-func (a *RESTApiService) EndSSHSession(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	username := vars["username"]
-	sessionIDStr := vars["sessionId"]
+func (a *RESTApiService) EndSSHSession(c *gin.Context) {
+	username := c.Param("username")
+	sessionIDStr := c.Param("sessionId")
+
 	if username == "" || sessionIDStr == "" {
-		writeJSONError(w, http.StatusBadRequest, "Username and session ID are required")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "Username and session ID are required",
+		})
 		return
 	}
 
 	sessionID, err := strconv.Atoi(sessionIDStr)
 	if err != nil || sessionID <= 0 {
-		writeJSONError(w, http.StatusBadRequest, "Invalid session ID")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "Invalid session ID",
+		})
 		return
 	}
 
@@ -717,12 +793,70 @@ func (a *RESTApiService) EndSSHSession(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		a.log.Error().Err(err).Msgf("Failed to end SSH session for user '%s': %s", username, err)
 		if errors.Is(err, models.ErrActiveSessionNotFound) {
-			writeJSONError(w, http.StatusNotFound, fmt.Sprintf("Session ID %d for user '%s' not found or already ended", sessionID, username))
+			c.JSON(http.StatusNotFound, gin.H{
+				"status": http.StatusNotFound,
+				"msg":    fmt.Sprintf("Session ID %d for user '%s' not found or already ended", sessionID, username),
+			})
 		} else {
-			writeJSONError(w, http.StatusInternalServerError, "Failed to end SSH session")
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"status": http.StatusInternalServerError,
+				"msg":    "Failed to end SSH session",
+			})
 		}
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	c.Status(http.StatusNoContent)
 }
+
+// // ** BLUEPRINTS
+
+// // GetBlueprintByUserStr godoc
+// // @Summary      Get blueprint by userstr
+// // @Description  Retrieves a blueprint definition by parsing userstr to extract repo owner and name.
+// // @Tags         blueprints
+// // @Accept       json
+// // @Produce      json
+// // @Param        userstr   query     string  true  "Userstr containing repo owner and name"
+// // @Success      200       {object}  models.Blueprint
+// // @Failure      400       {string}  string  "Missing or invalid userstr"
+// // @Failure      404       {string}  string  "Blueprint not found"
+// // @Security     BearerAuth
+// // @Router       /api/v1/blueprints/lookup [get]
+// func (a *RESTApiService) GetBlueprintByUserStr(c *gin.Context) {
+// 	userstrParam := c.Query("userstr")
+// 	if userstrParam == "" {
+// 		c.JSON(http.StatusBadRequest, gin.H{
+// 			"status": http.StatusBadRequest,
+// 			"msg":    "userstr parameter is required",
+// 		})
+// 		return
+// 	}
+
+// 	// TODO: Parse the userstr using your pkg/userstr package
+// 	// parsedUserStr, err := userstr.Parse(userstrParam)
+// 	// if err != nil {
+// 	//     a.log.Error().Err(err).Msgf("Failed to parse userstr '%s'", userstrParam)
+// 	//     c.JSON(http.StatusBadRequest, gin.H{
+// 	//         "status": http.StatusBadRequest,
+// 	//         "msg":    fmt.Sprintf("Invalid userstr: %v", err),
+// 	//     })
+// 	//     return
+// 	// }
+
+// 	// if parsedUserStr.RepoOwner == "" || parsedUserStr.RepoName == "" {
+// 	//     c.JSON(http.StatusBadRequest, gin.H{
+// 	//         "status": http.StatusBadRequest,
+// 	//         "msg":    "userstr must contain repository owner and name",
+// 	//     })
+// 	//     return
+// 	// }
+
+// 	// blueprint, err := a.server.GetBlueprint(parsedUserStr.RepoOwner, parsedUserStr.RepoName)
+
+// 	// Placeholder implementation - replace when userstr package is ready
+// 	c.JSON(http.StatusNotImplemented, gin.H{
+// 		"status": http.StatusNotImplemented,
+// 		"msg":    "Blueprint lookup by userstr not yet implemented",
+// 	})
+// }

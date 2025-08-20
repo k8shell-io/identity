@@ -3,3 +3,4 @@ docker/identity/files
 vendor
 dist/
 __debug*
+wiki
