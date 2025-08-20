@@ -10,7 +10,7 @@ func TestDirectBlueprint(t *testing.T) {
 	if r.User != "tomas" {
 		t.Fatalf("unexpected user: %+v", r)
 	}
-	if r.Blueprint == nil || *r.Blueprint != "dev" {
+	if r.Blueprint != "dev" {
 		t.Fatalf("unexpected blueprint: %+v", r.Blueprint)
 	}
 	if r.Params != nil {
@@ -42,7 +42,7 @@ func TestNoSpec(t *testing.T) {
 	if r.User != "alice" {
 		t.Fatalf("unexpected: %+v", r)
 	}
-	if r.Blueprint != nil || r.Params != nil {
+	if r.Blueprint != "" || r.Params != nil {
 		t.Fatalf("expected nil bp/params")
 	}
 }

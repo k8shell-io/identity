@@ -35,7 +35,7 @@ var (
 type UserStr struct {
 	Raw       string            // original input
 	User      string            // user (left of ~ or whole local if no ~)
-	Blueprint *string           // direct blueprint name (if no params)
+	Blueprint string            // direct blueprint name (if no params)
 	Params    map[string]string // normalized keys to values (if params form)
 }
 
@@ -55,7 +55,7 @@ func Parse(input string) (*UserStr, error) {
 		return &UserStr{
 			Raw:       input,
 			User:      user,
-			Blueprint: nil,
+			Blueprint: "",
 			Params:    nil,
 		}, nil
 	}
@@ -68,7 +68,7 @@ func Parse(input string) (*UserStr, error) {
 		return &UserStr{
 			Raw:       input,
 			User:      user,
-			Blueprint: &decoded,
+			Blueprint: decoded,
 			Params:    nil,
 		}, nil
 	}
@@ -101,7 +101,7 @@ func Parse(input string) (*UserStr, error) {
 	return &UserStr{
 		Raw:       input,
 		User:      user,
-		Blueprint: nil,
+		Blueprint: "",
 		Params:    params,
 	}, nil
 }
