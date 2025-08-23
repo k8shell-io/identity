@@ -89,7 +89,12 @@ func (f *FileUserProvider) FindUser(username string) (*models.User, error) {
 	return user, nil
 }
 
-func (p *FileUserProvider) AuthPublicKey(user *models.User, key ssh.PublicKey) (bool, error) {
+func (p *FileUserProvider) AuthPublicKey(username string, key ssh.PublicKey) (bool, error) {
+	user, err := p.FindUser(username)
+	if err != nil {
+		return false, err
+	}
+
 	var authKeys string
 	for _, k := range user.AuthKeys {
 		authKeys += k + "\n"
@@ -122,7 +127,11 @@ func (p *FileUserProvider) OnboardUserDeviceFlow(username string) (*models.Onboa
 		models.ErrMethodNotSupported)
 }
 
-func (f *FileUserProvider) GetUserToken(user *models.User) (*models.UserToken, error) {
+func (f *FileUserProvider) GetUserToken(username string) (*models.UserToken, error) {
 	// File user provider does not support user tokens
 	return nil, fmt.Errorf("%w: file user provider does not support user tokens", models.ErrMethodNotSupported)
+}
+
+func (p *FileUserProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlueprint, error) {
+	return nil, fmt.Errorf("%w: file user provider does not support custom blueprints", models.ErrMethodNotSupported)
 }

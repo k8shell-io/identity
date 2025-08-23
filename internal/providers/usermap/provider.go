@@ -124,10 +124,10 @@ func (p *UserMapProvider) keysFromURL(username string) ([]string, []string, erro
 	return common.ParseKeys(string(body))
 }
 
-func (p *UserMapProvider) AuthPublicKey(user *models.User, key ssh.PublicKey) (bool, error) {
-	keys, _, err := p.keysFromURL(user.Username)
+func (p *UserMapProvider) AuthPublicKey(username string, key ssh.PublicKey) (bool, error) {
+	keys, _, err := p.keysFromURL(username)
 	if err != nil {
-		return false, fmt.Errorf("failed to fetch keys for user %s: %w", user.Username, err)
+		return false, fmt.Errorf("failed to fetch keys for user %s: %w", username, err)
 	}
 
 	provided := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
@@ -146,7 +146,11 @@ func (p *UserMapProvider) OnboardUserDeviceFlow(username string) (*models.Onboar
 		models.ErrMethodNotSupported)
 }
 
-func (p *UserMapProvider) GetUserToken(user *models.User) (*models.UserToken, error) {
+func (p *UserMapProvider) GetUserToken(username string) (*models.UserToken, error) {
 	// Usermap provider does not support user tokens
 	return nil, fmt.Errorf("%w: usermap provider does not support user tokens", models.ErrMethodNotSupported)
+}
+
+func (p *UserMapProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlueprint, error) {
+	return nil, fmt.Errorf("%w: usermap provider does not support custom blueprints", models.ErrMethodNotSupported)
 }

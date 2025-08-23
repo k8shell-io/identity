@@ -274,54 +274,54 @@ func (p *GitHubProvider) pollForAccessToken(username, deviceCode string, interva
 	}
 }
 
-func (p *GitHubProvider) AuthPublicKey(user *models.User, key ssh.PublicKey) (bool, error) {
-	providerInfo, err := p.db.GetUserProviderInfo(user.Username, p.Name())
+func (p *GitHubProvider) AuthPublicKey(username string, key ssh.PublicKey) (bool, error) {
+	providerInfo, err := p.db.GetUserProviderInfo(username, p.Name())
 	if err != nil {
-		return false, fmt.Errorf("failed to get user provider info for '%s': %w", user.Username, err)
+		return false, fmt.Errorf("failed to get user provider info for '%s': %w", username, err)
 	}
 	if providerInfo == nil || providerInfo.Status != "ready" {
 		return false, fmt.Errorf("%w: user '%s' is not ready with provider %s", models.ErrUserNotOnboarded,
-			user.Username, p.Name())
+			username, p.Name())
 	}
 
 	var keys []string
 	if p.memcache != nil {
-		CacheKeys := fmt.Sprintf("github:%s:keys", user.Username)
+		CacheKeys := fmt.Sprintf("github:%s:keys", username)
 		cacheItem, err := p.memcache.Get(CacheKeys)
 		if err == nil && cacheItem != nil {
 			keys = strings.Split(strings.TrimSpace(string(cacheItem.Value)), "\n")
 		}
 		if err != nil && err != memcache.ErrCacheMiss {
-			p.log.Warn().Err(err).Msgf("failed to get cached public keys for user '%s'", user.Username)
+			p.log.Warn().Err(err).Msgf("failed to get cached public keys for user '%s'", username)
 		}
 	}
 
 	if len(keys) == 0 {
-		keys, err = getPublicKeys(p.httpClient, user.Username, providerInfo.AccessToken)
+		keys, err = getPublicKeys(p.httpClient, username, providerInfo.AccessToken)
 		if err != nil {
 			if errors.Is(err, ErrUnauthorized) {
-				p.db.UpdateUserProviderStatus(user.Username, p.Name(), "invalid")
-				p.db.InvalidateUser(user.Username)
+				p.db.UpdateUserProviderStatus(username, p.Name(), "invalid")
+				p.db.InvalidateUser(username)
 			}
-			return false, fmt.Errorf("failed to get public keys for user '%s': %w", user.Username, err)
+			return false, fmt.Errorf("failed to get public keys for user '%s': %w", username, err)
 		}
 
 		if p.memcache != nil && len(keys) > 0 {
 			// Cache the public keys for 10 seconds
-			CacheKeys := fmt.Sprintf("github:%s:keys", user.Username)
+			CacheKeys := fmt.Sprintf("github:%s:keys", username)
 			if err := p.memcache.Set(&memcache.Item{
 				Key:        CacheKeys,
 				Value:      []byte(strings.Join(keys, "\n")),
 				Expiration: 10,
 			}); err != nil {
-				p.log.Warn().Err(err).Msgf("failed to cache public keys for user '%s'", user.Username)
+				p.log.Warn().Err(err).Msgf("failed to cache public keys for user '%s'", username)
 			}
 		}
 	}
 
 	parsedKeys, _, err := common.ParseKeyList(keys)
 	if err != nil {
-		return false, fmt.Errorf("failed to parse public keys for user '%s': %w", user.Username, err)
+		return false, fmt.Errorf("failed to parse public keys for user '%s': %w", username, err)
 	}
 
 	provided := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
@@ -333,23 +333,27 @@ func (p *GitHubProvider) AuthPublicKey(user *models.User, key ssh.PublicKey) (bo
 	return false, nil
 }
 
-func (p *GitHubProvider) GetUserToken(user *models.User) (*models.UserToken, error) {
-	providerInfo, err := p.db.GetUserProviderInfo(user.Username, p.Name())
+func (p *GitHubProvider) GetUserToken(username string) (*models.UserToken, error) {
+	providerInfo, err := p.db.GetUserProviderInfo(username, p.Name())
 	if err != nil {
-		return nil, fmt.Errorf("failed to get user provider info for '%s': %w", user.Username, err)
+		return nil, fmt.Errorf("failed to get user provider info for '%s': %w", username, err)
 	}
 
 	if providerInfo == nil || providerInfo.Status != "ready" {
 		return nil, fmt.Errorf("%w: user '%s' is not ready with provider %s", models.ErrUserNotOnboarded,
-			user.Username, p.Name())
+			username, p.Name())
 	}
 
 	return &models.UserToken{
 		Provider: p.Name(),
 		Address:  "github.com",
-		Username: user.Username,
+		Username: username,
 		Token:    providerInfo.AccessToken,
 	}, nil
+}
+
+func (p *GitHubProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlueprint, error) {
+	return nil, fmt.Errorf("not implemented")
 }
 
 func contains(slice []string, value string) bool {

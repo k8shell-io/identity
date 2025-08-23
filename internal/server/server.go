@@ -13,7 +13,7 @@ import (
 	"github.com/k8shell-io/identity/internal/providers/file"
 	"github.com/k8shell-io/identity/internal/providers/github"
 	"github.com/k8shell-io/identity/internal/providers/usermap"
-	"github.com/k8shell-io/identity/pkg/models"
+	identModels "github.com/k8shell-io/identity/pkg/models"
 	"github.com/rs/zerolog"
 )
 
@@ -23,7 +23,7 @@ type Server struct {
 	HttpConfig HttpConfig
 
 	DB                *backend.DB
-	IdentityProviders []models.IdentityProvider
+	IdentityProviders []identModels.IdentityProvider
 	RestApi           *RESTApiService
 	log               *zerolog.Logger
 }
