@@ -30,6 +30,18 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
+// API type aliases
+type User = models.User
+type SSHSession = models.SSHSession
+type OnboardUser = models.OnboardUser
+type OnboardCapability = models.OnboardCapability
+type UserToken = models.UserToken
+
+type AuthPublicKeyRequest = client.AuthPublicKeyRequest
+type AuthPublicKeyResponse = client.AuthPublicKeyResponse
+type CreateSSHSessionRequest = client.CreateSSHSessionRequest
+type UpdateSSHSessionRequest = client.UpdateSSHSessionRequest
+
 // HttpConfig represents the HTTP server configuration.
 type HttpConfig struct {
 	Port   int    `yaml:"port"`
@@ -202,7 +214,7 @@ func parseQueryInt(val string, defaultVal int) int {
 // @Produce      json
 // @Param        limit   query     int  false  "Number of users to return"
 // @Param        offset  query     int  false  "Offset for pagination"
-// @Success      200     {array}   models.User
+// @Success      200     {array}   User
 // @Security     BearerAuth
 // @Router       /api/v1/users [get]
 func (a *RESTApiService) GetUsers(c *gin.Context) {
@@ -229,7 +241,7 @@ func (a *RESTApiService) GetUsers(c *gin.Context) {
 // @Accept       json
 // @Produce      json
 // @Param        username  path      string  true  "Username to look up"
-// @Success      200       {object}  models.User
+// @Success      200       {object}  User
 // @Failure      400       {string}  string  "Missing username"
 // @Failure      404       {string}  string  "User not found"
 // @Security     BearerAuth
@@ -279,7 +291,7 @@ func (a *RESTApiService) FindUser(c *gin.Context) {
 // @Accept       json
 // @Produce      json
 // @Param        userstr   query     string  true  "Userstr to parse and lookup user"
-// @Success      200       {object}  models.User
+// @Success      200       {object}  User
 // @Failure      400       {string}  string  "Missing or invalid userstr"
 // @Failure      404       {string}  string  "User not found"
 // @Security     BearerAuth
@@ -345,8 +357,8 @@ func (a *RESTApiService) FindUserByUserStr(c *gin.Context) {
 // @Accept       json
 // @Produce      json
 // @Param        username  path      string              			 true  "Username to authenticate"
-// @Param        request   body      models.AuthPublicKeyRequest     true  "Public key request payload"
-// @Success      200       {object}  models.AuthPublicKeyResponse
+// @Param        request   body      AuthPublicKeyRequest     true  "Public key request payload"
+// @Success      200       {object}  AuthPublicKeyResponse
 // @Failure      400       {string}  string  "Missing or invalid data"
 // @Security     BearerAuth
 // @Router       /api/v1/users/{username}/authpublickey [post]
@@ -401,7 +413,7 @@ func (a *RESTApiService) AuthPublicKey(c *gin.Context) {
 // @Accept       json
 // @Produce      json
 // @Param        username  path      string  true  "Username to onboard"
-// @Success      200       {object}  models.OnboardUser
+// @Success      200       {object}  OnboardUser
 // @Failure      400       {string}  string  "Missing username"
 // @Security     BearerAuth
 // @Router       /api/v1/users/{username}/onboard [post]
@@ -452,7 +464,7 @@ func (a *RESTApiService) OnboardUserDeviceFlow(c *gin.Context) {
 // @Accept       json
 // @Produce      json
 // @Param        username  path      string  true  "Username to check onboarding capability"
-// @Success      200       {object}  models.OnboardCapability
+// @Success      200       {object}  OnboardCapability
 // @Failure      404       {string}  string  "User not found"
 // @Failure      500       {string}  string  "Failed to check onboarding capability"
 // @Security     BearerAuth
@@ -487,7 +499,7 @@ func (a *RESTApiService) OnboardCapability(c *gin.Context) {
 // @Accept       json
 // @Produce      json
 // @Param        username  path      string  true  "Username to get token for"
-// @Success      200       {object}  models.UserToken
+// @Success      200       {object}  UserToken
 // @Failure      400       {string}  string  "Missing username"
 // @Failure      404       {string}  string  "User not found"
 // @Failure      500       {string}  string  "Failed to get user token"
@@ -545,7 +557,7 @@ func (a *RESTApiService) GetUserToken(c *gin.Context) {
 // @Param        limit     query     int     false  "Number of sessions to return"
 // @Param        offset    query     int     false  "Offset for pagination"
 // @Param        reverse   query     bool    false  "Reverse order of sessions"
-// @Success      200       {array}   models.SSHSession
+// @Success      200       {array}   SSHSession
 // @Failure      400       {string}  string  "Missing or invalid data"
 // @Failure      404       {string}  string  "User not found"
 // @Security     BearerAuth
@@ -585,7 +597,7 @@ func (a *RESTApiService) GetSSHSessions(c *gin.Context) {
 // @Produce      json
 // @Param        username   path      string  true  "Username to get session for"
 // @Param        sessionId  path      int     true  "Session ID to retrieve"
-// @Success      200        {object}  models.SSHSession
+// @Success      200        {object}  SSHSession
 // @Failure      400        {string}  string  "Missing or invalid data"
 // @Failure      404        {string}  string  "Session not found"
 // @Failure      500        {string}  string  "Failed to get SSH session"
@@ -648,8 +660,8 @@ func (a *RESTApiService) GetSSHSession(c *gin.Context) {
 // @Accept       json
 // @Produce      json
 // @Param        username  path      string                     true  "Username to create session for"
-// @Param        request   body      models.CreateSSHSessionRequest    true  "SSH session request payload"
-// @Success      200       {object}  models.SSHSession
+// @Param        request   body      CreateSSHSessionRequest    true  "SSH session request payload"
+// @Success      200       {object}  SSHSession
 // @Failure      400       {string}  string  "Missing or invalid data"
 // @Failure      500       {string}  string  "Failed to create SSH session"
 // @Security     BearerAuth
@@ -696,7 +708,7 @@ func (a *RESTApiService) CreateSSHSession(c *gin.Context) {
 // @Produce      json
 // @Param        username   path      string                     true  "Username to update session for"
 // @Param        sessionId  path      int                        true  "Session ID to update"
-// @Param        request    body      models.UpdateSSHSessionRequest    true  "SSH session update request payload"
+// @Param        request    body      UpdateSSHSessionRequest    true  "SSH session update request payload"
 // @Success      204       {string}  string  "SSH session updated successfully"
 // @Failure      400       {string}  string  "Missing or invalid data"
 // @Failure      404       {string}  string  "Session not found"

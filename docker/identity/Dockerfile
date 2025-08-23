@@ -12,8 +12,8 @@ COPY files .
 # need to use 1.16.4 due to regression bug in 1.16.5
 # https://github.com/swaggo/swag/issues/2042
 RUN go install github.com/swaggo/swag/cmd/swag@v1.16.4
-RUN /go/bin/swag init --generalInfo internal/server/restapi.go --output docs
-
+#RUN /go/bin/swag init --generalInfo internal/server/restapi.go --output docs
+RUN /go/bin/swag init --parseDependency --parseInternal
 ENV GOFLAGS="-mod=vendor"
 
 RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.IDENTITY_VERSION=$VERSION -X main.K8SHELLD_COMMIT=$COMMIT_ID" \
