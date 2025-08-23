@@ -1,37 +1,17 @@
 package models
 
 import (
+	common "github.com/k8shell-io/common/models"
 	"golang.org/x/crypto/ssh"
 )
-
-type OnboardUser struct {
-	Provider        string `json:"provider"`
-	Username        string `json:"username"`
-	UserCode        string `json:"user_code"`
-	VerificationUrl string `json:"verification_url"`
-	ExpiresIn       int    `json:"expires_in"`
-}
-
-type OnboardCapability struct {
-	Provider   string `json:"provider"`
-	Username   string `json:"username"`
-	CanOnboard bool   `json:"can_onboard"`
-}
-
-type UserToken struct {
-	Provider string `json:"provider"`
-	Address  string `json:"address"`
-	Username string `json:"username"`
-	Token    string `json:"token"`
-}
 
 type IdentityProvider interface {
 	Name() string
 	UserMaxAge() int
 
-	FindUser(username string) (*User, error)
-	OnboardCapability(username string) (*OnboardCapability, error)
-	OnboardUserDeviceFlow(username string) (*OnboardUser, error)
-	AuthPublicKey(user *User, key ssh.PublicKey) (bool, error)
-	GetUserToken(user *User) (*UserToken, error)
+	FindUser(username string) (*common.User, error)
+	OnboardCapability(username string) (*common.OnboardCapability, error)
+	OnboardUserDeviceFlow(username string) (*common.OnboardUser, error)
+	AuthPublicKey(user *common.User, key ssh.PublicKey) (bool, error)
+	GetUserToken(user *common.User) (*common.UserToken, error)
 }

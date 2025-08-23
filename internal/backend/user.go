@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/k8shell-io/identity/pkg/models"
+	"github.com/k8shell-io/common/models"
 )
 
 func (d *DB) FindUser(username string) (*models.User, error) {

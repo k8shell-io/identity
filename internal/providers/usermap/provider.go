@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/k8shell-io/common/models"
 	"github.com/k8shell-io/identity/internal/backend"
 	"github.com/k8shell-io/identity/internal/common"
-	"github.com/k8shell-io/identity/pkg/models"
 	"github.com/k8shell-io/yaml-cel/pkg/yamlcel"
 	"golang.org/x/crypto/ssh"
 )

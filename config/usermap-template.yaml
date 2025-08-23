@@ -7,7 +7,7 @@ user:
   gid: !cel "personalNumber"
   email: !cel "preferredEmail"
   channels:
-    [shell, pty, port_forward, sftp, scp, exec, forward_agent, system_exec]
+    [session, shell, pty, port_forward, sftp, scp, exec, forward_agent, system_exec]
   auths: [publickey]
 
   # map usermap roles to blueprints that the user can use

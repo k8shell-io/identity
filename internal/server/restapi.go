@@ -20,10 +20,11 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/k8shell-io/common/models"
 	_ "github.com/k8shell-io/identity/docs"
 	"github.com/k8shell-io/identity/internal/backend"
 	"github.com/k8shell-io/identity/internal/log"
-	"github.com/k8shell-io/identity/pkg/models"
+	"github.com/k8shell-io/identity/pkg/client"
 	"github.com/rs/zerolog"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
@@ -359,7 +360,7 @@ func (a *RESTApiService) AuthPublicKey(c *gin.Context) {
 		return
 	}
 
-	var req models.AuthPublicKeyRequest
+	var req client.AuthPublicKeyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		a.log.Error().Err(err).Msg("Failed to decode request body")
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -387,7 +388,7 @@ func (a *RESTApiService) AuthPublicKey(c *gin.Context) {
 		return
 	}
 
-	response := models.AuthPublicKeyResponse{
+	response := client.AuthPublicKeyResponse{
 		Authenticated: isAuthenticated,
 	}
 	c.JSON(http.StatusOK, response)
@@ -663,7 +664,7 @@ func (a *RESTApiService) CreateSSHSession(c *gin.Context) {
 		return
 	}
 
-	var req models.CreateSSHSessionRequest
+	var req client.CreateSSHSessionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		a.log.Error().Err(err).Msg("Failed to decode request body")
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -723,7 +724,7 @@ func (a *RESTApiService) UpdateSSHSession(c *gin.Context) {
 		return
 	}
 
-	var req models.UpdateSSHSessionRequest
+	var req client.UpdateSSHSessionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		a.log.Error().Err(err).Msg("Failed to decode request body")
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -818,7 +819,7 @@ func (a *RESTApiService) EndSSHSession(c *gin.Context) {
 // // @Accept       json
 // // @Produce      json
 // // @Param        userstr   query     string  true  "Userstr containing repo owner and name"
-// // @Success      200       {object}  models.Blueprint
+// // @Success      200       {object}  provisionerModels.CustomBlueprint
 // // @Failure      400       {string}  string  "Missing or invalid userstr"
 // // @Failure      404       {string}  string  "Blueprint not found"
 // // @Security     BearerAuth
@@ -832,6 +833,8 @@ func (a *RESTApiService) EndSSHSession(c *gin.Context) {
 // 		})
 // 		return
 // 	}
+
+// 	customBlueprint := provisionerModels.CustomBlueprint{}
 
 // 	// TODO: Parse the userstr using your pkg/userstr package
 // 	// parsedUserStr, err := userstr.Parse(userstrParam)

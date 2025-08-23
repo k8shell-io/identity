@@ -5,7 +5,7 @@ package server
 import (
 	"fmt"
 
-	"github.com/k8shell-io/identity/pkg/models"
+	"github.com/k8shell-io/common/models"
 )
 
 // CreateSSHSession creates a new SSH session for a user in a specific workspace.

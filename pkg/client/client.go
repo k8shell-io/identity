@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/k8shell-io/identity/pkg/models"
+	"github.com/k8shell-io/common/models"
 )
 
 // Config represents the configuration for the Identity API client.
@@ -34,6 +34,33 @@ type Client struct {
 type ErrorResponse struct {
 	Status int    `json:"status"`
 	Msg    string `json:"msg"`
+}
+
+// AuthPublicKeyRequest represents the request body for user authentication
+type AuthPublicKeyRequest struct {
+	PublicKey string `json:"public_key"`
+}
+
+// AuthPublicKeyResponse represents the response body for user authentication
+type AuthPublicKeyResponse struct {
+	Authenticated bool `json:"authenticated"`
+}
+
+// CreateSSHSessionRequest represents the request body for creating an SSH session
+type CreateSSHSessionRequest struct {
+	Workspace string `json:"workspace"`
+	ProxyID   string `json:"proxy_id"`
+	ProxyPID  int    `json:"proxy_pid"`
+	ClientIP  string `json:"client_ip"`
+}
+
+// UpdateSSHSessionRequest represents the request body for updating an SSH session
+type UpdateSSHSessionRequest struct {
+	BytesIn  int64    `json:"bytes_in"`
+	BytesOut int64    `json:"bytes_out"`
+	Client   string   `json:"client"`
+	ProvTime float32  `json:"prov_time"`
+	Channels []string `json:"channels"`
 }
 
 // Error implements the error interface for ErrorResponse.
@@ -144,11 +171,11 @@ func (c *Client) GetUser(ctx context.Context, username string) (*models.User, er
 }
 
 // AuthPublicKey validates a user's SSH public key.
-func (c *Client) AuthPublicKey(ctx context.Context, username, publicKey string) (*models.AuthPublicKeyResponse, error) {
+func (c *Client) AuthPublicKey(ctx context.Context, username, publicKey string) (*AuthPublicKeyResponse, error) {
 	path := fmt.Sprintf("/api/v1/users/%s/authpublickey", url.PathEscape(username))
-	req := models.AuthPublicKeyRequest{PublicKey: publicKey}
+	req := AuthPublicKeyRequest{PublicKey: publicKey}
 
-	var resp models.AuthPublicKeyResponse
+	var resp AuthPublicKeyResponse
 	err := c.doRequest(ctx, http.MethodPost, path, req, &resp)
 	if err != nil {
 		return nil, err
@@ -232,7 +259,7 @@ func (c *Client) GetSSHSession(ctx context.Context, username string, sessionID i
 // CreateSSHSession creates a new SSH session for a user in a specified workspace.
 func (c *Client) CreateSSHSession(ctx context.Context, username, workspace, proxyID string, proxyPID int, clientIP string) (*models.SSHSession, error) {
 	path := fmt.Sprintf("/api/v1/users/%s/sessions", url.PathEscape(username))
-	req := models.CreateSSHSessionRequest{
+	req := CreateSSHSessionRequest{
 		Workspace: workspace,
 		ProxyID:   proxyID,
 		ProxyPID:  proxyPID,
@@ -258,7 +285,7 @@ func (c *Client) UpdateSSHSession(ctx context.Context, username string, sessionI
 		stringChannels[i] = string(ch)
 	}
 
-	req := models.UpdateSSHSessionRequest{
+	req := UpdateSSHSessionRequest{
 		BytesIn:  bytesIn,
 		BytesOut: bytesOut,
 		Client:   client,

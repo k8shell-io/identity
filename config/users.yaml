@@ -20,7 +20,10 @@ users:
     email: "alice@nobody"
     locked: false
     channels:
-      [shell, pty, port_forward, sftp, scp, exec, forward_agent, system_exec]
+      ["session", "direct-tcpip", "forwarded-tcpip", "direct-streamlocal", "forwarded-streamlocal", "x11"]
+    #shell, pty, port_forward, sftp, scp, exec, forward_agent, system_exec]
+    sessionRequests: 
+      ["shell", "pty-req", "exec", "auth-agent-req", "env", "window-change"]
     blueprints: [am1, dev, tex, am2, awd, ddw]
     auths: [publickey, password]
     authKeys:
@@ -39,7 +42,7 @@ users:
     email: "nvk.ptr@gmail.com"
     locked: false
     channels:
-      [shell, pty, port_forward, sftp, scp, exec, forward_agent, system_exec]
+      [session, shell, pty, port_forward, sftp, scp, exec, forward_agent, system_exec]
     auths: [publickey]
     authKeys:
       - |
