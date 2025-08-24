@@ -355,9 +355,8 @@ func (p *GitHubProvider) GetUserToken(username string) (*models.UserToken, error
 }
 
 func (p *GitHubProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlueprint, error) {
-	var owner, repoName string
-	if userStr.RepoOwner == "" || userStr.RepoName == "" {
-		return nil, fmt.Errorf("missing repo owner or name")
+	if !userStr.HasCustomBlueprint {
+		return nil, fmt.Errorf("user string does not use a custom blueprint")
 	}
 
 	token, err := p.GetUserToken(userStr.Username)
@@ -365,9 +364,9 @@ func (p *GitHubProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.Cu
 		return nil, fmt.Errorf("failed to get user token for '%s': %w", userStr.Username, err)
 	}
 
-	fileContent, err := GetFile(owner, repoName, token.Token, K8SHELL_FILENAME, userStr.RepoRef)
+	fileContent, err := GetFile(userStr.RepoOwner, userStr.RepoName, token.Token, K8SHELL_FILENAME, userStr.RepoRef)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get .k8shell file in '%s/%s': %w", owner, repoName, err)
+		return nil, fmt.Errorf("failed to get .k8shell file in '%s/%s': %w", userStr.RepoOwner, userStr.RepoName, err)
 	}
 
 	bp, errors := models.ValidateCustomBlueprint([]byte(fileContent))
@@ -375,6 +374,7 @@ func (p *GitHubProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.Cu
 		return nil, fmt.Errorf("failed to validate .k8shell file: %v", errors)
 	}
 
+	bp.Name = userStr.Blueprint
 	return bp, nil
 }
 
