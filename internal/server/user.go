@@ -183,9 +183,9 @@ func (s *Server) GetUserToken(username string) (*models.UserToken, error) {
 }
 
 func (s *Server) GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlueprint, error) {
-	user, err := s.GetUser(userStr.User)
+	user, err := s.GetUser(userStr.Username)
 	if err != nil {
-		return nil, fmt.Errorf("error occurred when getting user '%s': %w", userStr.User, err)
+		return nil, fmt.Errorf("error occurred when getting user '%s': %w", userStr.Username, err)
 	}
 
 	for _, provider := range s.IdentityProviders {
@@ -193,11 +193,11 @@ func (s *Server) GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlue
 			blueprint, err := provider.GetCustomBlueprint(userStr)
 			if err != nil {
 				return nil, fmt.Errorf("error occurred while getting custom blueprint for '%s' with provider '%s': %w",
-					userStr.User, provider.Name(), err)
+					userStr.Username, provider.Name(), err)
 			}
 			return blueprint, nil
 		}
 	}
 
-	return nil, fmt.Errorf("no suitable identity provider found for user '%s'", userStr.User)
+	return nil, fmt.Errorf("no suitable identity provider found for user '%s'", userStr.Username)
 }

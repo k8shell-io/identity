@@ -355,34 +355,17 @@ func (p *GitHubProvider) GetUserToken(username string) (*models.UserToken, error
 }
 
 func (p *GitHubProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlueprint, error) {
-	// get owner and name of the repo
 	var owner, repoName string
-	if repoStr, ok := userStr.Params["repo"]; ok {
-		repoArr := strings.Split(repoStr, "/")
-		if len(repoArr) == 2 {
-			owner = repoArr[0]
-			repoName = repoArr[1]
-		} else if len(repoArr) == 1 {
-			owner = userStr.User
-			repoName = repoArr[0]
-		} else {
-			return nil, fmt.Errorf("invalid repo format, expected 'owner/repo' or 'repo', got '%s'", repoStr)
-		}
-	} else {
-		return nil, fmt.Errorf("missing repo parameter")
+	if userStr.RepoOwner == "" || userStr.RepoName == "" {
+		return nil, fmt.Errorf("missing repo owner or name")
 	}
 
-	token, err := p.GetUserToken(userStr.User)
+	token, err := p.GetUserToken(userStr.Username)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get user token for '%s': %w", userStr.User, err)
+		return nil, fmt.Errorf("failed to get user token for '%s': %w", userStr.Username, err)
 	}
 
-	ref := ""
-	if refStr, ok := userStr.Params["ref"]; ok {
-		ref = refStr
-	}
-
-	fileContent, err := GetFile(owner, repoName, token.Token, K8SHELL_FILENAME, ref)
+	fileContent, err := GetFile(owner, repoName, token.Token, K8SHELL_FILENAME, userStr.RepoRef)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get .k8shell file in '%s/%s': %w", owner, repoName, err)
 	}

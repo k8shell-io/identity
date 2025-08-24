@@ -845,7 +845,7 @@ func (a *RESTApiService) GetBlueprintByUserStr(c *gin.Context) {
 		return
 	}
 
-	userStr, err := models.Parse(userstrParam)
+	userStr, err := models.NewUserStr(userstrParam)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"status": http.StatusBadRequest,
