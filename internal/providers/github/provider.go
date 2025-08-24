@@ -17,6 +17,8 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+const K8SHELL_FILENAME = ".k8shell2"
+
 type GitHubProviderConfig struct {
 	ID           string            `yaml:"id"`
 	UserMaxAge   int               `yaml:"userMaxAge"`
@@ -353,7 +355,44 @@ func (p *GitHubProvider) GetUserToken(username string) (*models.UserToken, error
 }
 
 func (p *GitHubProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlueprint, error) {
-	return nil, fmt.Errorf("not implemented")
+	// get owner and name of the repo
+	var owner, repoName string
+	if repoStr, ok := userStr.Params["repo"]; ok {
+		repoArr := strings.Split(repoStr, "/")
+		if len(repoArr) == 2 {
+			owner = repoArr[0]
+			repoName = repoArr[1]
+		} else if len(repoArr) == 1 {
+			owner = userStr.User
+			repoName = repoArr[0]
+		} else {
+			return nil, fmt.Errorf("invalid repo format, expected 'owner/repo' or 'repo', got '%s'", repoStr)
+		}
+	} else {
+		return nil, fmt.Errorf("missing repo parameter")
+	}
+
+	token, err := p.GetUserToken(userStr.User)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user token for '%s': %w", userStr.User, err)
+	}
+
+	ref := ""
+	if refStr, ok := userStr.Params["ref"]; ok {
+		ref = refStr
+	}
+
+	fileContent, err := GetFile(owner, repoName, token.Token, K8SHELL_FILENAME, ref)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get .k8shell file in '%s/%s': %w", owner, repoName, err)
+	}
+
+	bp, errors := models.ValidateCustomBlueprint([]byte(fileContent))
+	if len(errors) > 0 {
+		return nil, fmt.Errorf("failed to validate .k8shell file: %v", errors)
+	}
+
+	return bp, nil
 }
 
 func contains(slice []string, value string) bool {

@@ -181,3 +181,23 @@ func (s *Server) GetUserToken(username string) (*models.UserToken, error) {
 	return nil, fmt.Errorf("no suitable identity provider found for user '%s': %w", username,
 		models.ErrUserTokenNotSupported)
 }
+
+func (s *Server) GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlueprint, error) {
+	user, err := s.GetUser(userStr.User)
+	if err != nil {
+		return nil, fmt.Errorf("error occurred when getting user '%s': %w", userStr.User, err)
+	}
+
+	for _, provider := range s.IdentityProviders {
+		if provider.Name() == user.Source {
+			blueprint, err := provider.GetCustomBlueprint(userStr)
+			if err != nil {
+				return nil, fmt.Errorf("error occurred while getting custom blueprint for '%s' with provider '%s': %w",
+					userStr.User, provider.Name(), err)
+			}
+			return blueprint, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no suitable identity provider found for user '%s'", userStr.User)
+}

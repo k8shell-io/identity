@@ -38,3 +38,9 @@ Content-Type: application/json
 GET http://localhost:9090/api/v1/users/vitvatom/sessions?reverse=true&limit=1
 Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
 Content-Type: application/json
+
+### get custom blueprint
+#GET http://localhost:9090/api/v1/blueprints/lookup?userstr=bruckins~repo=k8shell-io/common
+GET http://localhost:9090/api/v1/blueprints/lookup?userstr=bruckins~repo%3Dk8shell-io%2Fcommon
+Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
+Content-Type: application/json

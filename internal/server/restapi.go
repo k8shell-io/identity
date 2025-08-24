@@ -139,10 +139,10 @@ func (a *RESTApiService) initializeRouter() *gin.Engine {
 		}
 
 		// Blueprint endpoints
-		// blueprints := v1.Group("/blueprints")
-		// {
-		// 	blueprints.GET("/lookup", a.GetBlueprintByUserStr)
-		// }
+		blueprints := v1.Group("/blueprints")
+		{
+			blueprints.GET("/lookup", a.GetBlueprintByUserStr)
+		}
 	}
 
 	// Swagger documentation
@@ -822,56 +822,46 @@ func (a *RESTApiService) EndSSHSession(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// // ** BLUEPRINTS
+// ** BLUEPRINTS
 
-// // GetBlueprintByUserStr godoc
-// // @Summary      Get blueprint by userstr
-// // @Description  Retrieves a blueprint definition by parsing userstr to extract repo owner and name.
-// // @Tags         blueprints
-// // @Accept       json
-// // @Produce      json
-// // @Param        userstr   query     string  true  "Userstr containing repo owner and name"
-// // @Success      200       {object}  provisionerModels.CustomBlueprint
-// // @Failure      400       {string}  string  "Missing or invalid userstr"
-// // @Failure      404       {string}  string  "Blueprint not found"
-// // @Security     BearerAuth
-// // @Router       /api/v1/blueprints/lookup [get]
-// func (a *RESTApiService) GetBlueprintByUserStr(c *gin.Context) {
-// 	userstrParam := c.Query("userstr")
-// 	if userstrParam == "" {
-// 		c.JSON(http.StatusBadRequest, gin.H{
-// 			"status": http.StatusBadRequest,
-// 			"msg":    "userstr parameter is required",
-// 		})
-// 		return
-// 	}
+// GetBlueprintByUserStr godoc
+// @Summary      Get blueprint by userstr
+// @Description  Retrieves a custom blueprint definition from a user repository.
+// @Tags         blueprints
+// @Accept       json
+// @Produce      json
+// @Param        userstr   query     string  true  "Userstr containing repo owner and name"
+// @Success      200       {object}  models.CustomBlueprint
+// @Failure      400       {string}  string  "Missing or invalid userstr"
+// @Security     BearerAuth
+// @Router       /api/v1/blueprints/lookup [get]
+func (a *RESTApiService) GetBlueprintByUserStr(c *gin.Context) {
+	userstrParam := c.Query("userstr")
+	if userstrParam == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "userstr parameter is required",
+		})
+		return
+	}
 
-// 	customBlueprint := provisionerModels.CustomBlueprint{}
+	userStr, err := models.Parse(userstrParam)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    fmt.Sprintf("Invalid userstr: %v", err),
+		})
+		return
+	}
 
-// 	// TODO: Parse the userstr using your pkg/userstr package
-// 	// parsedUserStr, err := userstr.Parse(userstrParam)
-// 	// if err != nil {
-// 	//     a.log.Error().Err(err).Msgf("Failed to parse userstr '%s'", userstrParam)
-// 	//     c.JSON(http.StatusBadRequest, gin.H{
-// 	//         "status": http.StatusBadRequest,
-// 	//         "msg":    fmt.Sprintf("Invalid userstr: %v", err),
-// 	//     })
-// 	//     return
-// 	// }
+	customBlueprint, err := a.server.GetCustomBlueprint(userStr)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"status": http.StatusNotFound,
+			"msg":    fmt.Sprintf("Blueprint not found: %v", err),
+		})
+		return
+	}
 
-// 	// if parsedUserStr.RepoOwner == "" || parsedUserStr.RepoName == "" {
-// 	//     c.JSON(http.StatusBadRequest, gin.H{
-// 	//         "status": http.StatusBadRequest,
-// 	//         "msg":    "userstr must contain repository owner and name",
-// 	//     })
-// 	//     return
-// 	// }
-
-// 	// blueprint, err := a.server.GetBlueprint(parsedUserStr.RepoOwner, parsedUserStr.RepoName)
-
-// 	// Placeholder implementation - replace when userstr package is ready
-// 	c.JSON(http.StatusNotImplemented, gin.H{
-// 		"status": http.StatusNotImplemented,
-// 		"msg":    "Blueprint lookup by userstr not yet implemented",
-// 	})
-// }
+	c.JSON(http.StatusOK, customBlueprint)
+}

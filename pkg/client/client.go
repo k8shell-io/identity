@@ -302,3 +302,20 @@ func (c *Client) EndSSHSession(ctx context.Context, username string, sessionID i
 
 	return c.doRequest(ctx, http.MethodPost, path, nil, nil)
 }
+
+// Blueprints API
+
+// GetBlueprintByUserStr retrieves a custom blueprint by userstr
+func (c *Client) GetBlueprintByUserStr(ctx context.Context, userstr string) (*models.CustomBlueprint, error) {
+	params := url.Values{}
+	params.Set("userstr", userstr)
+
+	path := "/api/v1/blueprints/lookup?" + params.Encode()
+
+	var blueprint models.CustomBlueprint
+	err := c.doRequest(ctx, http.MethodGet, path, nil, &blueprint)
+	if err != nil {
+		return nil, err
+	}
+	return &blueprint, nil
+}
