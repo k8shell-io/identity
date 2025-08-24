@@ -20,10 +20,10 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	log "github.com/k8shell-io/common/logger"
 	"github.com/k8shell-io/common/models"
 	_ "github.com/k8shell-io/identity/docs"
 	"github.com/k8shell-io/identity/internal/backend"
-	"github.com/k8shell-io/identity/internal/log"
 	"github.com/k8shell-io/identity/pkg/client"
 	"github.com/rs/zerolog"
 	swaggerFiles "github.com/swaggo/files"
@@ -100,26 +100,36 @@ func (a *RESTApiService) apiKeyMiddleware() gin.HandlerFunc {
 	}
 }
 
-// loggingMiddleware logs requests and responses
-func (a *RESTApiService) loggingMiddleware() gin.HandlerFunc {
-	return gin.LoggerWithWriter(a.log)
+func (a *RESTApiService) customLogger() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+		c.Next()
+		latency := time.Since(start)
+
+		status := c.Writer.Status()
+		ip := c.ClientIP()
+		method := c.Request.Method
+		path := c.Request.URL.Path
+
+		a.log.Info().
+			Str("method", method).
+			Int("status", status).
+			Str("path", path).
+			Str("ip", ip).
+			Dur("duration", latency).
+			Msg("request")
+	}
 }
 
 // Initialize the router
 func (a *RESTApiService) initializeRouter() *gin.Engine {
 	router := gin.New()
-
-	// Add recovery middleware
 	router.Use(gin.Recovery())
+	router.Use(a.customLogger())
 
-	// Add custom logging middleware
-	router.Use(a.loggingMiddleware())
-
-	// API routes with authentication
 	v1 := router.Group("/api/v1")
 	v1.Use(a.apiKeyMiddleware())
 	{
-		// User endpoints
 		users := v1.Group("/users")
 		{
 			users.GET("/", a.GetUsers)
@@ -130,7 +140,6 @@ func (a *RESTApiService) initializeRouter() *gin.Engine {
 			users.POST("/:username/authpublickey", a.AuthPublicKey)
 			users.GET("/:username/token", a.GetUserToken)
 
-			// Session endpoints
 			users.GET("/:username/sessions", a.GetSSHSessions)
 			users.POST("/:username/sessions", a.CreateSSHSession)
 			users.GET("/:username/sessions/:sessionId", a.GetSSHSession)
@@ -138,17 +147,14 @@ func (a *RESTApiService) initializeRouter() *gin.Engine {
 			users.POST("/:username/sessions/:sessionId/end", a.EndSSHSession)
 		}
 
-		// Blueprint endpoints
 		blueprints := v1.Group("/blueprints")
 		{
 			blueprints.GET("/lookup", a.GetBlueprintByUserStr)
 		}
 	}
 
-	// Swagger documentation
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
-	// 404 handler
 	router.NoRoute(func(c *gin.Context) {
 		a.log.Debug().Msgf("404 Not Found: %s %s", c.Request.Method, c.Request.URL.Path)
 		c.JSON(http.StatusNotFound, gin.H{

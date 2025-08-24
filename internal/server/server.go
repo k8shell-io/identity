@@ -8,8 +8,8 @@ package server
 import (
 	"fmt"
 
+	log "github.com/k8shell-io/common/logger"
 	"github.com/k8shell-io/identity/internal/backend"
-	"github.com/k8shell-io/identity/internal/log"
 	"github.com/k8shell-io/identity/internal/providers/file"
 	"github.com/k8shell-io/identity/internal/providers/github"
 	"github.com/k8shell-io/identity/internal/providers/usermap"
