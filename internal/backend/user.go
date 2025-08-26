@@ -2,7 +2,10 @@ package backend
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/k8shell-io/common/models"
@@ -49,6 +52,11 @@ func (d *DB) FindUser(username string) (*models.User, error) {
 }
 
 func (d *DB) CreateUser(user *models.User) error {
+	accessToken, err := generateAccessToken()
+	if err != nil {
+		return fmt.Errorf("failed to generate access token: %w", err)
+	}
+
 	query := `INSERT INTO public.users (
 		username, is_valid, expires_at, uid, gid, fullname,
 		access_token, email, password, locked, failed_logins,
@@ -56,8 +64,8 @@ func (d *DB) CreateUser(user *models.User) error {
 	) VALUES (
 		$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
 	)`
-	_, err := d.pool.Exec(context.Background(), query,
-		user.Username, user.IsValid, user.ExpiresAt, user.UID, user.GID, user.Fullname, user.AccessToken, user.Email,
+	_, err = d.pool.Exec(context.Background(), query,
+		user.Username, user.IsValid, user.ExpiresAt, user.UID, user.GID, user.Fullname, accessToken, user.Email,
 		user.Password, user.Locked, user.FailedLogins, user.Auths, user.AuthKeys, user.Channels,
 		user.Envs, user.Roles, user.Blueprints, user.Source, user.Organization)
 	return err
@@ -167,4 +175,14 @@ func (d *DB) ListUsers(limit, offset int) ([]*models.User, error) {
 		users = append(users, &user)
 	}
 	return users, nil
+}
+
+// generateAccessToken creates a random 32-byte hex token
+func generateAccessToken() (string, error) {
+	b := make([]byte, 32)
+	_, err := rand.Read(b)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
