@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/k8shell-io/common/config"
 	"github.com/k8shell-io/identity/internal/backend"
 	"github.com/k8shell-io/identity/internal/providers/file"
 	"github.com/k8shell-io/identity/internal/providers/github"
 	"github.com/k8shell-io/identity/internal/providers/usermap"
-	"github.com/k8shell-io/yaml-config/pkg/yamlconfig"
 	"gopkg.in/yaml.v3"
 )
 
@@ -29,8 +29,8 @@ type Config struct {
 // It processes environment variable substitutions and custom tags like !file.
 // It also validates the identity providers defined in the configuration.
 func LoadConfig(configFile string) (*Config, error) {
-	var config Config
-	err := yamlconfig.LoadConfig(configFile, &config)
+	var cfg Config
+	err := config.LoadConfig(configFile, &cfg)
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
@@ -39,10 +39,10 @@ func LoadConfig(configFile string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve config file path: %w", err)
 	}
-	config.configDir = filepath.Dir(absPath)
+	cfg.configDir = filepath.Dir(absPath)
 
 	// validate identity providers
-	for _, node := range config.IdentityProviders {
+	for _, node := range cfg.IdentityProviders {
 		var raw map[string]any
 		if err := node.Decode(&raw); err != nil {
 			return nil, fmt.Errorf("decode raw provider map: %w", err)
@@ -77,5 +77,5 @@ func LoadConfig(configFile string) (*Config, error) {
 		}
 
 	}
-	return &config, nil
+	return &cfg, nil
 }

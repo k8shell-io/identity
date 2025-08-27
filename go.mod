@@ -7,9 +7,8 @@ require (
 	github.com/gin-gonic/gin v1.10.1
 	github.com/golang-migrate/migrate/v4 v4.18.3
 	github.com/jackc/pgx/v5 v5.7.5
-	github.com/k8shell-io/common v0.11.14
+	github.com/k8shell-io/common v0.11.15
 	github.com/k8shell-io/yaml-cel v0.2.5
-	github.com/k8shell-io/yaml-config v0.1.1
 	github.com/ory/dockertest/v3 v3.12.0
 	github.com/rs/zerolog v1.34.0
 	github.com/stretchr/testify v1.10.0
