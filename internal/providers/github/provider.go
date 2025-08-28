@@ -375,6 +375,10 @@ func (p *GitHubProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.Cu
 	}
 
 	bp.Name = userStr.Blueprint
+	bp.Metadata.Name = userStr.Blueprint
+	bp.Metadata.RepoName = userStr.RepoName
+	bp.Metadata.RepoOwner = userStr.RepoOwner
+	bp.Metadata.RepoAddress = GITHUB_ADDRESS
 	return bp, nil
 }
 

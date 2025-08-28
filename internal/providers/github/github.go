@@ -13,13 +13,16 @@ import (
 )
 
 const (
-	IDENTITY_USERAGENT     = "k8shell-identity/1.0"
-	GITHUB_PUBLIC_USER_URL = "https://api.github.com/users/%s"
-	GITHUB_USER_URL        = "https://api.github.com/user"
-	GITHUB_KEYS_URL        = "https://api.github.com/users/%s/keys"
-	GITHUB_EMAILS_URL      = "https://api.github.com/user/emails"
-	GITHUB_DEVICECODE_URL  = "https://github.com/login/device/code"
-	GITHUB_ACCESSTOKEN_URL = "https://github.com/login/oauth/access_token"
+	GITHUB_ADDRESS          = "https://github.com"
+	IDENTITY_USERAGENT      = "k8shell-identity/1.0"
+	GITHUB_PUBLIC_USER_URL  = "https://api.github.com/users/%s"
+	GITHUB_USER_URL         = "https://api.github.com/user"
+	GITHUB_KEYS_URL         = "https://api.github.com/users/%s/keys"
+	GITHUB_EMAILS_URL       = "https://api.github.com/user/emails"
+	GITHUB_DEVICECODE_URL   = "https://github.com/login/device/code"
+	GITHUB_ACCESSTOKEN_URL  = "https://github.com/login/oauth/access_token"
+	GITHUB_FILE_CONTENT_URL = "https://api.github.com/repos/%s/%s/contents/%s"
+	GITHUB_REPO_URL         = "https://api.github.com/repos/%s/%s"
 )
 
 type DeviceCodeResponse struct {
@@ -191,7 +194,7 @@ func getPublicKeys(client *http.Client, username string, accessToken string) ([]
 
 // githubGetRepo fetches repository information from GitHub API
 func GetRepo(owner, repo, token string) (*GitHubRepo, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s", owner, repo)
+	url := fmt.Sprintf(GITHUB_REPO_URL, owner, repo)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -225,7 +228,7 @@ func GetRepo(owner, repo, token string) (*GitHubRepo, error) {
 
 // GetFile fetches file content from GitHub repository
 func GetFile(owner, repo, token, file string, ref string) (string, error) {
-	baseURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/contents/%s", owner, repo, file)
+	baseURL := fmt.Sprintf(GITHUB_FILE_CONTENT_URL, owner, repo, file)
 
 	if ref != "" {
 		baseURL += fmt.Sprintf("?ref=%s", url.QueryEscape(ref))
