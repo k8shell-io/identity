@@ -22,8 +22,8 @@ func (s *Server) CreateSSHSession(username string, workspace string, proxyID str
 
 // UpdateSSHSession updates an existing SSH session with new bytes and client information.
 func (s *Server) UpdateSSHSession(username string, sessionID int32, bytesIn int64, bytesOut int64,
-	client string, provTime float32, channels []string) error {
-	if bytesIn > 0 || bytesOut > 0 {
+	client string, channels []string) error {
+	if bytesIn > 0 && bytesOut > 0 {
 		err := s.DB.UpdateSSHSessionBytes(username, sessionID, bytesIn, bytesOut)
 		if err != nil {
 			return fmt.Errorf("failed to update SSH session %d bytes: %w", sessionID, err)
@@ -34,13 +34,6 @@ func (s *Server) UpdateSSHSession(username string, sessionID int32, bytesIn int6
 		err := s.DB.UpdateSSHSessionClient(username, sessionID, client)
 		if err != nil {
 			return fmt.Errorf("failed to update SSH session %d client: %w", sessionID, err)
-		}
-	}
-
-	if provTime > 0 {
-		err := s.DB.UpdateSSHSessionProvTime(username, sessionID, provTime)
-		if err != nil {
-			return fmt.Errorf("failed to update SSH session %d provision time: %w", sessionID, err)
 		}
 	}
 

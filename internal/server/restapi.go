@@ -753,7 +753,7 @@ func (a *RESTApiService) UpdateSSHSession(c *gin.Context) {
 	}
 
 	err = a.server.UpdateSSHSession(username, int32(sessionID), req.BytesIn, req.BytesOut, req.Client,
-		req.ProvTime, req.Channels)
+		req.Channels)
 	if err != nil {
 		a.log.Error().Err(err).Msgf("Failed to update SSH session for user '%s': %s", username, err)
 		if errors.Is(err, models.ErrActiveSessionNotFound) {

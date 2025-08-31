@@ -59,7 +59,6 @@ type UpdateSSHSessionRequest struct {
 	BytesIn  int64    `json:"bytes_in"`
 	BytesOut int64    `json:"bytes_out"`
 	Client   string   `json:"client"`
-	ProvTime float32  `json:"prov_time"`
 	Channels []string `json:"channels"`
 }
 
@@ -276,7 +275,7 @@ func (c *Client) CreateSSHSession(ctx context.Context, username, workspace, prox
 
 // UpdateSSHSession updates an existing SSH session with new data.
 func (c *Client) UpdateSSHSession(ctx context.Context, username string, sessionID int32, bytesIn, bytesOut int64,
-	client string, provTime float32, channels []string) error {
+	client string, channels []string) error {
 	path := fmt.Sprintf("/api/v1/users/%s/sessions/%d", url.PathEscape(username), sessionID)
 
 	// Convert ChannelShort to string
@@ -289,7 +288,6 @@ func (c *Client) UpdateSSHSession(ctx context.Context, username string, sessionI
 		BytesIn:  bytesIn,
 		BytesOut: bytesOut,
 		Client:   client,
-		ProvTime: provTime,
 		Channels: stringChannels,
 	}
 
