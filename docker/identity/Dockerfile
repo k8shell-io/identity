@@ -16,7 +16,7 @@ RUN go install github.com/swaggo/swag/cmd/swag@v1.16.4
 RUN /go/bin/swag init --parseDependency --parseInternal
 ENV GOFLAGS="-mod=vendor"
 
-RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.IDENTITY_VERSION=$VERSION -X main.K8SHELLD_COMMIT=$COMMIT_ID" \
+RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.VERSION=$VERSION -X main.COMMIT=$COMMIT_ID" \
     -o /go/bin/identity main.go
 
 FROM alpine:3.21.3

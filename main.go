@@ -13,8 +13,8 @@ import (
 )
 
 var (
-	IDENTITY_VERSION = "0.0.0"
-	IDENTITY_COMMIT  = "0000000"
+	VERSION = "0.0.0"
+	COMMIT  = "0000000"
 )
 
 // Options represents the command line options
@@ -59,7 +59,7 @@ func getOptions(version string, commit_id string) (*Options, error) {
 }
 
 func main() {
-	opts, err := getOptions(IDENTITY_VERSION, IDENTITY_COMMIT)
+	opts, err := getOptions(VERSION, COMMIT)
 	if err != nil {
 		fmt.Printf("Error parsing options: %v\n", err)
 		os.Exit(1)
