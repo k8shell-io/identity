@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - v0.11
     tags:
       - "v*"
 
@@ -36,12 +37,6 @@ jobs:
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           echo "COMMIT_ID=$COMMIT_ID" >> $GITHUB_ENV
 
-      - name: Install swag CLI
-        run: go install github.com/swaggo/swag/cmd/swag@v1.16.4
-
-      - name: Generate Swagger docs
-        run: swag init -g main.go -o ./docs
-
       - name: Vendor Go modules
         run: |
           go mod vendor
@@ -51,7 +46,7 @@ jobs:
       - name: Copy sources to docker context
         run: |
           cp go.mod go.sum main.go -t docker/identity/files/
-          cp -r pkg internal db docs docker/identity/files/
+          cp -r pkg internal db docker/identity/files/
           echo -n "k8shell-base/identity:$VERSION" > docker/identity/BUILD
 
       - name: Load REPO_NAME from docker/identity/BUILD
@@ -73,14 +68,3 @@ jobs:
           build-args: |
             VERSION=${{ env.VERSION }}
             COMMIT_ID=${{ env.COMMIT_ID }}
-
-      - name: Build and push chart
-        run: |
-          export CHART_VERSION=$(echo ${VERSION} | sed -E 's/^v(.*)/\1/')
-          sed -i "s/^\([[:space:]]*\)tag:.*/\1tag: \"${VERSION}\"/" helm/identity/values.yaml
-          sed -i "s/^version: [0-9.]*$/version: ${CHART_VERSION}/" helm/identity/Chart.yaml
-          mkdir -p dist
-          helm package helm/identity --app-version ${CHART_VERSION} -d dist
-          helm registry login ${{ secrets.REGISTRY }} --username "${{ secrets.HARBOR_USER }}" \
-            --password "${{ secrets.HARBOR_PASSWORD }}"
-          helm push dist/$(ls dist | grep tgz) oci://${{ secrets.REGISTRY }}/charts

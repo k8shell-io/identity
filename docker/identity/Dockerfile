@@ -9,8 +9,6 @@ LABEL COMMIT_ID=$COMMIT_ID
 WORKDIR /go/src/identity
 COPY files .
 
-RUN go install github.com/swaggo/swag/cmd/swag@latest
-RUN /go/bin/swag init --parseDependency --parseInternal
 ENV GOFLAGS="-mod=vendor"
 
 RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.VERSION=$VERSION -X main.COMMIT=$COMMIT_ID" \
@@ -20,7 +18,6 @@ FROM gcr.io/distroless/static-debian12
 
 WORKDIR /app
 COPY --from=build /go/bin/identity /app/identity
-COPY --from=build /go/src/identity/docs /app/docs
 COPY --from=build /go/src/identity/db /app/db
 
 USER nonroot:nonroot
