@@ -14,11 +14,9 @@ ENV GOFLAGS="-mod=vendor"
 RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.VERSION=$VERSION -X main.COMMIT=$COMMIT_ID" \
     -o /go/bin/identity main.go
 
-FROM gcr.io/distroless/static-debian12
+FROM alpine:3.21.3
 
-WORKDIR /app
+RUN mkdir /app
 COPY --from=build /go/bin/identity /app/identity
 COPY --from=build /go/src/identity/db /app/db
-
-USER nonroot:nonroot
-ENTRYPOINT ["/app/identity"]
+WORKDIR /app
