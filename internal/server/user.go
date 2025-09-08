@@ -179,6 +179,7 @@ func (s *Server) GetUserExtCredentials(username string) ([]*models.ExternalCrede
 			if token != nil {
 				credentials = append(credentials, &models.ExternalCredential{
 					ServiceName:   provider.Name(),
+					Username:      user.Username,
 					ExternalID:    token.Username,
 					ExternalToken: token.Token,
 					ServiceURL:    token.Address,
