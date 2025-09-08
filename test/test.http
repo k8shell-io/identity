@@ -1,9 +1,9 @@
 
-#@address=identity.k8shell-test
-@address=localhost
+@address=identity.k8shell-test
+#@address=localhost
 
 ### individual user
-http://{{address}}:9090/api/v1/users
+http://{{address}}:9090/api/v1/users/bruckins
 Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
 Content-Type: application/json
 
@@ -13,23 +13,23 @@ Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e096351
 Content-Type: application/json
 
 {
-  "token": "578577478f5424c1b8ad155f1f1d74674cdd4363c102b6c110fd72a820799e46"
+  "token": "1b60c2d2d13f462eef6f59cfe1d6a446845fe62ac325c91a38dc67cd3e5c679f"
 }
 
 
 ### Get credentials
-http://{{address}}:9090/api/v1/users/bruckins/credentials
+http://{{address}}:9090/api/v1/users/vitvatom/credentials
 Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
 Content-Type: application/json
 
 ### Add credentials
-POST http://{{address}}:9090/api/v1/users/bruckins/credentials
+POST http://{{address}}:9090/api/v1/users/vitvatom/credentials
 Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
 Content-Type: application/json
 
 {
   "service_name": "registry",
-  "service_url": "fitcr.ksi.in.fit.cvut.cz",
+  "service_url": "fitcr2.ksi.in.fit.cvut.cz",
   "external_id": "123",
   "external_token": "1234"
 }
