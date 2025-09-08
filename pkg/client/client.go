@@ -20,7 +20,40 @@ import (
 type Config struct {
 	BaseURL string // Base URL of the identity service
 	APIKey  string // API key for authentication
-	Timeout int    // HTTP client timeout in seconds (default: 30 seconds)
+	Timeout int    // HTTP client read timeout in seconds (default: 30 seconds)
+
+	// Transport configuration
+	MaxIdleConns        int // Maximum number of idle connections across all hosts (default: 20)
+	MaxIdleConnsPerHost int // Maximum number of idle connections per host (default: 10)
+	IdleConnTimeout     int // How long idle connections are kept in seconds (default: 90)
+	DialTimeout         int // Connection timeout in seconds (default: 5)
+	KeepAlive           int // TCP keepalive interval in seconds (default: 30)
+	TLSHandshakeTimeout int // TLS handshake timeout in seconds (default: 5)
+}
+
+// setDefaults sets default values for Config fields that are zero
+func (c *Config) setDefaults() {
+	if c.Timeout == 0 {
+		c.Timeout = 30
+	}
+	if c.MaxIdleConns == 0 {
+		c.MaxIdleConns = 20
+	}
+	if c.MaxIdleConnsPerHost == 0 {
+		c.MaxIdleConnsPerHost = 10
+	}
+	if c.IdleConnTimeout == 0 {
+		c.IdleConnTimeout = 90
+	}
+	if c.DialTimeout == 0 {
+		c.DialTimeout = 5
+	}
+	if c.KeepAlive == 0 {
+		c.KeepAlive = 30
+	}
+	if c.TLSHandshakeTimeout == 0 {
+		c.TLSHandshakeTimeout = 5
+	}
 }
 
 // Client represents a client for the K8Shell Identity REST API.
@@ -67,17 +100,28 @@ func (e ErrorResponse) Error() string {
 	return fmt.Sprintf("API error %d: %s", e.Status, e.Msg)
 }
 
-// New creates a new Identity API client with the given configuration.
+// NewClient creates a new Identity API client with the given configuration.
 func NewClient(config Config) *Client {
-	if config.Timeout == 0 {
-		config.Timeout = 30
+	config.setDefaults()
+
+	transport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   time.Duration(config.DialTimeout) * time.Second,
+			KeepAlive: time.Duration(config.KeepAlive) * time.Second,
+		}).DialContext,
+		MaxIdleConns:        config.MaxIdleConns,
+		MaxIdleConnsPerHost: config.MaxIdleConnsPerHost,
+		IdleConnTimeout:     time.Duration(config.IdleConnTimeout) * time.Second,
+		TLSHandshakeTimeout: time.Duration(config.TLSHandshakeTimeout) * time.Second,
+		DisableKeepAlives:   false,
 	}
 
 	return &Client{
 		baseURL: config.BaseURL,
 		apiKey:  config.APIKey,
 		httpClient: &http.Client{
-			Timeout: time.Duration(config.Timeout) * time.Second,
+			Timeout:   time.Duration(config.Timeout) * time.Second,
+			Transport: transport,
 		},
 	}
 }
