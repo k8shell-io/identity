@@ -52,6 +52,46 @@ func (d *DB) FindUser(username string) (*models.User, error) {
 	return &user, nil
 }
 
+func (d *DB) FindUserByAccessToken(token string) (*models.User, error) {
+	query := `
+		SELECT username, is_valid, expires_at, uid, gid, fullname,
+		       access_token, email, password, locked, failed_logins,
+		       auths, auth_keys, channels, envs, roles, blueprints, source, organization
+		FROM public.users
+		WHERE access_token=$1
+	`
+
+	var user models.User
+	err := d.pool.QueryRow(context.Background(), query, token).Scan(
+		&user.Username,
+		&user.IsValid,
+		&user.ExpiresAt,
+		&user.UID,
+		&user.GID,
+		&user.Fullname,
+		&user.AccessToken,
+		&user.Email,
+		&user.Password,
+		&user.Locked,
+		&user.FailedLogins,
+		&user.Auths,
+		&user.AuthKeys,
+		&user.Channels,
+		&user.Envs,
+		&user.Roles,
+		&user.Blueprints,
+		&user.Source,
+		&user.Organization,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, models.ErrUserNotFound
+	} else if err != nil {
+		return nil, err
+	}
+
+	return &user, nil
+}
+
 func (d *DB) CreateUser(user *models.User) error {
 	accessToken, err := generateAccessToken()
 	if err != nil {

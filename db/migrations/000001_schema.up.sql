@@ -29,6 +29,8 @@ CREATE TABLE users (
     source         varchar
 );
 
+CREATE INDEX idx_users_access_token ON users (access_token);
+
 -- external_credentials table to store external service credentials for users
 CREATE TABLE external_credentials (
     id             SERIAL PRIMARY KEY,

@@ -131,6 +131,7 @@ func (a *RESTApiService) initializeRouter() *gin.Engine {
 		{
 			users.GET("/", a.GetUsers)
 			users.GET("/lookup", a.FindUserByUserStr)
+			users.POST("/lookup/token", a.FindUserByToken)
 			users.GET("/:username", a.FindUser)
 			users.GET("/:username/onboardcap", a.OnboardCapability)
 			users.POST("/:username/onboard", a.OnboardUserDeviceFlow)
@@ -312,6 +313,36 @@ func (a *RESTApiService) FindUserByUserStr(c *gin.Context) {
 			"status": http.StatusNotFound,
 			"msg":    fmt.Sprintf("User not found for userstr '%s'", userstrParam),
 		})
+		return
+	}
+
+	c.JSON(http.StatusOK, user)
+}
+
+// FindUserByToken retrieves a user by their access token (POST with body)
+func (a *RESTApiService) FindUserByToken(c *gin.Context) {
+	var req client.TokenRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "Invalid request body",
+		})
+		return
+	}
+
+	user, err := a.server.DB.FindUserByAccessToken(req.Token)
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"status": http.StatusNotFound,
+				"msg":    "User not found for provided token",
+			})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"status": http.StatusInternalServerError,
+				"msg":    "Failed to authenticate user",
+			})
+		}
 		return
 	}
 

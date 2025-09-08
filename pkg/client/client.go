@@ -96,6 +96,11 @@ type UpdateSSHSessionRequest struct {
 	Channels []string `json:"channels"`
 }
 
+// TokenRequest represents the request body for token-based user lookup.
+type TokenRequest struct {
+	Token string `json:"token" binding:"required"`
+}
+
 // Error implements the error interface for ErrorResponse.
 func (e ErrorResponse) Error() string {
 	return fmt.Sprintf("API error %d: %s", e.Status, e.Msg)
@@ -208,6 +213,18 @@ func (c *Client) GetUser(ctx context.Context, username string) (*models.User, er
 
 	var user models.User
 	err := c.doRequest(ctx, http.MethodGet, path, nil, &user)
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (c *Client) GetUserByToken(ctx context.Context, token string) (*models.User, error) {
+	path := "/api/v1/users/lookup/token"
+	req := TokenRequest{Token: token}
+
+	var user models.User
+	err := c.doRequest(ctx, http.MethodPost, path, req, &user)
 	if err != nil {
 		return nil, err
 	}

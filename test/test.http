@@ -1,10 +1,21 @@
 
-@address=identity.k8shell-test
+#@address=identity.k8shell-test
+@address=localhost
 
 ### individual user
-http://{{address}}:9090/api/v1/users/bruckins
+http://{{address}}:9090/api/v1/users
 Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
 Content-Type: application/json
+
+### lookup by token
+POST http://{{address}}:9090/api/v1/users/lookup/token
+Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
+Content-Type: application/json
+
+{
+  "token": "578577478f5424c1b8ad155f1f1d74674cdd4363c102b6c110fd72a820799e46"
+}
+
 
 ### Get credentials
 http://{{address}}:9090/api/v1/users/bruckins/credentials
