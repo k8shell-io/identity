@@ -1,8 +1,30 @@
 
 ### individual user
-http://localhost:9090/api/v1/users/valenta
+http://localhost:9090/api/v1/users/vitvatom
 Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
 Content-Type: application/json
+
+### Get credentials
+http://localhost:9090/api/v1/users/vitvatom/credentials
+Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
+Content-Type: application/json
+
+### Add credentials
+POST http://localhost:9090/api/v1/users/vitvatom/credentials
+Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
+Content-Type: application/json
+
+{
+  "service_name": "registry",
+  "service_url": "fitcr3.ksi.in.fit.cvut.cz",
+  "external_id": "123",
+  "external_token": "1234"
+}
+
+### Delete credentials
+DELETE http://localhost:9090/api/v1/users/vitvatom/credentials/3
+Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
+
 
 ### all users
 http://localhost:9090/api/v1/users

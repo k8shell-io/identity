@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/k8shell-io/common/models"
 )
 
@@ -175,6 +176,103 @@ func (d *DB) ListUsers(limit, offset int) ([]*models.User, error) {
 		users = append(users, &user)
 	}
 	return users, nil
+}
+
+func (d *DB) AddExternalCredential(cred *models.ExternalCredential) error {
+	if cred.Username == "" || cred.ServiceName == "" || cred.ServiceURL == "" ||
+		cred.ExternalID == "" || cred.ExternalToken == "" {
+		return fmt.Errorf("required field: username, service_name, service_url, external_id, external_token")
+	}
+
+	query := `INSERT INTO public.external_credentials (
+        username, service_name, service_url, external_id, external_token
+    ) VALUES ($1, $2, $3, $4, $5)`
+
+	_, err := d.pool.Exec(context.Background(), query,
+		cred.Username, cred.ServiceName, cred.ServiceURL, cred.ExternalID, cred.ExternalToken)
+
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			switch pgErr.Code {
+			case "23505":
+				if pgErr.ConstraintName == "external_credentials_username_service_url_key" {
+					return fmt.Errorf("credential already exists for user '%s' and service URL '%s'",
+						cred.Username, cred.ServiceURL)
+				}
+			case "23502":
+				return fmt.Errorf("required field '%s' cannot be empty", pgErr.ColumnName)
+			}
+		}
+		return err
+	}
+
+	return nil
+}
+
+// GetExternalCredentials retrieves all external credentials for a given username
+func (d *DB) GetExternalCredentials(username string) ([]*models.ExternalCredential, error) {
+	query := `SELECT id, username, service_name, service_url, external_id, external_token
+		FROM public.external_credentials
+		WHERE username=$1`
+
+	rows, err := d.pool.Query(context.Background(), query, username)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var creds []*models.ExternalCredential
+	for rows.Next() {
+		var cred models.ExternalCredential
+		if err := rows.Scan(
+			&cred.ID,
+			&cred.Username,
+			&cred.ServiceName,
+			&cred.ServiceURL,
+			&cred.ExternalID,
+			&cred.ExternalToken,
+		); err != nil {
+			return nil, err
+		}
+		creds = append(creds, &cred)
+	}
+	return creds, nil
+}
+
+// DeleteExternalCredential deletes an external credential by its ID
+func (d *DB) DeleteExternalCredential(id uint64) error {
+	result, err := d.pool.Exec(context.Background(), `DELETE FROM public.external_credentials WHERE id=$1`, id)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected := result.RowsAffected()
+	if rowsAffected == 0 {
+		return fmt.Errorf("external credential with ID %d not found", id)
+	}
+
+	return nil
+}
+
+// UpdateExternalCredential updates an existing external credential
+func (d *DB) UpdateExternalCredential(cred *models.ExternalCredential) error {
+	if cred.Username == "" || cred.ServiceName == "" || cred.ServiceURL == "" ||
+		cred.ExternalID == "" || cred.ExternalToken == "" {
+		return fmt.Errorf("required field: username, service_name, service_url, external_id, external_token")
+	}
+
+	query := `UPDATE public.external_credentials SET
+		service_name=$1,
+		service_url=$2,
+		external_id=$3,
+		external_token=$4,
+		updated_at=NOW()
+	WHERE id=$5 AND username=$6`
+
+	_, err := d.pool.Exec(context.Background(), query,
+		cred.ServiceName, cred.ServiceURL, cred.ExternalID, cred.ExternalToken, cred.ID, cred.Username)
+	return err
 }
 
 // generateAccessToken creates a random 32-byte hex token

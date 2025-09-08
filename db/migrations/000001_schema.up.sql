@@ -29,9 +29,28 @@ CREATE TABLE users (
     source         varchar
 );
 
+-- external_credentials table to store external service credentials for users
+CREATE TABLE external_credentials (
+    id             SERIAL PRIMARY KEY,
+    username       VARCHAR NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+    service_name   VARCHAR NOT NULL CHECK (service_name IN ('registry', 'github', 'gitlab', 'bitbucket')),
+    service_url    VARCHAR NOT NULL,
+    external_id    VARCHAR NOT NULL,
+    external_token VARCHAR NOT NULL,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    is_active      BOOLEAN NOT NULL DEFAULT TRUE,
+
+    UNIQUE(username, service_url)
+);
+
+-- Create indexes separately
+CREATE INDEX idx_external_creds_username ON external_credentials (username);
+CREATE INDEX idx_external_creds_service ON external_credentials (service_name);
+
 CREATE TABLE sessions (
     session_id serial primary key,
-    username   varchar   not null references users,
+    username   varchar   not null references users(username), 
     proxy_id   varchar,
     proxy_pid  integer,
     client     varchar,

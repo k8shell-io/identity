@@ -135,7 +135,10 @@ func (a *RESTApiService) initializeRouter() *gin.Engine {
 			users.GET("/:username/onboardcap", a.OnboardCapability)
 			users.POST("/:username/onboard", a.OnboardUserDeviceFlow)
 			users.POST("/:username/authpublickey", a.AuthPublicKey)
-			users.GET("/:username/token", a.GetUserToken)
+			users.GET("/:username/credentials", a.GetUserExtCredentials)
+			users.POST("/:username/credentials", a.AddUserExtCredential)
+			users.PUT("/:username/credentials/:id", a.UpdateUserExtCredential)
+			users.DELETE("/:username/credentials/:id", a.DeleteUserExtCredential)
 
 			users.GET("/:username/sessions", a.GetSSHSessions)
 			users.POST("/:username/sessions", a.CreateSSHSession)
@@ -425,8 +428,8 @@ func (a *RESTApiService) OnboardCapability(c *gin.Context) {
 	c.JSON(http.StatusOK, cap)
 }
 
-// GetUserToken retrieves a user token for the specified username.
-func (a *RESTApiService) GetUserToken(c *gin.Context) {
+// GetUserCredentials retrieves user credentials for the specified username.
+func (a *RESTApiService) GetUserExtCredentials(c *gin.Context) {
 	username := c.Param("username")
 	if username == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -436,7 +439,7 @@ func (a *RESTApiService) GetUserToken(c *gin.Context) {
 		return
 	}
 
-	token, err := a.server.GetUserToken(username)
+	credentials, err := a.server.GetUserExtCredentials(username)
 	if err != nil {
 		if errors.Is(err, models.ErrUserNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{
@@ -463,7 +466,170 @@ func (a *RESTApiService) GetUserToken(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, token)
+	c.JSON(http.StatusOK, credentials)
+}
+
+// AddUserExtCredential adds an external credential for the specified user.
+func (a *RESTApiService) AddUserExtCredential(c *gin.Context) {
+	username := c.Param("username")
+	if username == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "Username is required",
+		})
+		return
+	}
+
+	var req models.ExternalCredential
+	if err := c.ShouldBindJSON(&req); err != nil {
+		a.log.Error().Err(err).Msg("Failed to decode request body")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "Invalid request body",
+		})
+		return
+	}
+
+	err := a.server.DB.AddExternalCredential(&models.ExternalCredential{
+		Username:      username,
+		ServiceName:   req.ServiceName,
+		ServiceURL:    req.ServiceURL,
+		ExternalID:    req.ExternalID,
+		ExternalToken: req.ExternalToken,
+	})
+	if err != nil {
+		if strings.Contains(err.Error(), "credential already exists") || strings.Contains(err.Error(), "required field") {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"status": http.StatusBadRequest,
+				"msg":    err.Error(),
+			})
+			return
+		}
+
+		a.log.Error().Err(err).Msgf("Failed to add external credential for user '%s'", username)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status": http.StatusInternalServerError,
+			"msg":    "Failed to add external credential",
+		})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"status":  http.StatusCreated,
+		"message": "External credential added successfully",
+	})
+}
+
+// UpdateUserExtCredential updates an external credential for the specified user.
+func (a *RESTApiService) UpdateUserExtCredential(c *gin.Context) {
+	username := c.Param("username")
+	idStr := c.Param("id")
+	if username == "" || idStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "Username and credential ID are required",
+		})
+		return
+	}
+
+	id, err := strconv.ParseInt(idStr, 10, 32)
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "Invalid credential ID",
+		})
+		return
+	}
+
+	var req models.ExternalCredential
+	if err := c.ShouldBindJSON(&req); err != nil {
+		a.log.Error().Err(err).Msg("Failed to decode request body")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "Invalid request body",
+		})
+		return
+	}
+
+	err = a.server.DB.UpdateExternalCredential(&models.ExternalCredential{
+		ID:            uint64(id),
+		Username:      username,
+		ServiceName:   req.ServiceName,
+		ServiceURL:    req.ServiceURL,
+		ExternalID:    req.ExternalID,
+		ExternalToken: req.ExternalToken,
+	})
+
+	if err != nil {
+		if strings.Contains(err.Error(), "credential already exists") || strings.Contains(err.Error(), "required field") {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"status": http.StatusBadRequest,
+				"msg":    err.Error(),
+			})
+			return
+		} else if strings.Contains(err.Error(), "no rows affected") {
+			c.JSON(http.StatusNotFound, gin.H{
+				"status": http.StatusNotFound,
+				"msg":    fmt.Sprintf("Credential ID %d for user '%s' not found", id, username),
+			})
+			return
+		}
+		a.log.Error().Err(err).Msgf("Failed to update external credential ID %d for user '%s'", id, username)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status": http.StatusInternalServerError,
+			"msg":    "Failed to update external credential",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":  http.StatusOK,
+		"message": "External credential updated successfully",
+	})
+}
+
+// DeleteUserExtCredential deletes an external credential for the specified user.
+func (a *RESTApiService) DeleteUserExtCredential(c *gin.Context) {
+	username := c.Param("username")
+	idStr := c.Param("id")
+	if username == "" || idStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "Username and credential ID are required",
+		})
+		return
+	}
+
+	id, err := strconv.ParseInt(idStr, 10, 32)
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": http.StatusBadRequest,
+			"msg":    "Invalid credential ID",
+		})
+		return
+	}
+
+	err = a.server.DB.DeleteExternalCredential(uint64(id))
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			c.JSON(http.StatusNotFound, gin.H{
+				"status": http.StatusNotFound,
+				"msg":    fmt.Sprintf("Credential ID %d for user '%s' not found", id, username),
+			})
+			return
+		}
+		a.log.Error().Err(err).Msgf("Failed to delete external credential ID %d for user '%s'", id, username)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status": http.StatusInternalServerError,
+			"msg":    "Failed to delete external credential",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":  http.StatusOK,
+		"message": "External credential deleted successfully",
+	})
 }
 
 // ** SSH SESSIONS
