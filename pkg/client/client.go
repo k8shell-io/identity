@@ -19,17 +19,15 @@ import (
 
 // Config represents the configuration for the Identity API client.
 type Config struct {
-	BaseURL string // Base URL of the identity service
-	APIKey  string // API key for authentication
-	Timeout int    // HTTP client read timeout in seconds (default: 30 seconds)
-
-	// Transport configuration
-	MaxIdleConns        int // Maximum number of idle connections across all hosts (default: 20)
-	MaxIdleConnsPerHost int // Maximum number of idle connections per host (default: 10)
-	IdleConnTimeout     int // How long idle connections are kept in seconds (default: 90)
-	DialTimeout         int // Connection timeout in seconds (default: 5)
-	KeepAlive           int // TCP keepalive interval in seconds (default: 30)
-	TLSHandshakeTimeout int // TLS handshake timeout in seconds (default: 5)
+	BaseURL             string `yaml:"baseURL"`
+	APIKey              string `yaml:"APIKey"`
+	Timeout             int    `yaml:"timeout"`
+	MaxIdleConns        int    `yaml:"maxIdleConns"`
+	MaxIdleConnsPerHost int    `yaml:"maxIdleConnsPerHost"`
+	IdleConnTimeout     int    `yaml:"idleConnTimeout"`
+	DialTimeout         int    `yaml:"dialTimeout"`
+	KeepAlive           int    `yaml:"keepAlive"`
+	TLSHandshakeTimeout int    `yaml:"tlsHandshakeTimeout"`
 }
 
 // setDefaults sets default values for Config fields that are zero
