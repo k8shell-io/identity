@@ -2,7 +2,7 @@
 @address=identity.k8shell-test
 
 ### individual user
-http://{{address}}:9090/api/v1/users/vitvatom
+http://{{address}}:9090/api/v1/users/bruckins
 Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
 Content-Type: application/json
 

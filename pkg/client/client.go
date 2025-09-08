@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -360,4 +361,37 @@ func (c *Client) GetBlueprintByUserStr(ctx context.Context, userstr string) (*mo
 		return nil, err
 	}
 	return &blueprint, nil
+}
+
+// External Credentials API
+
+// GetUserCredentials retrieves all external credentials for a user.
+func (c *Client) GetUserCredentials(ctx context.Context, username string) ([]models.ExternalCredential, error) {
+	path := fmt.Sprintf("/api/v1/users/%s/credentials", url.PathEscape(username))
+
+	var credentials []models.ExternalCredential
+	err := c.doRequest(ctx, http.MethodGet, path, nil, &credentials)
+	return credentials, err
+}
+
+// AddUserCredential adds an external credential for the specified user.
+func (c *Client) AddUserCredential(ctx context.Context, username string, credential models.ExternalCredential) error {
+	path := fmt.Sprintf("/api/v1/users/%s/credentials", url.PathEscape(username))
+
+	return c.doRequest(ctx, http.MethodPost, path, credential, nil)
+}
+
+// UpdateUserCredential updates an external credential for the specified user.
+func (c *Client) UpdateUserCredential(ctx context.Context, username string, credentialID uint64,
+	credential models.ExternalCredential) error {
+	path := fmt.Sprintf("/api/v1/users/%s/credentials/%d", url.PathEscape(username), credentialID)
+
+	return c.doRequest(ctx, http.MethodPut, path, credential, nil)
+}
+
+// DeleteUserCredential deletes an external credential for the specified user.
+func (c *Client) DeleteUserCredential(ctx context.Context, username string, credentialID uint64) error {
+	path := fmt.Sprintf("/api/v1/users/%s/credentials/%d", url.PathEscape(username), credentialID)
+
+	return c.doRequest(ctx, http.MethodDelete, path, nil, nil)
 }
