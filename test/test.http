@@ -23,15 +23,15 @@ Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e096351
 Content-Type: application/json
 
 ### Add credentials
-POST http://{{address}}:9090/api/v1/users/vitvatom/credentials
+POST http://{{address}}:9090/api/v1/users/bruckins/credentials
 Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
 Content-Type: application/json
 
 {
   "service_name": "registry",
-  "service_url": "fitcr2.ksi.in.fit.cvut.cz",
-  "external_id": "123",
-  "external_token": "1234"
+  "service_url": "fitcr.ksi.in.fit.cvut.cz",
+  "external_id": "admin",
+  "external_token": "Harbor94ek1"
 }
 
 ### Delete credentials

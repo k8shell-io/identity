@@ -1,9 +1,11 @@
 package github
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -28,15 +30,21 @@ type GitHubProviderConfig struct {
 	Template     string            `yaml:"template"`
 	ExtraFields  map[string]string `yaml:"extra,omitempty"`
 	Allow        []string          `yaml:"allow,omitempty"`
+
+	DefaultCustomBlueprint struct {
+		Filename string `yaml:"filename"`
+	} `yaml:"defaultCustomBlueprint,omitempty"`
 }
 
 type GitHubProvider struct {
-	config     GitHubProviderConfig
-	memcache   *memcache.Client
-	httpClient *http.Client
-	log        *zerolog.Logger
-	db         *backend.DB
-	template   *yamlcel.CELTemplate
+	config                 GitHubProviderConfig
+	baseDir                string
+	memcache               *memcache.Client
+	httpClient             *http.Client
+	log                    *zerolog.Logger
+	db                     *backend.DB
+	template               *yamlcel.CELTemplate
+	defaultCustomBlueprint *models.CustomBlueprint
 }
 
 var ErrUnauthorized = errors.New("unauthorized")
@@ -47,13 +55,36 @@ func NewGitHubProvider(cfg GitHubProviderConfig, cacheCfg backend.CacheConfig, d
 	if err != nil {
 		return nil, fmt.Errorf("load user template '%s': %w", cfg.Template, err)
 	}
+
+	var cbp *models.CustomBlueprint
+	if cfg.DefaultCustomBlueprint.Filename != "" {
+		path := common.NormalizePath(cfg.DefaultCustomBlueprint.Filename, baseDir)
+		_, err := os.Stat(path)
+		if err != nil {
+			return nil, fmt.Errorf("default custom blueprint file '%s' does not exist: %w", path, err)
+		}
+
+		fileContent, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read default custom blueprint file '%s': %w", path, err)
+		}
+
+		var errors []string
+		cbp, errors = models.ValidateCustomBlueprint(fileContent)
+		if len(errors) > 0 {
+			return nil, fmt.Errorf("failed to validate default custom blueprint file '%s': %v", path, errors)
+		}
+	}
+
 	provider := &GitHubProvider{
-		config:     cfg,
-		memcache:   memcache,
-		httpClient: &http.Client{},
-		log:        log.NewLogger("github"),
-		db:         db,
-		template:   template,
+		config:                 cfg,
+		baseDir:                baseDir,
+		memcache:               memcache,
+		httpClient:             &http.Client{},
+		log:                    log.NewLogger("github"),
+		db:                     db,
+		template:               template,
+		defaultCustomBlueprint: cbp,
 	}
 	return provider, nil
 }
@@ -364,14 +395,33 @@ func (p *GitHubProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.Cu
 		return nil, fmt.Errorf("failed to get user token for '%s': %w", userStr.Username, err)
 	}
 
+	var bp *models.CustomBlueprint
 	fileContent, err := GetFile(userStr.RepoOwner, userStr.RepoName, token.Token, K8SHELL_FILENAME, userStr.RepoRef)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get .k8shell file in '%s/%s': %w", userStr.RepoOwner, userStr.RepoName, err)
-	}
+		if p.defaultCustomBlueprint != nil {
+			p.log.Debug().Msgf("File .k8shell does not exist in %s/%s, using default custom blueprint.",
+				userStr.RepoOwner, userStr.RepoName)
 
-	bp, errors := models.ValidateCustomBlueprint([]byte(fileContent))
-	if len(errors) > 0 {
-		return nil, fmt.Errorf("failed to validate .k8shell file: %v", errors)
+			_, err := GetRepo(userStr.RepoOwner, userStr.RepoName, token.Token)
+			if err != nil {
+				return nil, fmt.Errorf("get repo info for %s/%s: %w", userStr.RepoOwner, userStr.RepoName, err)
+			}
+
+			bp, err = deepCopyBlueprint(p.defaultCustomBlueprint)
+			if err != nil {
+				return nil, fmt.Errorf("failed to copy default custom blueprint: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to get .k8shell file in '%s/%s' and default custom blueprint is not defined: %w",
+				userStr.RepoOwner, userStr.RepoName, err)
+		}
+	} else {
+		var errors []string
+		bp, errors = models.ValidateCustomBlueprint(fileContent)
+		if len(errors) > 0 {
+			p.log.Error().Msgf("Invalid .k8shell file for user '%s': %v", userStr.Username, errors)
+			return nil, fmt.Errorf("failed to validate .k8shell file: %v", errors)
+		}
 	}
 
 	bp.Name = userStr.Blueprint
@@ -389,4 +439,23 @@ func contains(slice []string, value string) bool {
 		}
 	}
 	return false
+}
+
+func deepCopyBlueprint(src *models.CustomBlueprint) (*models.CustomBlueprint, error) {
+	if src == nil {
+		return nil, nil
+	}
+
+	data, err := json.Marshal(src)
+	if err != nil {
+		return nil, err
+	}
+
+	var dst models.CustomBlueprint
+	err = json.Unmarshal(data, &dst)
+	if err != nil {
+		return nil, err
+	}
+
+	return &dst, nil
 }

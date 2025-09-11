@@ -227,7 +227,7 @@ func GetRepo(owner, repo, token string) (*GitHubRepo, error) {
 }
 
 // GetFile fetches file content from GitHub repository
-func GetFile(owner, repo, token, file string, ref string) (string, error) {
+func GetFile(owner, repo, token, file string, ref string) ([]byte, error) {
 	baseURL := fmt.Sprintf(GITHUB_FILE_CONTENT_URL, owner, repo, file)
 
 	if ref != "" {
@@ -236,7 +236,7 @@ func GetFile(owner, repo, token, file string, ref string) (string, error) {
 
 	req, err := http.NewRequest("GET", baseURL, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Authorization", fmt.Sprintf("token %s", token))
@@ -245,7 +245,7 @@ func GetFile(owner, repo, token, file string, ref string) (string, error) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("failed to make request: %w", err)
+		return nil, fmt.Errorf("failed to make request: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -253,23 +253,23 @@ func GetFile(owner, repo, token, file string, ref string) (string, error) {
 	case http.StatusOK:
 		var fileContent FileContent
 		if err := json.NewDecoder(resp.Body).Decode(&fileContent); err != nil {
-			return "", fmt.Errorf("failed to decode response: %w", err)
+			return nil, fmt.Errorf("failed to decode response: %w", err)
 		}
 
 		contentBytes, err := base64.StdEncoding.DecodeString(fileContent.Content)
 		if err != nil {
-			return "", fmt.Errorf("failed to decode base64 content: %w", err)
+			return nil, fmt.Errorf("failed to decode base64 content: %w", err)
 		}
 
-		return string(contentBytes), nil
+		return contentBytes, nil
 	case http.StatusNotFound:
-		return "", fmt.Errorf("repository %s/%s does not exist or %s file not found", owner, repo, file)
+		return nil, fmt.Errorf("repository %s/%s does not exist or %s file not found", owner, repo, file)
 	case http.StatusForbidden:
-		return "", fmt.Errorf("access denied to the repository %s/%s", owner, repo)
+		return nil, fmt.Errorf("access denied to the repository %s/%s", owner, repo)
 	case http.StatusBadRequest:
-		return "", fmt.Errorf("cannot access repository %s/%s or %s file", owner, repo, file)
+		return nil, fmt.Errorf("cannot access repository %s/%s or %s file", owner, repo, file)
 	default:
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("GitHub API error.\ncode=%d, response=%s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("GitHub API error.\ncode=%d, response=%s", resp.StatusCode, string(body))
 	}
 }

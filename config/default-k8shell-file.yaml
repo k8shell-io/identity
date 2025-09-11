@@ -1,0 +1,9 @@
+blueprint:
+  name: default-k8shell-file
+  template: development
+  sudo: false
+  resources:
+    cpu: 4
+    memory: 2Gi
+  network:
+    networkPolicy: workspace
