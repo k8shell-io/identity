@@ -61,12 +61,12 @@ func TestSSHSessionCRUDLifecycle(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	sessions, err := db.GetSSHSessions("user1", 10, 0, false)
+	sessions, err := db.GetSSHSessions("user1", "", 10, 0, false)
 	require.NoError(t, err)
 	assert.Len(t, sessions, 5)
 	assert.Equal(t, firstSession.SessionID, sessions[0].SessionID)
 
-	sessions, err = db.GetSSHSessions("user1", 10, 0, true)
+	sessions, err = db.GetSSHSessions("user1", "", 10, 0, true)
 	require.NoError(t, err)
 	assert.Len(t, sessions, 5)
 	assert.Equal(t, firstSession.SessionID, sessions[4].SessionID)

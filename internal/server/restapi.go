@@ -675,12 +675,13 @@ func (a *RESTApiService) GetSSHSessions(c *gin.Context) {
 		})
 		return
 	}
+	workspace := c.Query("workspace")
 
 	limit := parseQueryInt(c.Query("limit"), backend.DefaultListLimit)
 	offset := parseQueryInt(c.Query("offset"), 0)
 	reverse := c.Query("reverse") == "true"
 
-	sessions, err := a.server.GetSSHSessions(username, limit, offset, reverse)
+	sessions, err := a.server.GetSSHSessions(username, workspace, limit, offset, reverse)
 	if err != nil {
 		a.log.Error().Err(err).Msgf("Failed to get SSH sessions for user '%s'", username)
 		c.JSON(http.StatusInternalServerError, gin.H{

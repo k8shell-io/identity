@@ -163,7 +163,8 @@ func (d *DB) EndSSHSession(username string, sessionID int32) error {
 }
 
 // GetSSHSessions retrieves a list of SSH sessions for a user with pagination and sorting options
-func (d *DB) GetSSHSessions(username string, limit int, offset int, reverse bool) ([]*models.SSHSession, error) {
+func (d *DB) GetSSHSessions(username string, workspace string, limit int, offset int,
+	reverse bool) ([]*models.SSHSession, error) {
 	limit, offset = AdjustListLimit(limit, offset)
 
 	order := "ASC"
@@ -171,18 +172,39 @@ func (d *DB) GetSSHSessions(username string, limit int, offset int, reverse bool
 		order = "DESC"
 	}
 
-	query := fmt.Sprintf(`
-		SELECT session_id, username, proxy_id, proxy_pid, client, client_ip,
-			   start_time, end_time, workspace, channels, bytes_in, bytes_out, prov_time, channels
-		FROM public.sessions
-		WHERE username = $1
-		ORDER BY start_time %s
-		LIMIT $2 OFFSET $3
-	`, order)
+	var query string
+	var args []interface{}
 
-	rows, err := d.pool.Query(context.Background(), query, username, limit, offset)
+	if workspace == "" {
+		query = fmt.Sprintf(`
+			SELECT session_id, username, proxy_id, proxy_pid, client, client_ip,
+				   start_time, end_time, workspace, channels, bytes_in, bytes_out, prov_time, channels
+			FROM public.sessions
+			WHERE username = $1
+			ORDER BY start_time %s
+			LIMIT $2 OFFSET $3
+		`, order)
+		args = []interface{}{username, limit, offset}
+	} else {
+		query = fmt.Sprintf(`
+			SELECT session_id, username, proxy_id, proxy_pid, client, client_ip,
+				   start_time, end_time, workspace, channels, bytes_in, bytes_out, prov_time, channels
+			FROM public.sessions
+			WHERE username = $1 AND workspace = $2
+			ORDER BY start_time %s
+			LIMIT $3 OFFSET $4
+		`, order)
+		args = []interface{}{username, workspace, limit, offset}
+	}
+
+	rows, err := d.pool.Query(context.Background(), query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to retrieve sessions for user '%s': %w", username, err)
+		if workspace == "" {
+			return nil, fmt.Errorf("failed to retrieve sessions for user '%s': %w", username, err)
+		} else {
+			return nil, fmt.Errorf("failed to retrieve sessions for user '%s' in workspace '%s': %w",
+				username, workspace, err)
+		}
 	}
 	defer rows.Close()
 
