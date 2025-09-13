@@ -281,7 +281,8 @@ func (c *Client) GetUserToken(ctx context.Context, username string) (*models.Use
 // SSH Sessions API
 
 // ListSSHSessions retrieves a paginated list of SSH sessions for a user.
-func (c *Client) ListSSHSessions(ctx context.Context, username string, limit, offset int, reverse bool) ([]models.SSHSession, error) {
+func (c *Client) ListSSHSessions(ctx context.Context, username string, workspace string, limit, offset int,
+	reverse bool) ([]models.SSHSession, error) {
 	params := url.Values{}
 	if limit > 0 {
 		params.Set("limit", strconv.Itoa(limit))
@@ -291,6 +292,9 @@ func (c *Client) ListSSHSessions(ctx context.Context, username string, limit, of
 	}
 	if reverse {
 		params.Set("reverse", "true")
+	}
+	if workspace != "" {
+		params.Set("workspace", workspace)
 	}
 
 	path := fmt.Sprintf("/api/v1/users/%s/sessions", url.PathEscape(username))
