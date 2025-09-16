@@ -91,3 +91,11 @@ INSERT INTO organizations (name, description) VALUES
     ('default', 'Default organization'),
     ('ctu', 'Users onboarded via Usermap'),
     ('github', 'Users onboarded via GitHub');
+
+INSERT INTO users (username, organization, is_valid, expires_at, uid, gid, fullname, 
+            access_token, email, auths, auth_keys, locked, failed_logins, channels, 
+            envs, roles, blueprints, source) 
+VALUES
+    ('system', 'default', true, '2099-12-31 23:59:59+00', 1000, 1000, 'System User', '', 
+    'system@k8shell.io', ARRAY['*'], ARRAY['*'], false, 0, ARRAY['*'], ARRAY['*'], 
+    ARRAY['*'], ARRAY['*'], 'local');
