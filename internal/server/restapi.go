@@ -668,14 +668,15 @@ func (a *RESTApiService) DeleteUserExtCredential(c *gin.Context) {
 // GetSSHSessions retrieves a list of SSH sessions for a user.
 func (a *RESTApiService) GetSSHSessions(c *gin.Context) {
 	username := c.Param("username")
-	if username == "" {
+	workspace := c.Query("workspace")
+
+	if username == "" && workspace == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"status": http.StatusBadRequest,
-			"msg":    "Username is required",
+			"msg":    "Username or workspace is required",
 		})
 		return
 	}
-	workspace := c.Query("workspace")
 
 	limit := parseQueryInt(c.Query("limit"), backend.DefaultListLimit)
 	offset := parseQueryInt(c.Query("offset"), 0)
