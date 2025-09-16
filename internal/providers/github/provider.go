@@ -19,7 +19,7 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-const K8SHELL_FILENAME = ".k8shell2"
+const K8SHELL_FILENAME = ".k8shell"
 
 type GitHubProviderConfig struct {
 	ID           string            `yaml:"id"`
