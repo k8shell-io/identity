@@ -97,6 +97,7 @@ func (d *DB) CreateUser(user *models.User) error {
 	if err != nil {
 		return fmt.Errorf("failed to generate access token: %w", err)
 	}
+	user.AccessToken = accessToken
 
 	query := `INSERT INTO public.users (
 		username, is_valid, expires_at, uid, gid, fullname,
@@ -106,7 +107,7 @@ func (d *DB) CreateUser(user *models.User) error {
 		$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
 	)`
 	_, err = d.pool.Exec(context.Background(), query,
-		user.Username, user.IsValid, user.ExpiresAt, user.UID, user.GID, user.Fullname, accessToken, user.Email,
+		user.Username, user.IsValid, user.ExpiresAt, user.UID, user.GID, user.Fullname, user.AccessToken, user.Email,
 		user.Password, user.Locked, user.FailedLogins, user.Auths, user.AuthKeys, user.Channels,
 		user.Envs, user.Roles, user.Blueprints, user.Source, user.Organization)
 	return err

@@ -49,6 +49,7 @@ func (s *Server) refreshUser(username string, user *models.User) (*models.User, 
 			if err != nil {
 				return nil, fmt.Errorf("failed to update user '%s' in database: %w", username, err)
 			}
+			foundUser.AccessToken = user.AccessToken
 			user = foundUser
 		} else if foundUser == nil && user != nil {
 			// If user was not found in identity provider but it exists in the DB, mark as invalid
