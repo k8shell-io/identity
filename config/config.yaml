@@ -64,6 +64,6 @@ identityProviders:
       - "bruckins"
       - "tomvit"
 
-    defaultCustomBlueprint:
+    defaultK8shellFile:   
       filename: default-k8shell-file.yaml
 
