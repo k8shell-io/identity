@@ -7,67 +7,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
-	"time"
 
-	"github.com/gin-gonic/gin"
+	"github.com/k8shell-io/common/apiclient"
 	"github.com/k8shell-io/common/models"
 )
 
-// Config represents the configuration for the Identity API client.
-type Config struct {
-	BaseURL             string `yaml:"baseURL"`
-	APIKey              string `yaml:"APIKey"`
-	Timeout             int    `yaml:"timeout"`
-	MaxIdleConns        int    `yaml:"maxIdleConns"`
-	MaxIdleConnsPerHost int    `yaml:"maxIdleConnsPerHost"`
-	IdleConnTimeout     int    `yaml:"idleConnTimeout"`
-	DialTimeout         int    `yaml:"dialTimeout"`
-	KeepAlive           int    `yaml:"keepAlive"`
-	TLSHandshakeTimeout int    `yaml:"tlsHandshakeTimeout"`
-}
-
-// setDefaults sets default values for Config fields that are zero
-func (c *Config) setDefaults() {
-	if c.Timeout == 0 {
-		c.Timeout = 30
-	}
-	if c.MaxIdleConns == 0 {
-		c.MaxIdleConns = 20
-	}
-	if c.MaxIdleConnsPerHost == 0 {
-		c.MaxIdleConnsPerHost = 10
-	}
-	if c.IdleConnTimeout == 0 {
-		c.IdleConnTimeout = 90
-	}
-	if c.DialTimeout == 0 {
-		c.DialTimeout = 5
-	}
-	if c.KeepAlive == 0 {
-		c.KeepAlive = 30
-	}
-	if c.TLSHandshakeTimeout == 0 {
-		c.TLSHandshakeTimeout = 5
-	}
-}
-
-// Client represents a client for the K8Shell Identity REST API.
+// Client represents the identity API client
 type Client struct {
-	baseURL    string
-	apiKey     string
-	httpClient *http.Client
-}
-
-// ErrorResponse represents an error response from the API.
-type ErrorResponse struct {
-	Status int    `json:"status"`
-	Msg    string `json:"msg"`
+	*apiclient.Client
 }
 
 // AuthPublicKeyRequest represents the request body for user authentication
@@ -101,127 +51,16 @@ type TokenRequest struct {
 	Token string `json:"token" binding:"required"`
 }
 
-// Error implements the error interface for ErrorResponse.
-func (e ErrorResponse) Error() string {
-	return fmt.Sprintf("API error %d: %s", e.Status, e.Msg)
-}
+// // Error implements the error interface for ErrorResponse.
+// func (e ErrorResponse) Error() string {
+// 	return fmt.Sprintf("API error %d: %s", e.Status, e.Msg)
+// }
 
 // NewClient creates a new Identity API client with the given configuration.
-func NewClient(config Config) *Client {
-	config.setDefaults()
-
-	transport := &http.Transport{
-		DialContext: (&net.Dialer{
-			Timeout:   time.Duration(config.DialTimeout) * time.Second,
-			KeepAlive: time.Duration(config.KeepAlive) * time.Second,
-		}).DialContext,
-		MaxIdleConns:        config.MaxIdleConns,
-		MaxIdleConnsPerHost: config.MaxIdleConnsPerHost,
-		IdleConnTimeout:     time.Duration(config.IdleConnTimeout) * time.Second,
-		TLSHandshakeTimeout: time.Duration(config.TLSHandshakeTimeout) * time.Second,
-		DisableKeepAlives:   false,
-	}
-
+func NewClient(config apiclient.Config) *Client {
 	return &Client{
-		baseURL: config.BaseURL,
-		apiKey:  config.APIKey,
-		httpClient: &http.Client{
-			Timeout:   time.Duration(config.Timeout) * time.Second,
-			Transport: transport,
-		},
+		Client: apiclient.NewClient(config, "identity-client"),
 	}
-}
-
-// doRequest performs an HTTP request and handles the response.
-func (c *Client) doRequest(ctx context.Context, method, path string, body interface{}, result interface{}) error {
-	var reqBody io.Reader
-	if body != nil {
-		jsonBody, err := json.Marshal(body)
-		if err != nil {
-			return fmt.Errorf("failed to marshal request body: %w", err)
-		}
-		reqBody = bytes.NewReader(jsonBody)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reqBody)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to execute request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode >= 400 {
-		var errResp ErrorResponse
-		if err := json.Unmarshal(respBody, &errResp); err != nil {
-			return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
-		}
-		return errResp
-	}
-
-	if resp.StatusCode == http.StatusNoContent {
-		return nil
-	}
-
-	if result != nil {
-		if err := json.Unmarshal(respBody, result); err != nil {
-			return fmt.Errorf("failed to unmarshal response: %w", err)
-		}
-	}
-
-	return nil
-}
-
-// ForwardRequest forwards a HTTP request to the identity API
-func (c *Client) ForwardRequest(cg *gin.Context, url string) {
-	downstreamURL := c.baseURL + url
-
-	req, err := http.NewRequest(cg.Request.Method, downstreamURL, cg.Request.Body)
-	if err != nil {
-		cg.JSON(http.StatusInternalServerError, gin.H{"msg": "Failed to create forward request"})
-		cg.Abort()
-		return
-	}
-
-	for k, v := range cg.Request.Header {
-		if strings.ToLower(k) == "authorization" {
-			continue
-		}
-		for _, vv := range v {
-			req.Header.Add(k, vv)
-		}
-	}
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		cg.JSON(http.StatusBadGateway, gin.H{"msg": "Forward request failed"})
-		cg.Abort()
-		return
-	}
-	defer resp.Body.Close()
-
-	for k, v := range resp.Header {
-		for _, vv := range v {
-			cg.Writer.Header().Add(k, vv)
-		}
-	}
-	cg.Status(resp.StatusCode)
-	io.Copy(cg.Writer, resp.Body)
-	cg.Abort()
 }
 
 // Users API
@@ -241,20 +80,35 @@ func (c *Client) ListUsers(ctx context.Context, limit, offset int) ([]models.Use
 		path += "?" + params.Encode()
 	}
 
+	resp, err := c.MakeRequest(ctx, http.MethodGet, path, nil, "")
+	if err != nil {
+		return nil, err
+	}
+
 	var users []models.User
-	err := c.doRequest(ctx, http.MethodGet, path, nil, &users)
-	return users, err
+	err = c.HandleResponse(resp, &users)
+	if err != nil {
+		return nil, err
+	}
+
+	return users, nil
 }
 
 // GetUser retrieves a user by their username.
 func (c *Client) GetUser(ctx context.Context, username string) (*models.User, error) {
 	path := fmt.Sprintf("/api/v1/users/%s", url.PathEscape(username))
 
-	var user models.User
-	err := c.doRequest(ctx, http.MethodGet, path, nil, &user)
+	resp, err := c.MakeRequest(ctx, http.MethodGet, path, nil, "")
 	if err != nil {
 		return nil, err
 	}
+
+	var user models.User
+	err = c.HandleResponse(resp, &user)
+	if err != nil {
+		return nil, err
+	}
+
 	return &user, nil
 }
 
@@ -262,11 +116,22 @@ func (c *Client) GetUserByToken(ctx context.Context, token string) (*models.User
 	path := "/api/v1/users/lookup/token"
 	req := TokenRequest{Token: token}
 
-	var user models.User
-	err := c.doRequest(ctx, http.MethodPost, path, req, &user)
+	reqBody, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	resp, err := c.MakeRequest(ctx, http.MethodPost, path, bytes.NewReader(reqBody), "application/json")
 	if err != nil {
 		return nil, err
 	}
+
+	var user models.User
+	err = c.HandleResponse(resp, &user)
+	if err != nil {
+		return nil, err
+	}
+
 	return &user, nil
 }
 
@@ -275,23 +140,40 @@ func (c *Client) AuthPublicKey(ctx context.Context, username, publicKey string) 
 	path := fmt.Sprintf("/api/v1/users/%s/authpublickey", url.PathEscape(username))
 	req := AuthPublicKeyRequest{PublicKey: publicKey}
 
-	var resp AuthPublicKeyResponse
-	err := c.doRequest(ctx, http.MethodPost, path, req, &resp)
+	reqBody, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	resp, err := c.MakeRequest(ctx, http.MethodPost, path, bytes.NewReader(reqBody), "application/json")
 	if err != nil {
 		return nil, err
 	}
-	return &resp, nil
+
+	var authResp AuthPublicKeyResponse
+	err = c.HandleResponse(resp, &authResp)
+	if err != nil {
+		return nil, err
+	}
+
+	return &authResp, nil
 }
 
 // OnboardUser initiates the Device Authorization Flow to onboard a user.
 func (c *Client) OnboardUser(ctx context.Context, username string) (*models.OnboardUser, error) {
 	path := fmt.Sprintf("/api/v1/users/%s/onboard", url.PathEscape(username))
 
-	var onboardUser models.OnboardUser
-	err := c.doRequest(ctx, http.MethodPost, path, nil, &onboardUser)
+	resp, err := c.MakeRequest(ctx, http.MethodPost, path, nil, "")
 	if err != nil {
 		return nil, err
 	}
+
+	var onboardUser models.OnboardUser
+	err = c.HandleResponse(resp, &onboardUser)
+	if err != nil {
+		return nil, err
+	}
+
 	return &onboardUser, nil
 }
 
@@ -299,11 +181,17 @@ func (c *Client) OnboardUser(ctx context.Context, username string) (*models.Onbo
 func (c *Client) GetOnboardCapability(ctx context.Context, username string) (*models.OnboardCapability, error) {
 	path := fmt.Sprintf("/api/v1/users/%s/onboardcap", url.PathEscape(username))
 
-	var capability models.OnboardCapability
-	err := c.doRequest(ctx, http.MethodGet, path, nil, &capability)
+	resp, err := c.MakeRequest(ctx, http.MethodGet, path, nil, "")
 	if err != nil {
 		return nil, err
 	}
+
+	var capability models.OnboardCapability
+	err = c.HandleResponse(resp, &capability)
+	if err != nil {
+		return nil, err
+	}
+
 	return &capability, nil
 }
 
@@ -311,11 +199,17 @@ func (c *Client) GetOnboardCapability(ctx context.Context, username string) (*mo
 func (c *Client) GetUserToken(ctx context.Context, username string) (*models.UserToken, error) {
 	path := fmt.Sprintf("/api/v1/users/%s/token", url.PathEscape(username))
 
-	var token models.UserToken
-	err := c.doRequest(ctx, http.MethodGet, path, nil, &token)
+	resp, err := c.MakeRequest(ctx, http.MethodGet, path, nil, "")
 	if err != nil {
 		return nil, err
 	}
+
+	var token models.UserToken
+	err = c.HandleResponse(resp, &token)
+	if err != nil {
+		return nil, err
+	}
+
 	return &token, nil
 }
 
@@ -343,20 +237,35 @@ func (c *Client) ListSSHSessions(ctx context.Context, username string, workspace
 		path += "?" + params.Encode()
 	}
 
+	resp, err := c.MakeRequest(ctx, http.MethodGet, path, nil, "")
+	if err != nil {
+		return nil, err
+	}
+
 	var sessions []models.SSHSession
-	err := c.doRequest(ctx, http.MethodGet, path, nil, &sessions)
-	return sessions, err
+	err = c.HandleResponse(resp, &sessions)
+	if err != nil {
+		return nil, err
+	}
+
+	return sessions, nil
 }
 
 // GetSSHSession retrieves a specific SSH session by its ID for a user.
 func (c *Client) GetSSHSession(ctx context.Context, username string, sessionID int32) (*models.SSHSession, error) {
 	path := fmt.Sprintf("/api/v1/users/%s/sessions/%d", url.PathEscape(username), sessionID)
 
-	var session models.SSHSession
-	err := c.doRequest(ctx, http.MethodGet, path, nil, &session)
+	resp, err := c.MakeRequest(ctx, http.MethodGet, path, nil, "")
 	if err != nil {
 		return nil, err
 	}
+
+	var session models.SSHSession
+	err = c.HandleResponse(resp, &session)
+	if err != nil {
+		return nil, err
+	}
+
 	return &session, nil
 }
 
@@ -370,11 +279,22 @@ func (c *Client) CreateSSHSession(ctx context.Context, username, workspace, prox
 		ClientIP:  clientIP,
 	}
 
-	var session models.SSHSession
-	err := c.doRequest(ctx, http.MethodPost, path, req, &session)
+	reqBody, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	resp, err := c.MakeRequest(ctx, http.MethodPost, path, bytes.NewReader(reqBody), "application/json")
 	if err != nil {
 		return nil, err
 	}
+
+	var session models.SSHSession
+	err = c.HandleResponse(resp, &session)
+	if err != nil {
+		return nil, err
+	}
+
 	return &session, nil
 }
 
@@ -396,14 +316,29 @@ func (c *Client) UpdateSSHSession(ctx context.Context, username string, sessionI
 		Channels: stringChannels,
 	}
 
-	return c.doRequest(ctx, http.MethodPatch, path, req, nil)
+	reqBody, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	resp, err := c.MakeRequest(ctx, http.MethodPatch, path, bytes.NewReader(reqBody), "application/json")
+	if err != nil {
+		return err
+	}
+
+	return c.HandleResponse(resp, nil)
 }
 
 // EndSSHSession marks an SSH session as ended by setting the end time.
 func (c *Client) EndSSHSession(ctx context.Context, username string, sessionID int32) error {
 	path := fmt.Sprintf("/api/v1/users/%s/sessions/%d/end", url.PathEscape(username), sessionID)
 
-	return c.doRequest(ctx, http.MethodPost, path, nil, nil)
+	resp, err := c.MakeRequest(ctx, http.MethodPost, path, nil, "")
+	if err != nil {
+		return err
+	}
+
+	return c.HandleResponse(resp, nil)
 }
 
 // Blueprints API
@@ -415,11 +350,17 @@ func (c *Client) GetBlueprintByUserStr(ctx context.Context, userstr string) (*mo
 
 	path := "/api/v1/blueprints/lookup?" + params.Encode()
 
-	var blueprint models.CustomBlueprint
-	err := c.doRequest(ctx, http.MethodGet, path, nil, &blueprint)
+	resp, err := c.MakeRequest(ctx, http.MethodGet, path, nil, "")
 	if err != nil {
 		return nil, err
 	}
+
+	var blueprint models.CustomBlueprint
+	err = c.HandleResponse(resp, &blueprint)
+	if err != nil {
+		return nil, err
+	}
+
 	return &blueprint, nil
 }
 
@@ -429,16 +370,35 @@ func (c *Client) GetBlueprintByUserStr(ctx context.Context, userstr string) (*mo
 func (c *Client) GetUserCredentials(ctx context.Context, username string) ([]models.ExternalCredential, error) {
 	path := fmt.Sprintf("/api/v1/users/%s/credentials", url.PathEscape(username))
 
+	resp, err := c.MakeRequest(ctx, http.MethodGet, path, nil, "")
+	if err != nil {
+		return nil, err
+	}
+
 	var credentials []models.ExternalCredential
-	err := c.doRequest(ctx, http.MethodGet, path, nil, &credentials)
-	return credentials, err
+	err = c.HandleResponse(resp, &credentials)
+	if err != nil {
+		return nil, err
+	}
+
+	return credentials, nil
 }
 
 // AddUserCredential adds an external credential for the specified user.
 func (c *Client) AddUserCredential(ctx context.Context, username string, credential models.ExternalCredential) error {
 	path := fmt.Sprintf("/api/v1/users/%s/credentials", url.PathEscape(username))
 
-	return c.doRequest(ctx, http.MethodPost, path, credential, nil)
+	reqBody, err := json.Marshal(credential)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	resp, err := c.MakeRequest(ctx, http.MethodPost, path, bytes.NewReader(reqBody), "application/json")
+	if err != nil {
+		return err
+	}
+
+	return c.HandleResponse(resp, nil)
 }
 
 // UpdateUserCredential updates an external credential for the specified user.
@@ -446,12 +406,27 @@ func (c *Client) UpdateUserCredential(ctx context.Context, username string, cred
 	credential models.ExternalCredential) error {
 	path := fmt.Sprintf("/api/v1/users/%s/credentials/%d", url.PathEscape(username), credentialID)
 
-	return c.doRequest(ctx, http.MethodPut, path, credential, nil)
+	reqBody, err := json.Marshal(credential)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	resp, err := c.MakeRequest(ctx, http.MethodPut, path, bytes.NewReader(reqBody), "application/json")
+	if err != nil {
+		return err
+	}
+
+	return c.HandleResponse(resp, nil)
 }
 
 // DeleteUserCredential deletes an external credential for the specified user.
 func (c *Client) DeleteUserCredential(ctx context.Context, username string, credentialID uint64) error {
 	path := fmt.Sprintf("/api/v1/users/%s/credentials/%d", url.PathEscape(username), credentialID)
 
-	return c.doRequest(ctx, http.MethodDelete, path, nil, nil)
+	resp, err := c.MakeRequest(ctx, http.MethodDelete, path, nil, "")
+	if err != nil {
+		return err
+	}
+
+	return c.HandleResponse(resp, nil)
 }
