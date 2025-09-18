@@ -16,6 +16,7 @@ import (
 	"github.com/k8shell-io/identity/internal/common"
 	"github.com/k8shell-io/yaml-cel/pkg/yamlcel"
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert/yaml"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -31,9 +32,9 @@ type GitHubProviderConfig struct {
 	ExtraFields  map[string]string `yaml:"extra,omitempty"`
 	Allow        []string          `yaml:"allow,omitempty"`
 
-	DefaultCustomBlueprint struct {
+	DefaultK8shellFile struct {
 		Filename string `yaml:"filename"`
-	} `yaml:"defaultCustomBlueprint,omitempty"`
+	} `yaml:"defaultK8shellFile,omitempty"`
 }
 
 type GitHubProvider struct {
@@ -57,28 +58,28 @@ func NewGitHubProvider(cfg GitHubProviderConfig, cacheCfg backend.CacheConfig, d
 	}
 
 	var cbp *models.CustomBlueprint
-	if cfg.DefaultCustomBlueprint.Filename != "" {
-		path := common.NormalizePath(cfg.DefaultCustomBlueprint.Filename, baseDir)
+	if cfg.DefaultK8shellFile.Filename != "" {
+		path := common.NormalizePath(cfg.DefaultK8shellFile.Filename, baseDir)
 		_, err := os.Stat(path)
 		if err != nil {
-			return nil, fmt.Errorf("default custom blueprint file '%s' does not exist: %w", path, err)
+			return nil, fmt.Errorf("default k8shell file '%s' does not exist: %w", path, err)
 		}
 
 		fileContent, err := os.ReadFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read default custom blueprint file '%s': %w", path, err)
+			return nil, fmt.Errorf("failed to read default k8shell file '%s': %w", path, err)
 		}
 
 		var k8shellFile models.K8shellFile
-		err = json.Unmarshal(fileContent, &k8shellFile)
+		err = yaml.Unmarshal(fileContent, &k8shellFile)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse default custom blueprint file '%s': %w", path, err)
+			return nil, fmt.Errorf("failed to parse default k8shell file '%s': %w", path, err)
 		}
 
 		var errors []string
 		cbp, errors = models.ValidateK8shellFile(k8shellFile)
 		if len(errors) > 0 {
-			return nil, fmt.Errorf("failed to validate default custom blueprint file '%s': %v", path, errors)
+			return nil, fmt.Errorf("failed to validate default k8shell file '%s': %v", path, errors)
 		}
 	}
 
@@ -423,7 +424,7 @@ func (p *GitHubProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.Cu
 		}
 	} else {
 		var k8shellFile models.K8shellFile
-		err = json.Unmarshal(fileContent, &k8shellFile)
+		err = yaml.Unmarshal(fileContent, &k8shellFile)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse k8shell file in %s/%s: %w", userStr.RepoOwner, userStr.RepoName, err)
 		}
