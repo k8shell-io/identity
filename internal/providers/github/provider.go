@@ -69,8 +69,14 @@ func NewGitHubProvider(cfg GitHubProviderConfig, cacheCfg backend.CacheConfig, d
 			return nil, fmt.Errorf("failed to read default custom blueprint file '%s': %w", path, err)
 		}
 
+		var k8shellFile models.K8shellFile
+		err = json.Unmarshal(fileContent, &k8shellFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse default custom blueprint file '%s': %w", path, err)
+		}
+
 		var errors []string
-		cbp, errors = models.ValidateCustomBlueprint(fileContent)
+		cbp, errors = models.ValidateK8shellFile(k8shellFile)
 		if len(errors) > 0 {
 			return nil, fmt.Errorf("failed to validate default custom blueprint file '%s': %v", path, errors)
 		}
@@ -416,8 +422,14 @@ func (p *GitHubProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.Cu
 				userStr.RepoOwner, userStr.RepoName, err)
 		}
 	} else {
+		var k8shellFile models.K8shellFile
+		err = json.Unmarshal(fileContent, &k8shellFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse k8shell file in %s/%s: %w", userStr.RepoOwner, userStr.RepoName, err)
+		}
+
 		var errors []string
-		bp, errors = models.ValidateCustomBlueprint(fileContent)
+		bp, errors = models.ValidateK8shellFile(k8shellFile)
 		if len(errors) > 0 {
 			p.log.Error().Msgf("Invalid .k8shell file for user '%s': %v", userStr.Username, errors)
 			return nil, fmt.Errorf("failed to validate .k8shell file: %v", errors)
