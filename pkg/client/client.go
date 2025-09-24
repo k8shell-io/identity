@@ -86,7 +86,7 @@ func (c *Client) ListUsers(ctx context.Context, limit, offset int) ([]models.Use
 	}
 
 	var users []models.User
-	err = c.HandleResponse(resp, &users)
+	_, err = c.HandleResponse(resp, &users)
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +104,7 @@ func (c *Client) GetUser(ctx context.Context, username string) (*models.User, er
 	}
 
 	var user models.User
-	err = c.HandleResponse(resp, &user)
+	_, err = c.HandleResponse(resp, &user)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +127,7 @@ func (c *Client) GetUserByToken(ctx context.Context, token string) (*models.User
 	}
 
 	var user models.User
-	err = c.HandleResponse(resp, &user)
+	_, err = c.HandleResponse(resp, &user)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +151,7 @@ func (c *Client) AuthPublicKey(ctx context.Context, username, publicKey string) 
 	}
 
 	var authResp AuthPublicKeyResponse
-	err = c.HandleResponse(resp, &authResp)
+	_, err = c.HandleResponse(resp, &authResp)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +169,7 @@ func (c *Client) OnboardUser(ctx context.Context, username string) (*models.Onbo
 	}
 
 	var onboardUser models.OnboardUser
-	err = c.HandleResponse(resp, &onboardUser)
+	_, err = c.HandleResponse(resp, &onboardUser)
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +187,7 @@ func (c *Client) GetOnboardCapability(ctx context.Context, username string) (*mo
 	}
 
 	var capability models.OnboardCapability
-	err = c.HandleResponse(resp, &capability)
+	_, err = c.HandleResponse(resp, &capability)
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +205,7 @@ func (c *Client) GetUserToken(ctx context.Context, username string) (*models.Use
 	}
 
 	var token models.UserToken
-	err = c.HandleResponse(resp, &token)
+	_, err = c.HandleResponse(resp, &token)
 	if err != nil {
 		return nil, err
 	}
@@ -243,7 +243,7 @@ func (c *Client) ListSSHSessions(ctx context.Context, username string, workspace
 	}
 
 	var sessions []models.SSHSession
-	err = c.HandleResponse(resp, &sessions)
+	_, err = c.HandleResponse(resp, &sessions)
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +261,7 @@ func (c *Client) GetSSHSession(ctx context.Context, username string, sessionID i
 	}
 
 	var session models.SSHSession
-	err = c.HandleResponse(resp, &session)
+	_, err = c.HandleResponse(resp, &session)
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +290,7 @@ func (c *Client) CreateSSHSession(ctx context.Context, username, workspace, prox
 	}
 
 	var session models.SSHSession
-	err = c.HandleResponse(resp, &session)
+	_, err = c.HandleResponse(resp, &session)
 	if err != nil {
 		return nil, err
 	}
@@ -326,7 +326,8 @@ func (c *Client) UpdateSSHSession(ctx context.Context, username string, sessionI
 		return err
 	}
 
-	return c.HandleResponse(resp, nil)
+	_, err = c.HandleResponse(resp, nil)
+	return err
 }
 
 // EndSSHSession marks an SSH session as ended by setting the end time.
@@ -338,7 +339,8 @@ func (c *Client) EndSSHSession(ctx context.Context, username string, sessionID i
 		return err
 	}
 
-	return c.HandleResponse(resp, nil)
+	_, err = c.HandleResponse(resp, nil)
+	return err
 }
 
 // Blueprints API
@@ -356,7 +358,7 @@ func (c *Client) GetBlueprintByUserStr(ctx context.Context, userstr string) (*mo
 	}
 
 	var blueprint models.CustomBlueprint
-	err = c.HandleResponse(resp, &blueprint)
+	_, err = c.HandleResponse(resp, &blueprint)
 	if err != nil {
 		return nil, err
 	}
@@ -376,7 +378,7 @@ func (c *Client) GetUserCredentials(ctx context.Context, username string) ([]mod
 	}
 
 	var credentials []models.ExternalCredential
-	err = c.HandleResponse(resp, &credentials)
+	_, err = c.HandleResponse(resp, &credentials)
 	if err != nil {
 		return nil, err
 	}
@@ -398,7 +400,8 @@ func (c *Client) AddUserCredential(ctx context.Context, username string, credent
 		return err
 	}
 
-	return c.HandleResponse(resp, nil)
+	_, err = c.HandleResponse(resp, nil)
+	return err
 }
 
 // UpdateUserCredential updates an external credential for the specified user.
@@ -416,7 +419,8 @@ func (c *Client) UpdateUserCredential(ctx context.Context, username string, cred
 		return err
 	}
 
-	return c.HandleResponse(resp, nil)
+	_, err = c.HandleResponse(resp, nil)
+	return err
 }
 
 // DeleteUserCredential deletes an external credential for the specified user.
@@ -428,5 +432,6 @@ func (c *Client) DeleteUserCredential(ctx context.Context, username string, cred
 		return err
 	}
 
-	return c.HandleResponse(resp, nil)
+	_, err = c.HandleResponse(resp, nil)
+	return err
 }

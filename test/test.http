@@ -1,5 +1,5 @@
 
-@address=identity.k8shell-test
+@address=identity.k8shell-prod
 #@address=localhost
 
 ### individual user
@@ -23,7 +23,7 @@ Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e096351
 Content-Type: application/json
 
 ### Add credentials
-POST http://{{address}}:9090/api/v1/users/bruckins/credentials
+POST http://{{address}}:9090/api/v1/users/vitvatom/credentials
 Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
 Content-Type: application/json
 
