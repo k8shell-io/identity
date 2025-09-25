@@ -291,7 +291,7 @@ func (p *GitHubProvider) pollForAccessToken(username, deviceCode string, interva
 
 				// check if the username matches
 				login, ok := userData.(map[string]interface{})["login"].(string)
-				if !ok || login != username {
+				if !ok || !strings.EqualFold(login, username) {
 					p.log.Error().Msgf("username mismatch: expected '%s', got '%v'", username, login)
 					p.db.UpdateUserProviderStatus(username, p.Name(), "error")
 					return
