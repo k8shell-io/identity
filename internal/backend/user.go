@@ -122,17 +122,15 @@ func (d *DB) UpdateUser(user *models.User) error {
 		fullname=$5,
 		email=$6,
 		password=$7,
-		locked=$8,
-		failed_logins=$9,
-		auths=$10,
-		auth_keys=$11,
-		channels=$12,
-		envs=$13,
-		roles=$14,
-		blueprints=$15,
-		source=$16,
-		organization=$17
-	WHERE username=$18`
+		auths=$8,
+		auth_keys=$9,
+		channels=$10,
+		envs=$11,
+		roles=$12,
+		blueprints=$13,
+		source=$14,
+		organization=$15
+	WHERE username=$16`
 
 	_, err := d.pool.Exec(context.Background(), query,
 		user.IsValid,
@@ -142,8 +140,6 @@ func (d *DB) UpdateUser(user *models.User) error {
 		user.Fullname,
 		user.Email,
 		user.Password,
-		user.Locked,
-		user.FailedLogins,
 		user.Auths,
 		user.AuthKeys,
 		user.Channels,
