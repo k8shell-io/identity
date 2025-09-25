@@ -156,6 +156,7 @@ func (p *GitHubProvider) FindUser(username string) (*models.User, error) {
 		return nil, fmt.Errorf("template evaluation failed: %w", err)
 	}
 	user.Source = p.Name()
+	user.Username = strings.ToLower(user.Username) // normalize username to lowercase
 
 	return user, nil
 }
