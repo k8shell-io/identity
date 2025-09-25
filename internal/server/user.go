@@ -5,6 +5,7 @@ package server
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/k8shell-io/common/models"
@@ -26,6 +27,7 @@ func (s *Server) refreshUser(username string, user *models.User) (*models.User, 
 				continue
 			}
 			if foundUser != nil {
+				s.normalizeUser(foundUser)
 				expiresAt := time.Now().Add(time.Duration(provider.UserMaxAge()) * time.Second)
 				foundUser.ExpiresAt = expiresAt
 				if user != nil {
@@ -216,4 +218,18 @@ func (s *Server) GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlue
 	}
 
 	return nil, fmt.Errorf("no suitable identity provider found for user '%s'", userStr.Username)
+}
+
+// normalizeUser ensures that the user's attributes conform to expected formats and defaults.
+func (s *Server) normalizeUser(user *models.User) {
+	if user == nil {
+		return
+	}
+	user.Username = strings.ToLower(user.Username)
+	if user.UID == 0 {
+		user.UID = 100000
+	}
+	if user.GID == 0 {
+		user.GID = 100000
+	}
 }
