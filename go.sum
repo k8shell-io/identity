@@ -97,10 +97,8 @@ github.com/jackc/puddle/v2 v2.2.2 h1:PR8nw+E/1w0GLuRFSmiioY6UooMp6KJv0/61nB7icHo
 github.com/jackc/puddle/v2 v2.2.2/go.mod h1:vriiEXHvEE654aYKXXjOvZM39qJ0q+azkZFrfEOc3H4=
 github.com/json-iterator/go v1.1.12 h1:PV8peI4a0ysnczrg+LtxykD8LfKY9ML6u2jnxaEnrnM=
 github.com/json-iterator/go v1.1.12/go.mod h1:e30LSqwooZae/UwlEbR2852Gd8hjQvJoHmT4TnhNGBo=
-github.com/k8shell-io/common v0.11.44 h1:zADmrNKnrXV5sBbUd6XLiYkFTNRtbiGH7uTrHhhUHRo=
-github.com/k8shell-io/common v0.11.44/go.mod h1:sMuPIX0mrul5Czz9GFN2t/Ul0Q6pq8KMx7sBReKWEwM=
-github.com/k8shell-io/common v0.11.46 h1:AiFRJDIy5XkYo2aMXg11OZLhZ5djZ3AlVVRjVN0AlSk=
-github.com/k8shell-io/common v0.11.46/go.mod h1:sMuPIX0mrul5Czz9GFN2t/Ul0Q6pq8KMx7sBReKWEwM=
+github.com/k8shell-io/common v0.11.48 h1:jYuAYISsdBWiUK2+QJ7EJ5qz82mBZ3roPjQmPAJGpvc=
+github.com/k8shell-io/common v0.11.48/go.mod h1:sMuPIX0mrul5Czz9GFN2t/Ul0Q6pq8KMx7sBReKWEwM=
 github.com/k8shell-io/yaml-cel v0.2.5 h1:zSFADX2tMqCaDwm0ES4sN6N6YOg352ukAJgfir2JH0g=
 github.com/k8shell-io/yaml-cel v0.2.5/go.mod h1:q3ZgK0aNRjTakgp7KlLbqvkeZ4cMsxXGlDfiC8r0EXU=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=

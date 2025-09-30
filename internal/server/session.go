@@ -9,9 +9,9 @@ import (
 )
 
 // CreateSSHSession creates a new SSH session for a user in a specific workspace.
-func (s *Server) CreateSSHSession(username string, workspace string, proxyID string, proxyPID int,
-	clientIP string) (*models.SSHSession, error) {
-	session, err := s.DB.CreateSSHSession(username, workspace, proxyID, proxyPID, clientIP)
+func (s *Server) CreateSSHSession(username string, workspace string, blueprint string, proxyID string,
+	proxyPID int, clientIP string) (*models.SSHSession, error) {
+	session, err := s.DB.CreateSSHSession(username, workspace, blueprint, proxyID, proxyPID, clientIP)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create SSH session for user '%s': %w", username, err)
 	}

@@ -767,7 +767,8 @@ func (a *RESTApiService) CreateSSHSession(c *gin.Context) {
 		return
 	}
 
-	session, err := a.server.CreateSSHSession(username, req.Workspace, req.ProxyID, req.ProxyPID, req.ClientIP)
+	session, err := a.server.CreateSSHSession(username, req.Workspace, req.Blueprint, req.ProxyID,
+		req.ProxyPID, req.ClientIP)
 	if err != nil {
 		a.log.Error().Err(err).Msgf("Failed to create SSH session for user '%s'", username)
 		c.JSON(http.StatusInternalServerError, gin.H{

@@ -33,6 +33,7 @@ type AuthPublicKeyResponse struct {
 // CreateSSHSessionRequest represents the request body for creating an SSH session
 type CreateSSHSessionRequest struct {
 	Workspace string `json:"workspace"`
+	Blueprint string `json:"blueprint"`
 	ProxyID   string `json:"proxy_id"`
 	ProxyPID  int    `json:"proxy_pid"`
 	ClientIP  string `json:"client_ip"`
@@ -270,10 +271,12 @@ func (c *Client) GetSSHSession(ctx context.Context, username string, sessionID i
 }
 
 // CreateSSHSession creates a new SSH session for a user in a specified workspace.
-func (c *Client) CreateSSHSession(ctx context.Context, username, workspace, proxyID string, proxyPID int, clientIP string) (*models.SSHSession, error) {
+func (c *Client) CreateSSHSession(ctx context.Context, username, workspace, blueprint, proxyID string,
+	proxyPID int, clientIP string) (*models.SSHSession, error) {
 	path := fmt.Sprintf("/api/v1/users/%s/sessions", url.PathEscape(username))
 	req := CreateSSHSessionRequest{
 		Workspace: workspace,
+		Blueprint: blueprint,
 		ProxyID:   proxyID,
 		ProxyPID:  proxyPID,
 		ClientIP:  clientIP,
