@@ -7,7 +7,7 @@ http:
 
 # memcached
 cache:
-  enabled: true
+  enabled: false
   address: ${MEMCACHED_HOSTNAME}
   port: !!int ${MEMCACHED_PORT}
 
