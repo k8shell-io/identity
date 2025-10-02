@@ -16,7 +16,8 @@ import (
 func (d *DB) FindSSHSession(sessionID int32) (*models.SSHSession, error) {
 	query := `
 		SELECT session_id, username, proxy_id, proxy_pid, client, client_ip,
-			   start_time, end_time, workspace, channels, bytes_in, bytes_out, blueprint
+			   start_time, end_time, workspace, channels, bytes_in, bytes_out, 
+			   COALESCE(blueprint, '') as blueprint
 		FROM public.sessions
 		WHERE session_id = $1
 	`
@@ -176,7 +177,8 @@ func (d *DB) GetSSHSessions(username string, workspace string, limit int, offset
 
 	baseQuery := `
 		SELECT session_id, username, proxy_id, proxy_pid, client, client_ip,
-			   start_time, end_time, workspace, channels, bytes_in, bytes_out, blueprint
+			   start_time, end_time, workspace, channels, bytes_in, bytes_out, 
+			   COALESCE(blueprint, '') as blueprint
 		FROM public.sessions`
 
 	var conditions []string
@@ -247,7 +249,8 @@ func (d *DB) GetSSHSessions(username string, workspace string, limit int, offset
 func (d *DB) GetSSHSession(username string, sessionId int32) (*models.SSHSession, error) {
 	query := `
 		SELECT session_id, username, proxy_id, proxy_pid, client, client_ip,
-			   start_time, end_time, workspace, channels, bytes_in, bytes_out, blueprint
+			   start_time, end_time, workspace, channels, bytes_in, bytes_out, 
+			   COALESCE(blueprint, '') as blueprint
 		FROM public.sessions
 		WHERE username = $1 AND session_id = $2
 	`
