@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	log "github.com/k8shell-io/common/logger"
+	log "github.com/k8shell-io/common/pkg/logger"
 	"github.com/rs/zerolog"
 
 	"github.com/golang-migrate/migrate/v4"

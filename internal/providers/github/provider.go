@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/bradfitz/gomemcache/memcache"
-	log "github.com/k8shell-io/common/logger"
-	"github.com/k8shell-io/common/models"
+	log "github.com/k8shell-io/common/pkg/logger"
+	"github.com/k8shell-io/common/pkg/models"
 	"github.com/k8shell-io/identity/internal/backend"
 	"github.com/k8shell-io/identity/internal/common"
 	"github.com/k8shell-io/yaml-cel/pkg/yamlcel"

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/bradfitz/gomemcache/memcache"
-	log "github.com/k8shell-io/common/logger"
+	log "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/identity/internal/backend"
 	"github.com/rs/zerolog"
 )

@@ -9,7 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/k8shell-io/common/models"
+	"github.com/k8shell-io/common/pkg/models"
 )
 
 func (d *DB) FindUser(username string) (*models.User, error) {

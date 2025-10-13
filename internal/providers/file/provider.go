@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/k8shell-io/common/models"
+	"github.com/k8shell-io/common/pkg/models"
 	"github.com/k8shell-io/identity/internal/common"
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"

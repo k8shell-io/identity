@@ -20,8 +20,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/k8shell-io/common/logger"
-	"github.com/k8shell-io/common/models"
+	log "github.com/k8shell-io/common/pkg/logger"
+	"github.com/k8shell-io/common/pkg/models"
 	"github.com/k8shell-io/identity/internal/backend"
 	"github.com/k8shell-io/identity/pkg/client"
 	"github.com/rs/zerolog"

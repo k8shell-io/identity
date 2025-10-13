@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/k8shell-io/common/models"
+	"github.com/k8shell-io/common/pkg/models"
 )
 
 func (d *DB) GetUserProviderInfo(username string, provider string) (*models.ProviderInfo, error) {
