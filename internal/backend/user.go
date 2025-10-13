@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/k8shell-io/common/pkg/db"
 	"github.com/k8shell-io/common/pkg/models"
 )
 
@@ -22,7 +23,7 @@ func (d *DB) FindUser(username string) (*models.User, error) {
 	`
 
 	var user models.User
-	err := d.pool.QueryRow(context.Background(), query, username).Scan(
+	err := d.Pool.QueryRow(context.Background(), query, username).Scan(
 		&user.Username,
 		&user.IsValid,
 		&user.ExpiresAt,
@@ -62,7 +63,7 @@ func (d *DB) FindUserByAccessToken(token string) (*models.User, error) {
 	`
 
 	var user models.User
-	err := d.pool.QueryRow(context.Background(), query, token).Scan(
+	err := d.Pool.QueryRow(context.Background(), query, token).Scan(
 		&user.Username,
 		&user.IsValid,
 		&user.ExpiresAt,
@@ -106,7 +107,7 @@ func (d *DB) CreateUser(user *models.User) error {
 	) VALUES (
 		$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
 	)`
-	_, err = d.pool.Exec(context.Background(), query,
+	_, err = d.Pool.Exec(context.Background(), query,
 		user.Username, user.IsValid, user.ExpiresAt, user.UID, user.GID, user.Fullname, user.AccessToken, user.Email,
 		user.Password, user.Locked, user.FailedLogins, user.Auths, user.AuthKeys, user.Channels,
 		user.Envs, user.Roles, user.Blueprints, user.Source, user.Organization)
@@ -132,7 +133,7 @@ func (d *DB) UpdateUser(user *models.User) error {
 		organization=$15
 	WHERE username=$16`
 
-	_, err := d.pool.Exec(context.Background(), query,
+	_, err := d.Pool.Exec(context.Background(), query,
 		user.IsValid,
 		user.ExpiresAt,
 		user.UID,
@@ -155,17 +156,17 @@ func (d *DB) UpdateUser(user *models.User) error {
 
 func (d *DB) InvalidateUser(username string) error {
 	query := `UPDATE public.users SET is_valid=false WHERE username=$1`
-	_, err := d.pool.Exec(context.Background(), query, username)
+	_, err := d.Pool.Exec(context.Background(), query, username)
 	return err
 }
 
 func (d *DB) DeleteUser(username string) error {
-	_, err := d.pool.Exec(context.Background(), `DELETE FROM users WHERE username=$1`, username)
+	_, err := d.Pool.Exec(context.Background(), `DELETE FROM users WHERE username=$1`, username)
 	return err
 }
 
 func (d *DB) ListUsers(limit, offset int) ([]*models.User, error) {
-	limit, offset = AdjustListLimit(limit, offset)
+	limit, offset = db.AdjustListLimit(limit, offset)
 
 	query := `
 		SELECT username, is_valid, expires_at, uid, gid, fullname,
@@ -176,7 +177,7 @@ func (d *DB) ListUsers(limit, offset int) ([]*models.User, error) {
 		LIMIT $1 OFFSET $2
 	`
 
-	rows, err := d.pool.Query(context.Background(), query, limit, offset)
+	rows, err := d.Pool.Query(context.Background(), query, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +224,7 @@ func (d *DB) AddExternalCredential(cred *models.ExternalCredential) error {
         username, service_name, service_url, external_id, external_token
     ) VALUES ($1, $2, $3, $4, $5)`
 
-	_, err := d.pool.Exec(context.Background(), query,
+	_, err := d.Pool.Exec(context.Background(), query,
 		cred.Username, cred.ServiceName, cred.ServiceURL, cred.ExternalID, cred.ExternalToken)
 
 	if err != nil {
@@ -251,7 +252,7 @@ func (d *DB) GetExternalCredentials(username string) ([]*models.ExternalCredenti
 		FROM public.external_credentials
 		WHERE username=$1`
 
-	rows, err := d.pool.Query(context.Background(), query, username)
+	rows, err := d.Pool.Query(context.Background(), query, username)
 	if err != nil {
 		return nil, err
 	}
@@ -277,7 +278,7 @@ func (d *DB) GetExternalCredentials(username string) ([]*models.ExternalCredenti
 
 // DeleteExternalCredential deletes an external credential by its ID
 func (d *DB) DeleteExternalCredential(id uint64) error {
-	result, err := d.pool.Exec(context.Background(), `DELETE FROM public.external_credentials WHERE id=$1`, id)
+	result, err := d.Pool.Exec(context.Background(), `DELETE FROM public.external_credentials WHERE id=$1`, id)
 	if err != nil {
 		return err
 	}
@@ -305,7 +306,7 @@ func (d *DB) UpdateExternalCredential(cred *models.ExternalCredential) error {
 		updated_at=NOW()
 	WHERE id=$5 AND username=$6`
 
-	_, err := d.pool.Exec(context.Background(), query,
+	_, err := d.Pool.Exec(context.Background(), query,
 		cred.ServiceName, cred.ServiceURL, cred.ExternalID, cred.ExternalToken, cred.ID, cred.Username)
 	return err
 }

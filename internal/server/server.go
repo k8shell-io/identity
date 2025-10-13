@@ -8,6 +8,7 @@ package server
 import (
 	"fmt"
 
+	"github.com/k8shell-io/common/pkg/db"
 	log "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/identity/internal/backend"
 	"github.com/k8shell-io/identity/internal/providers/file"
@@ -19,7 +20,7 @@ import (
 
 // Server represents the main server structure for the K8Shell Identity service.
 type Server struct {
-	DBConfig   backend.DBConfig
+	DBConfig   db.DBConfig
 	HttpConfig HttpConfig
 
 	DB                *backend.DB
@@ -46,7 +47,7 @@ func NewServer(configFile string) (*Server, error) {
 	server.HttpConfig = config.Http
 	server.DBConfig = config.DB
 
-	server.DB, err = backend.NewDB(server.DBConfig, "")
+	server.DB, err = backend.NewDB(server.DBConfig)
 	if err != nil {
 		return nil, fmt.Errorf("create database pool: %w", err)
 	}

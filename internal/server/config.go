@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/k8shell-io/common/pkg/config"
+	"github.com/k8shell-io/common/pkg/db"
 	"github.com/k8shell-io/identity/internal/backend"
 	"github.com/k8shell-io/identity/internal/providers/file"
 	"github.com/k8shell-io/identity/internal/providers/github"
@@ -18,7 +19,7 @@ import (
 type Config struct {
 	Http              HttpConfig          `yaml:"http"`
 	Cache             backend.CacheConfig `yaml:"cache"`
-	DB                backend.DBConfig    `yaml:"db"`
+	DB                db.DBConfig         `yaml:"db"`
 	IdentityProviders []yaml.Node         `yaml:"identityProviders"`
 
 	// ConfigDir is the directory where the configuration file is located.

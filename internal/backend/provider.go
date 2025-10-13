@@ -14,7 +14,7 @@ func (d *DB) GetUserProviderInfo(username string, provider string) (*models.Prov
 	query := `SELECT status, created_at, updated_at, username, provider, user_code, device_code, 
 					 expires_at, verification_uri, access_token, refresh_token
 			  FROM provider_info WHERE username = $1 AND provider = $2`
-	row := d.pool.QueryRow(context.Background(), query, username, provider)
+	row := d.Pool.QueryRow(context.Background(), query, username, provider)
 
 	var info models.ProviderInfo
 	err := row.Scan(
@@ -36,7 +36,7 @@ func (d *DB) CreateUserProviderInfo(info *models.ProviderInfo) error {
 		username, provider, status, created_at, updated_at,
 		user_code, device_code, expires_at, verification_uri, access_token, refresh_token
 	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
-	_, err := d.pool.Exec(context.Background(), query,
+	_, err := d.Pool.Exec(context.Background(), query,
 		info.Username, info.Provider, info.Status, info.CreatedAt, info.UpdatedAt,
 		info.UserCode, info.DeviceCode, info.ExpiresAt, info.VerificationURI,
 		info.AccessToken, info.RefreshToken)
@@ -50,7 +50,7 @@ func (d *DB) DeleteUserProviderInfo(username string, provider string) error {
 	if username == "" || provider == "" {
 		return fmt.Errorf("username and provider must be specified")
 	}
-	_, err := d.pool.Exec(context.Background(),
+	_, err := d.Pool.Exec(context.Background(),
 		`DELETE FROM provider_info WHERE username = $1 AND provider = $2`, username, provider)
 	if err != nil {
 		return fmt.Errorf("delete provider_info: %w", err)
@@ -63,7 +63,7 @@ func (d *DB) UpdateUserProvider(username string, provider string, accessToken st
 	if username == "" || provider == "" || accessToken == "" || status == "" {
 		return fmt.Errorf("username, provider, accessToken and status must be specified")
 	}
-	_, err := d.pool.Exec(context.Background(),
+	_, err := d.Pool.Exec(context.Background(),
 		`UPDATE provider_info
 		SET access_token = $1,
 			refresh_token = $2,
@@ -86,7 +86,7 @@ func (d *DB) UpdateUserProviderStatus(username string, provider string, status s
 	}
 	var err error
 	if status == "ready" || status == "pending" {
-		_, err = d.pool.Exec(context.Background(),
+		_, err = d.Pool.Exec(context.Background(),
 			`UPDATE provider_info
 			SET status = $1,
 				updated_at = now()
@@ -94,7 +94,7 @@ func (d *DB) UpdateUserProviderStatus(username string, provider string, status s
 			status, username, provider)
 	} else {
 		// set user_code and expires_at to '' for non-ready statuses
-		_, err = d.pool.Exec(context.Background(),
+		_, err = d.Pool.Exec(context.Background(),
 			`UPDATE provider_info
 			SET status = $1,
 				updated_at = now(),

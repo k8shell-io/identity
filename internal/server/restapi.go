@@ -20,9 +20,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/k8shell-io/common/pkg/db"
 	log "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/common/pkg/models"
-	"github.com/k8shell-io/identity/internal/backend"
 	"github.com/k8shell-io/identity/pkg/client"
 	"github.com/rs/zerolog"
 )
@@ -205,7 +205,7 @@ func parseQueryInt(val string, defaultVal int) int {
 
 // GetUsers returns a list of users.
 func (a *RESTApiService) GetUsers(c *gin.Context) {
-	limit := parseQueryInt(c.Query("limit"), backend.DefaultListLimit)
+	limit := parseQueryInt(c.Query("limit"), db.DefaultListLimit)
 	offset := parseQueryInt(c.Query("offset"), 0)
 
 	users, err := a.server.DB.ListUsers(limit, offset)
