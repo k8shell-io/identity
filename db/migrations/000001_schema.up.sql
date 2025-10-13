@@ -50,26 +50,6 @@ CREATE TABLE external_credentials (
 CREATE INDEX idx_external_creds_username ON external_credentials (username);
 CREATE INDEX idx_external_creds_service ON external_credentials (service_name);
 
-CREATE TABLE sessions (
-    session_id serial primary key,
-    username   varchar   not null references users(username), 
-    proxy_id   varchar,
-    proxy_pid  integer,
-    client     varchar,
-    client_ip  varchar,
-    start_time timestamp not null,
-    end_time   timestamp,
-    workspace  varchar   not null,
-    bytes_in   bigint   not null,
-    bytes_out  bigint   not null,
-    channels   character varying[],
-    prov_time  float not null default 0.0,
-    unique (username, start_time, workspace)
-);
-
-CREATE INDEX ix_sessions_workspace
-    on sessions (workspace);
-
 -- provider_info table to store onboarding user information with OAuth providers
 CREATE TABLE provider_info (
     username          VARCHAR NOT NULL,
