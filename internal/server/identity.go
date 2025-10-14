@@ -48,7 +48,7 @@ func (s *IdentityService) FindUser(ctx context.Context, req *identitypb.FindUser
 			return nil, fmt.Errorf("only one of username or token can be provided")
 		}
 
-		user, err := s.server.DB.FindUser(req.Username)
+		user, err := s.server.GetUser(req.Username)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get user: %w", err)
 		}
