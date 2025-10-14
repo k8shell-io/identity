@@ -277,7 +277,7 @@ func (d *DB) GetExternalCredentials(username string) ([]*models.ExternalCredenti
 }
 
 // DeleteExternalCredential deletes an external credential by its ID
-func (d *DB) DeleteExternalCredential(id uint64) error {
+func (d *DB) DeleteExternalCredential(id uint32) error {
 	result, err := d.Pool.Exec(context.Background(), `DELETE FROM public.external_credentials WHERE id=$1`, id)
 	if err != nil {
 		return err

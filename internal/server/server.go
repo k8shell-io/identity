@@ -7,25 +7,26 @@ package server
 
 import (
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
 
-	"github.com/k8shell-io/common/pkg/db"
+	"github.com/k8shell-io/common/pkg/gapi"
 	log "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/identity/internal/backend"
 	"github.com/k8shell-io/identity/internal/providers/file"
 	"github.com/k8shell-io/identity/internal/providers/github"
 	"github.com/k8shell-io/identity/internal/providers/usermap"
+	"github.com/k8shell-io/identity/pkg/api/identitypb"
 	identModels "github.com/k8shell-io/identity/pkg/models"
 	"github.com/rs/zerolog"
 )
 
 // Server represents the main server structure for the K8Shell Identity service.
 type Server struct {
-	DBConfig   db.DBConfig
-	HttpConfig HttpConfig
-
 	DB                *backend.DB
 	IdentityProviders []identModels.IdentityProvider
-	RestApi           *RESTApiService
+	grpc              *gapi.Server
 	log               *zerolog.Logger
 }
 
@@ -39,15 +40,12 @@ func NewServer(configFile string) (*Server, error) {
 
 	server.log.Info().Msgf("Loading server configuration from %s", configFile)
 
-	// Load the server configuration
 	config, err := LoadConfig(configFile)
 	if err != nil {
 		return nil, err
 	}
-	server.HttpConfig = config.Http
-	server.DBConfig = config.DB
 
-	server.DB, err = backend.NewDB(server.DBConfig)
+	server.DB, err = backend.NewDB(config.DB)
 	if err != nil {
 		return nil, fmt.Errorf("create database pool: %w", err)
 	}
@@ -57,10 +55,12 @@ func NewServer(configFile string) (*Server, error) {
 		return nil, fmt.Errorf("load identity providers: %w", err)
 	}
 
-	server.RestApi, err = NewRESTAPI(server.HttpConfig, server)
+	server.grpc, err = gapi.NewServer(&config.GrpcConfig)
 	if err != nil {
-		return nil, fmt.Errorf("create REST API service: %w", err)
+		return nil, fmt.Errorf("create gRPC server: %w", err)
 	}
+
+	identitypb.RegisterIdentityServiceServer(server.grpc.GrpcServer, NewIdentityService(server))
 
 	return server, nil
 }
@@ -119,4 +119,29 @@ func (s *Server) LoadProviders(config *Config) error {
 		}
 	}
 	return nil
+}
+
+// Start starts the gRPC server and waits for shutdown signals
+func (s *Server) Serve() error {
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	errChan := make(chan error, 1)
+	go func() {
+		s.log.Info().Msg("Starting gRPC server")
+		if err := s.grpc.Start(); err != nil {
+			errChan <- fmt.Errorf("gRPC server error: %v", err)
+		}
+	}()
+
+	select {
+	case sig := <-sigChan:
+		s.log.Info().Msgf("Received signal %v, shutting down gracefully", sig)
+		s.grpc.Stop()
+		s.log.Info().Msg("Server shutdown complete")
+		return nil
+	case err := <-errChan:
+		s.log.Error().Err(err).Msg("Server error occurred")
+		return err
+	}
 }

@@ -8,6 +8,7 @@ import (
 
 	"github.com/k8shell-io/common/pkg/config"
 	"github.com/k8shell-io/common/pkg/db"
+	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/identity/internal/backend"
 	"github.com/k8shell-io/identity/internal/providers/file"
 	"github.com/k8shell-io/identity/internal/providers/github"
@@ -17,7 +18,7 @@ import (
 
 // Config represents the server configuration structure.
 type Config struct {
-	Http              HttpConfig          `yaml:"http"`
+	GrpcConfig        gapi.ServerConfig   `yaml:"grpc"`
 	Cache             backend.CacheConfig `yaml:"cache"`
 	DB                db.DBConfig         `yaml:"db"`
 	IdentityProviders []yaml.Node         `yaml:"identityProviders"`

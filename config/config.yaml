@@ -1,9 +1,14 @@
 # Identity service configuration
 
 # http server
-http:
-  port: 9090
-  APIKey: !file ${SECRET_FILES}/api_key
+grpc:
+  port: 9020
+
+  # JWT required claims for authentication
+  audience: identity
+  allowed:
+    - serviceAccount: ssh-proxy
+    - serviceAccount: api-server
 
 # memcached
 cache:
