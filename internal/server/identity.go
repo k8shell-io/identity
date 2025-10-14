@@ -84,32 +84,22 @@ func (s *IdentityService) AuthUserPublicKey(ctx context.Context,
 }
 
 func (s *IdentityService) GetUserOnboardCapability(ctx context.Context,
-	req *identitypb.Username) (*identitypb.UserOnboardCapabilityResponse, error) {
+	req *identitypb.Username) (*commonpb.UserOnboardCapability, error) {
 	cap, err := s.server.OnboardCapability(req.Username)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get onboard capability: %w", err)
 	}
-	return &identitypb.UserOnboardCapabilityResponse{
-		Provider:   cap.Provider,
-		Username:   cap.Username,
-		CanOnboard: cap.CanOnboard,
-	}, nil
+	return gapi.UserOnboardCapabilityToProto(cap), nil
 }
 
 func (s *IdentityService) OnboardUserDeviceFlow(ctx context.Context,
-	req *identitypb.Username) (*identitypb.OnboardUserDeviceFlowResponse, error) {
+	req *identitypb.Username) (*commonpb.OnboardUserDeviceFlow, error) {
 	onboardUser, err := s.server.OnboardUserDeviceFlow(req.Username)
 	if err != nil {
 		return nil, fmt.Errorf("failed to onboard user: %w", err)
 	}
 
-	return &identitypb.OnboardUserDeviceFlowResponse{
-		Provider:        onboardUser.Provider,
-		Username:        onboardUser.Username,
-		UserCode:        onboardUser.UserCode,
-		VerificationUrl: onboardUser.VerificationUrl,
-		ExpiresIn:       int32(onboardUser.ExpiresIn),
-	}, nil
+	return gapi.OnboardUserDeviceFlowToProto(onboardUser), nil
 }
 
 // Blueprint methods
