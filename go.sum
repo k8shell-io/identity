@@ -112,6 +112,8 @@ github.com/json-iterator/go v1.1.12 h1:PV8peI4a0ysnczrg+LtxykD8LfKY9ML6u2jnxaEnr
 github.com/json-iterator/go v1.1.12/go.mod h1:e30LSqwooZae/UwlEbR2852Gd8hjQvJoHmT4TnhNGBo=
 github.com/k8shell-io/common v0.12.23 h1:FatnYtAIXbId5lRtuYL7499+PPCD7rYX80r41pHp3YQ=
 github.com/k8shell-io/common v0.12.23/go.mod h1:H6L2S98KWs/i+9I84kNbbG2DSzsT4Seyvu+6KZnomPs=
+github.com/k8shell-io/identity/pkg/api v0.1.0 h1:VX/CbiS1fjY07q8+dq7nXhG97e1Yyz+8WPeKdRpLMws=
+github.com/k8shell-io/identity/pkg/api v0.1.0/go.mod h1:wioy7w3kg7ImZ8I0E2FF6ssUjYmK992bKjQW2OO2144=
 github.com/k8shell-io/yaml-cel v0.2.5 h1:zSFADX2tMqCaDwm0ES4sN6N6YOg352ukAJgfir2JH0g=
 github.com/k8shell-io/yaml-cel v0.2.5/go.mod h1:q3ZgK0aNRjTakgp7KlLbqvkeZ4cMsxXGlDfiC8r0EXU=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=

@@ -6,13 +6,12 @@ require (
 	github.com/bradfitz/gomemcache v0.0.0-20250403215159-8d39553ac7cf
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/k8shell-io/common v0.12.23
+	github.com/k8shell-io/identity/pkg/api v0.1.0
 	github.com/k8shell-io/yaml-cel v0.2.5
 	github.com/ory/dockertest/v3 v3.12.0
 	github.com/rs/zerolog v1.34.0
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.40.0
-	google.golang.org/grpc v1.76.0
-	google.golang.org/protobuf v1.36.10
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -94,5 +93,7 @@ require (
 	golang.org/x/tools v0.34.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250804133106-a7a43d27e69b // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250804133106-a7a43d27e69b // indirect
+	google.golang.org/grpc v1.76.0 // indirect
+	google.golang.org/protobuf v1.36.10 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
