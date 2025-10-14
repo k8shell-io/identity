@@ -5,3 +5,4 @@ dist/
 __debug*
 wiki
 scripts
+.proto_deps
