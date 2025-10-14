@@ -11,7 +11,7 @@ type IdentityProvider interface {
 
 	FindUser(username string) (*models.User, error)
 	OnboardCapability(username string) (*models.OnboardCapability, error)
-	OnboardUserDeviceFlow(username string) (*models.OnboardUser, error)
+	OnboardUserDeviceFlow(username string) (*models.OnboardUserDeviceFlow, error)
 	AuthPublicKey(username string, key ssh.PublicKey) (bool, error)
 	GetUserToken(username string) (*models.UserToken, error)
 	GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlueprint, error)

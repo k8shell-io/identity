@@ -140,7 +140,7 @@ func (p *UserMapProvider) AuthPublicKey(username string, key ssh.PublicKey) (boo
 	return false, nil
 }
 
-func (p *UserMapProvider) OnboardUserDeviceFlow(username string) (*models.OnboardUser, error) {
+func (p *UserMapProvider) OnboardUserDeviceFlow(username string) (*models.OnboardUserDeviceFlow, error) {
 	// Usermap provider does not support onboarding via device code
 	return nil, fmt.Errorf("%w: usermap provider does not support onboarding via device flow",
 		models.ErrMethodNotSupported)

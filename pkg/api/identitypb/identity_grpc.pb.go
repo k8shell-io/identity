@@ -39,8 +39,8 @@ type IdentityServiceClient interface {
 	FindUser(ctx context.Context, in *FindUserRequest, opts ...grpc.CallOption) (*commonpb.User, error)
 	GetUsers(ctx context.Context, in *GetUsersRequest, opts ...grpc.CallOption) (*UserList, error)
 	AuthUserPublicKey(ctx context.Context, in *AuthUserPublicKeyRequest, opts ...grpc.CallOption) (*AuthUserResponse, error)
-	GetUserOnboardCapability(ctx context.Context, in *Username, opts ...grpc.CallOption) (*UserOnboardCapabilityResponse, error)
-	OnboardUserDeviceFlow(ctx context.Context, in *Username, opts ...grpc.CallOption) (*OnboardUserDeviceFlowResponse, error)
+	GetUserOnboardCapability(ctx context.Context, in *Username, opts ...grpc.CallOption) (*commonpb.UserOnboardCapability, error)
+	OnboardUserDeviceFlow(ctx context.Context, in *Username, opts ...grpc.CallOption) (*commonpb.OnboardUserDeviceFlow, error)
 	GetBlueprintByUserStr(ctx context.Context, in *UserStr, opts ...grpc.CallOption) (*Blueprint, error)
 	GetUserCredentials(ctx context.Context, in *Username, opts ...grpc.CallOption) (*GetUserCredentialsResponse, error)
 	AddUserCredential(ctx context.Context, in *commonpb.ExternalCredential, opts ...grpc.CallOption) (*AddUserCredentialResponse, error)
@@ -86,9 +86,9 @@ func (c *identityServiceClient) AuthUserPublicKey(ctx context.Context, in *AuthU
 	return out, nil
 }
 
-func (c *identityServiceClient) GetUserOnboardCapability(ctx context.Context, in *Username, opts ...grpc.CallOption) (*UserOnboardCapabilityResponse, error) {
+func (c *identityServiceClient) GetUserOnboardCapability(ctx context.Context, in *Username, opts ...grpc.CallOption) (*commonpb.UserOnboardCapability, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(UserOnboardCapabilityResponse)
+	out := new(commonpb.UserOnboardCapability)
 	err := c.cc.Invoke(ctx, IdentityService_GetUserOnboardCapability_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -96,9 +96,9 @@ func (c *identityServiceClient) GetUserOnboardCapability(ctx context.Context, in
 	return out, nil
 }
 
-func (c *identityServiceClient) OnboardUserDeviceFlow(ctx context.Context, in *Username, opts ...grpc.CallOption) (*OnboardUserDeviceFlowResponse, error) {
+func (c *identityServiceClient) OnboardUserDeviceFlow(ctx context.Context, in *Username, opts ...grpc.CallOption) (*commonpb.OnboardUserDeviceFlow, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(OnboardUserDeviceFlowResponse)
+	out := new(commonpb.OnboardUserDeviceFlow)
 	err := c.cc.Invoke(ctx, IdentityService_OnboardUserDeviceFlow_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -163,8 +163,8 @@ type IdentityServiceServer interface {
 	FindUser(context.Context, *FindUserRequest) (*commonpb.User, error)
 	GetUsers(context.Context, *GetUsersRequest) (*UserList, error)
 	AuthUserPublicKey(context.Context, *AuthUserPublicKeyRequest) (*AuthUserResponse, error)
-	GetUserOnboardCapability(context.Context, *Username) (*UserOnboardCapabilityResponse, error)
-	OnboardUserDeviceFlow(context.Context, *Username) (*OnboardUserDeviceFlowResponse, error)
+	GetUserOnboardCapability(context.Context, *Username) (*commonpb.UserOnboardCapability, error)
+	OnboardUserDeviceFlow(context.Context, *Username) (*commonpb.OnboardUserDeviceFlow, error)
 	GetBlueprintByUserStr(context.Context, *UserStr) (*Blueprint, error)
 	GetUserCredentials(context.Context, *Username) (*GetUserCredentialsResponse, error)
 	AddUserCredential(context.Context, *commonpb.ExternalCredential) (*AddUserCredentialResponse, error)
@@ -189,10 +189,10 @@ func (UnimplementedIdentityServiceServer) GetUsers(context.Context, *GetUsersReq
 func (UnimplementedIdentityServiceServer) AuthUserPublicKey(context.Context, *AuthUserPublicKeyRequest) (*AuthUserResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AuthUserPublicKey not implemented")
 }
-func (UnimplementedIdentityServiceServer) GetUserOnboardCapability(context.Context, *Username) (*UserOnboardCapabilityResponse, error) {
+func (UnimplementedIdentityServiceServer) GetUserOnboardCapability(context.Context, *Username) (*commonpb.UserOnboardCapability, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetUserOnboardCapability not implemented")
 }
-func (UnimplementedIdentityServiceServer) OnboardUserDeviceFlow(context.Context, *Username) (*OnboardUserDeviceFlowResponse, error) {
+func (UnimplementedIdentityServiceServer) OnboardUserDeviceFlow(context.Context, *Username) (*commonpb.OnboardUserDeviceFlow, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method OnboardUserDeviceFlow not implemented")
 }
 func (UnimplementedIdentityServiceServer) GetBlueprintByUserStr(context.Context, *UserStr) (*Blueprint, error) {

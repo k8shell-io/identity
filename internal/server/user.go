@@ -137,7 +137,7 @@ func (s *Server) AuthenticateUser(username string, publicKey string) (bool, erro
 
 // OnboardUser attempts to onboard a user using the device flow method from the available identity providers.
 // It returns the onboarding information if successful, or an error if no suitable provider is found.
-func (s *Server) OnboardUserDeviceFlow(username string) (*models.OnboardUser, error) {
+func (s *Server) OnboardUserDeviceFlow(username string) (*models.OnboardUserDeviceFlow, error) {
 	for _, provider := range s.IdentityProviders {
 		onboardUser, err := provider.OnboardUserDeviceFlow(username)
 		if err != nil && !errors.Is(err, models.ErrMethodNotSupported) {

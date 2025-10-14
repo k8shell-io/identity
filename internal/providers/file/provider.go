@@ -121,7 +121,7 @@ func (f *FileUserProvider) OnboardCapability(username string) (*models.OnboardCa
 		models.ErrMethodNotSupported)
 }
 
-func (p *FileUserProvider) OnboardUserDeviceFlow(username string) (*models.OnboardUser, error) {
+func (p *FileUserProvider) OnboardUserDeviceFlow(username string) (*models.OnboardUserDeviceFlow, error) {
 	// File user provider does not support onboarding via device code
 	return nil, fmt.Errorf("%w: file user provider does not support onboarding via device flow",
 		models.ErrMethodNotSupported)

@@ -12,8 +12,8 @@ service IdentityService {
   rpc FindUser (FindUserRequest) returns (common.User);
   rpc GetUsers (GetUsersRequest) returns (UserList);
   rpc AuthUserPublicKey (AuthUserPublicKeyRequest) returns (AuthUserResponse);
-  rpc GetUserOnboardCapability (Username) returns (UserOnboardCapabilityResponse);
-  rpc OnboardUserDeviceFlow (Username) returns (OnboardUserDeviceFlowResponse);
+  rpc GetUserOnboardCapability (Username) returns (common.UserOnboardCapability);
+  rpc OnboardUserDeviceFlow (Username) returns (common.OnboardUserDeviceFlow);
 
   rpc GetBlueprintByUserStr (UserStr) returns (Blueprint);
 
@@ -24,7 +24,7 @@ service IdentityService {
 
 }
  
-// *** Messages ***
+// *** Messages *** 
 
 message Username { 
   string username = 1; 
@@ -64,20 +64,6 @@ message AuthUserPublicKeyRequest {
 message AuthUserResponse {
   bool valid = 1;
   common.User user = 2;
-}
-
-message OnboardUserDeviceFlowResponse {
-  string provider = 1;
-  string username = 2;
-  string user_code = 3;
-  string verification_url = 4;
-  int32 expires_in = 5;
-}
-
-message UserOnboardCapabilityResponse {
-  string provider = 1;
-  string username = 2;
-  bool can_onboard = 3;
 }
 
 // Blueprint related messages

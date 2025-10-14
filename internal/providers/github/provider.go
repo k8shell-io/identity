@@ -188,7 +188,7 @@ func (p *GitHubProvider) OnboardCapability(username string) (*models.OnboardCapa
 	return cap, nil
 }
 
-func (p *GitHubProvider) OnboardUserDeviceFlow(username string) (*models.OnboardUser, error) {
+func (p *GitHubProvider) OnboardUserDeviceFlow(username string) (*models.OnboardUserDeviceFlow, error) {
 	providerInfo, err := p.db.GetUserProviderInfo(username, p.Name())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user provider info for '%s': %w", username, err)
@@ -202,7 +202,7 @@ func (p *GitHubProvider) OnboardUserDeviceFlow(username string) (*models.Onboard
 		if providerInfo.Status == "pending" {
 			expiresIn := int(time.Until(*providerInfo.ExpiresAt).Seconds())
 			if expiresIn > 0 {
-				return &models.OnboardUser{
+				return &models.OnboardUserDeviceFlow{
 					Provider:        p.Name(),
 					Username:        username,
 					UserCode:        providerInfo.UserCode,
@@ -237,7 +237,7 @@ func (p *GitHubProvider) OnboardUserDeviceFlow(username string) (*models.Onboard
 		return nil, fmt.Errorf("failed to get device code: %w", err)
 	}
 
-	onboardUser := &models.OnboardUser{
+	onboardUser := &models.OnboardUserDeviceFlow{
 		Provider:        p.Name(),
 		Username:        username,
 		UserCode:        resp.UserCode,
