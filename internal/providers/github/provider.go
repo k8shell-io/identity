@@ -398,44 +398,44 @@ func (p *GitHubProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.Cu
 		return nil, fmt.Errorf("user string does not use a custom blueprint")
 	}
 
-	token, err := p.GetUserToken(userStr.Username)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user token for '%s': %w", userStr.Username, err)
+	useDefault := func(cause error, msg string) (*models.CustomBlueprint, error) {
+		p.log.Warn().Err(cause).Msgf("%s; falling back to default custom blueprint", msg)
+		if p.defaultCustomBlueprint == nil {
+			return nil, fmt.Errorf("%s; no default custom blueprint configured: %w", msg, cause)
+		}
+		bp, err := deepCopyBlueprint(p.defaultCustomBlueprint)
+		if err != nil {
+			return nil, fmt.Errorf("failed to copy default custom blueprint: %w", err)
+		}
+		bp.Name = userStr.Blueprint
+		bp.Metadata.Name = userStr.Blueprint
+		bp.Metadata.RepoName = userStr.RepoName
+		bp.Metadata.RepoOwner = userStr.RepoOwner
+		bp.Metadata.RepoAddress = GITHUB_ADDRESS
+		return bp, nil
 	}
 
-	var bp *models.CustomBlueprint
+	token, err := p.GetUserToken(userStr.Username)
+	if err != nil {
+		return useDefault(err, fmt.Sprintf("get user token for %q failed", userStr.Username))
+	}
+
 	fileContent, err := GetFile(userStr.RepoOwner, userStr.RepoName, token.Token, K8SHELL_FILENAME, userStr.RepoRef)
 	if err != nil {
-		if p.defaultCustomBlueprint != nil {
-			p.log.Debug().Msgf("File .k8shell does not exist in %s/%s, using default custom blueprint.",
-				userStr.RepoOwner, userStr.RepoName)
+		return useDefault(err, fmt.Sprintf("fetch %s from %s/%s failed", K8SHELL_FILENAME,
+			userStr.RepoOwner, userStr.RepoName))
+	}
 
-			_, err := GetRepo(userStr.RepoOwner, userStr.RepoName, token.Token)
-			if err != nil {
-				return nil, fmt.Errorf("get repo info for %s/%s: %w", userStr.RepoOwner, userStr.RepoName, err)
-			}
+	var k8shellFile models.K8shellFile
+	if err := yaml.Unmarshal(fileContent, &k8shellFile); err != nil {
+		return useDefault(err, fmt.Sprintf("parse %s in %s/%s failed", K8SHELL_FILENAME,
+			userStr.RepoOwner, userStr.RepoName))
+	}
 
-			bp, err = deepCopyBlueprint(p.defaultCustomBlueprint)
-			if err != nil {
-				return nil, fmt.Errorf("failed to copy default custom blueprint: %w", err)
-			}
-		} else {
-			return nil, fmt.Errorf("failed to get .k8shell file in '%s/%s' and default custom blueprint is not defined: %w",
-				userStr.RepoOwner, userStr.RepoName, err)
-		}
-	} else {
-		var k8shellFile models.K8shellFile
-		err = yaml.Unmarshal(fileContent, &k8shellFile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse k8shell file in %s/%s: %w", userStr.RepoOwner, userStr.RepoName, err)
-		}
-
-		var errors []string
-		bp, errors = models.ValidateK8shellFile(k8shellFile)
-		if len(errors) > 0 {
-			p.log.Error().Msgf("Invalid .k8shell file for user '%s': %v", userStr.Username, errors)
-			return nil, fmt.Errorf("failed to validate .k8shell file: %v", errors)
-		}
+	bp, valErrs := models.ValidateK8shellFile(k8shellFile)
+	if len(valErrs) > 0 {
+		return useDefault(fmt.Errorf("%v", valErrs), fmt.Sprintf("validate %s in %s/%s failed",
+			K8SHELL_FILENAME, userStr.RepoOwner, userStr.RepoName))
 	}
 
 	bp.Name = userStr.Blueprint
