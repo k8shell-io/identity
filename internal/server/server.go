@@ -20,6 +20,7 @@ import (
 	"github.com/k8shell-io/identity/pkg/api/identitypb"
 	identModels "github.com/k8shell-io/identity/pkg/models"
 	"github.com/rs/zerolog"
+	"google.golang.org/grpc"
 )
 
 // Server represents the main server structure for the K8Shell Identity service.
@@ -60,7 +61,10 @@ func NewServer(configFile string) (*Server, error) {
 		return nil, fmt.Errorf("create gRPC server: %w", err)
 	}
 
-	identitypb.RegisterIdentityServiceServer(server.grpc.GrpcServer, NewIdentityService(server))
+	server.grpc.RegisterService(func(s *grpc.Server) error {
+		identitypb.RegisterIdentityServiceServer(s, NewIdentityService(server))
+		return nil
+	})
 
 	return server, nil
 }
