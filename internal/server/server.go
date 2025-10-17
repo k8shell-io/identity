@@ -56,7 +56,7 @@ func NewServer(configFile string) (*Server, error) {
 		return nil, fmt.Errorf("load identity providers: %w", err)
 	}
 
-	server.grpc, err = gapi.NewServer(&config.GrpcConfig)
+	server.grpc, err = gapi.NewServer(&config.GrpcConfig, true)
 	if err != nil {
 		return nil, fmt.Errorf("create gRPC server: %w", err)
 	}
