@@ -97,6 +97,8 @@ github.com/jackc/puddle/v2 v2.2.2 h1:PR8nw+E/1w0GLuRFSmiioY6UooMp6KJv0/61nB7icHo
 github.com/jackc/puddle/v2 v2.2.2/go.mod h1:vriiEXHvEE654aYKXXjOvZM39qJ0q+azkZFrfEOc3H4=
 github.com/k8shell-io/common v0.12.43 h1:2gIFczoG75E2IeRlgydM4DlbWo3sLghB87Kn3x6lShw=
 github.com/k8shell-io/common v0.12.43/go.mod h1:x59qn/33MrUknrk+wVUix362znyX6SW41lajnAIzJFg=
+github.com/k8shell-io/common v0.12.44 h1:xOOcINjfs6F8sBqNuWyDhY1qj7utpWf/mbl6RRZLGfI=
+github.com/k8shell-io/common v0.12.44/go.mod h1:x59qn/33MrUknrk+wVUix362znyX6SW41lajnAIzJFg=
 github.com/k8shell-io/identity/pkg/api v0.1.4 h1:E2kJ4ZAqKPZ0J3yRYCxi8S+cRnGh6UMOF9EWSgnEFOU=
 github.com/k8shell-io/identity/pkg/api v0.1.4/go.mod h1:VgvcXGQCaIGIwOJA4R6Sz6d4XRClSCH2jPACVaAIfLM=
 github.com/k8shell-io/yaml-cel v0.2.5 h1:zSFADX2tMqCaDwm0ES4sN6N6YOg352ukAJgfir2JH0g=
