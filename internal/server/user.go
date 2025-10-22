@@ -151,6 +151,24 @@ func (s *Server) OnboardUserDeviceFlow(username string) (*models.OnboardUserDevi
 	return nil, fmt.Errorf("no suitable identity provider found for onboarding user '%s'", username)
 }
 
+// OnboardUserWebFlow attempts to onboard a user using the web flow method from the specified identity provider.
+// It returns the onboarding information if successful, or an error if no suitable provider is found.
+func (s *Server) OnboardUserWebFlow(providerName string, redirectUri string) (*models.OnboardUserWebFlow, error) {
+	for _, provider := range s.IdentityProviders {
+		if provider.Name() == providerName {
+			authInfo, err := provider.OnboardUserWebFlow(redirectUri)
+			if err != nil {
+				return nil, fmt.Errorf("error occurred while onboarding user via web flow with provider '%s': %w",
+					provider.Name(), err)
+			}
+			return authInfo, nil
+		}
+	}
+	return nil, fmt.Errorf("no suitable identity provider found for onboarding via web flow with provider '%s'", providerName)
+}
+
+// OnboardCapability checks the onboarding capability for a user across all identity providers.
+// It returns the capability information if found, or an error if no suitable provider is found.
 func (s *Server) OnboardCapability(username string) (*models.OnboardCapability, error) {
 	for _, provider := range s.IdentityProviders {
 		cap, err := provider.OnboardCapability(username)

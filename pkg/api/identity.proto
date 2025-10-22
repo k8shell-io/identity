@@ -14,6 +14,7 @@ service IdentityService {
   rpc AuthUserPublicKey (AuthUserPublicKeyRequest) returns (AuthUserResponse);
   rpc GetUserOnboardCapability (Username) returns (common.UserOnboardCapability);
   rpc OnboardUserDeviceFlow (Username) returns (common.OnboardUserDeviceFlow);
+  rpc OnboardUserWebFlow (OnboardUserWebFlowRequest) returns (common.OnboardUserWebFlow);
 
   rpc GetBlueprintByUserStr (UserStr) returns (Blueprint);
 
@@ -21,10 +22,9 @@ service IdentityService {
   rpc AddUserCredential (common.ExternalCredential) returns (AddUserCredentialResponse);
   rpc UpdateUserCredential (common.ExternalCredential) returns (UpdateUserCredentialResponse);
   rpc DeleteUserCredential (DeleteUserCredentialRequest) returns (DeleteUserCredentialResponse);
-
 }
  
-// *** Messages *** 
+// *** Messages ***   
 
 message Username { 
   string username = 1; 
@@ -64,6 +64,11 @@ message AuthUserPublicKeyRequest {
 message AuthUserResponse {
   bool valid = 1;
   common.User user = 2;
+}
+
+message OnboardUserWebFlowRequest {
+  string provider = 1;
+  string redirect_uri = 2;
 }
 
 // Blueprint related messages

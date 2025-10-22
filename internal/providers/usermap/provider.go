@@ -154,3 +154,8 @@ func (p *UserMapProvider) GetUserToken(username string) (*models.UserToken, erro
 func (p *UserMapProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlueprint, error) {
 	return nil, fmt.Errorf("%w: usermap provider does not support custom blueprints", models.ErrMethodNotSupported)
 }
+
+func (p *UserMapProvider) OnboardUserWebFlow(redirectUri string) (*models.OnboardUserWebFlow, error) {
+	return nil, fmt.Errorf("%w: usermap provider does not support onboarding via web flow",
+		models.ErrMethodNotSupported)
+}

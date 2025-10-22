@@ -135,3 +135,8 @@ func (f *FileUserProvider) GetUserToken(username string) (*models.UserToken, err
 func (p *FileUserProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlueprint, error) {
 	return nil, fmt.Errorf("%w: file user provider does not support custom blueprints", models.ErrMethodNotSupported)
 }
+
+func (f *FileUserProvider) OnboardUserWebFlow(redirectUri string) (*models.OnboardUserWebFlow, error) {
+	return nil, fmt.Errorf("%w: file user provider does not support onboarding via web flow",
+		models.ErrMethodNotSupported)
+}

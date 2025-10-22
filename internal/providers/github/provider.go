@@ -1,10 +1,14 @@
 package github
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -264,6 +268,80 @@ func (p *GitHubProvider) OnboardUserDeviceFlow(username string) (*models.Onboard
 	go p.pollForAccessToken(username, resp.DeviceCode, resp.Interval, resp.ExpiresIn)
 
 	return onboardUser, nil
+}
+
+// OnboardUserWebFlow initiates the OAuth web flow for user onboarding.
+func (p *GitHubProvider) OnboardUserWebFlow(redirectUri string) (*models.OnboardUserWebFlow, error) {
+	if p.memcache == nil {
+		return nil, fmt.Errorf("memcache is required for web flow onboarding")
+	}
+
+	state, err := randomURLSafeString(24)
+	if err != nil {
+		return nil, fmt.Errorf("generate state: %w", err)
+	}
+	codeVerifier, err := randomURLSafeString(64)
+	if err != nil {
+		return nil, fmt.Errorf("generate code verifier: %w", err)
+	}
+	sum := sha256.Sum256([]byte(codeVerifier))
+	codeChallenge := base64.RawURLEncoding.EncodeToString(sum[:])
+
+	p.log.Debug().Msgf("Generated PKCE code challenge '%s' for state '%s'", codeChallenge, state)
+
+	cacheKey := fmt.Sprintf("github:webflow:%s", state)
+	cachePayload := map[string]any{
+		"provider":        p.Name(),
+		"client_id":       p.config.ClientID,
+		"scopes":          p.config.Scopes,
+		"code_verifier":   codeVerifier,
+		"created_at_unix": time.Now().Unix(),
+	}
+	cacheBytes, err := json.Marshal(cachePayload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal cache payload: %w", err)
+	}
+	if err := p.memcache.Set(&memcache.Item{
+		Key:        cacheKey,
+		Value:      cacheBytes,
+		Expiration: int32(10 * 60),
+	}); err != nil {
+		return nil, fmt.Errorf("cache web flow context: %w", err)
+	}
+
+	// build authorization URL
+	// see https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps
+	// we do not set redirect_uri here, it should be set in api-server
+	u, _ := url.Parse("https://github.com/login/oauth/authorize")
+	q := u.Query()
+	q.Set("client_id", p.config.ClientID)
+	q.Set("redirect_uri", redirectUri)
+	if len(p.config.Scopes) > 0 {
+		q.Set("scope", strings.Join(p.config.Scopes, " "))
+	}
+	q.Set("state", state)
+	q.Set("code_challenge", codeChallenge)
+	q.Set("code_challenge_method", "S256")
+	q.Set("allow_signup", "false")
+	u.RawQuery = q.Encode()
+
+	p.log.Debug().Msgf("Generated GitHub OAuth authorize URL %s, state: '%s'", u.String(), state)
+
+	return &models.OnboardUserWebFlow{
+		Provider:         p.Name(),
+		AuthorizationURL: u.String(),
+		State:            state,
+		ExpiresIn:        600,
+	}, nil
+}
+
+// randomURLSafeString returns a base64url string generated from n random bytes.
+func randomURLSafeString(n int) (string, error) {
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
 func (p *GitHubProvider) pollForAccessToken(username, deviceCode string, intervalSec, expiresIn int) {
