@@ -343,6 +343,8 @@ func (p *GitHubProvider) CompleteUserWebFlow(state string, code string) (*models
 		return nil, fmt.Errorf("memcache is required for web flow onboarding")
 	}
 
+	p.log.Debug().Msgf("Completing GitHub web flow for state '%s'", state)
+
 	cacheKey := fmt.Sprintf("github:webflow:%s", state)
 	cacheItem, err := p.memcache.Get(cacheKey)
 	if err != nil {

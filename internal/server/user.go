@@ -169,14 +169,14 @@ func (s *Server) OnboardUserWebFlow(providerName string, redirectUri string) (*m
 }
 
 func (s *Server) CompleteUserWebFlow(code string, state string) (*models.User, error) {
-	provider, nonce, err := utils.DecodeState(state)
+	provider, _, err := utils.DecodeState(state)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode web flow state: %w", err)
 	}
 
 	for _, p := range s.IdentityProviders {
 		if p.Name() == provider {
-			user, err := p.CompleteUserWebFlow(code, nonce)
+			user, err := p.CompleteUserWebFlow(code, state)
 			if err != nil {
 				return nil, fmt.Errorf("error occurred while completing web flow for provider '%s': %w",
 					provider, err)
