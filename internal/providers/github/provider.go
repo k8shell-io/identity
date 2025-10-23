@@ -54,6 +54,7 @@ type GitHubProvider struct {
 }
 
 var ErrUnauthorized = errors.New("unauthorized")
+var ErrWebFlowInProgress = errors.New("web flow state is already being processed")
 
 func NewGitHubProvider(cfg GitHubProviderConfig, cacheCfg backend.CacheConfig, db *backend.DB, baseDir string) (*GitHubProvider, error) {
 	memcache := backend.NewCache(cacheCfg)
@@ -345,6 +346,22 @@ func (p *GitHubProvider) CompleteUserWebFlow(state string, code string) (*models
 
 	p.log.Debug().Msgf("Completing GitHub web flow for state '%s'", state)
 
+	// Acquire a per-state lock
+	lockKey := fmt.Sprintf("github:webflow:%s:lock", state)
+	if err := p.memcache.Add(&memcache.Item{
+		Key:        lockKey,
+		Value:      []byte("1"),
+		Expiration: int32(30),
+	}); err != nil {
+		if err == memcache.ErrNotStored {
+			return nil, ErrWebFlowInProgress
+		}
+		return nil, fmt.Errorf("acquire web flow lock: %w", err)
+	}
+	defer func() {
+		_ = p.memcache.Delete(lockKey)
+	}()
+
 	cacheKey := fmt.Sprintf("github:webflow:%s", state)
 	cacheItem, err := p.memcache.Get(cacheKey)
 	if err != nil {
@@ -352,10 +369,6 @@ func (p *GitHubProvider) CompleteUserWebFlow(state string, code string) (*models
 			return nil, fmt.Errorf("invalid or expired state")
 		}
 		return nil, fmt.Errorf("get web flow context from cache: %w", err)
-	}
-
-	if err := p.memcache.Delete(cacheKey); err != nil && err != memcache.ErrCacheMiss {
-		p.log.Warn().Err(err).Msgf("failed to invalidate web flow cache for state '%s'", state)
 	}
 
 	var cachePayload map[string]any
@@ -377,6 +390,10 @@ func (p *GitHubProvider) CompleteUserWebFlow(state string, code string) (*models
 		return nil, fmt.Errorf("exchange code for access token: %w", err)
 	}
 
+	if err := p.memcache.Delete(cacheKey); err != nil && err != memcache.ErrCacheMiss {
+		p.log.Warn().Err(err).Msgf("failed to invalidate web flow cache for state '%s'", state)
+	}
+
 	userData, _, err := MakeRequest(p.httpClient, "GET", GITHUB_USER_URL, tokenResp.AccessToken, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to make request to GitHub API: %w", err)
@@ -387,10 +404,8 @@ func (p *GitHubProvider) CompleteUserWebFlow(state string, code string) (*models
 		return nil, fmt.Errorf("failed to get username from GitHub user data")
 	}
 
-	if len(p.config.Allow) > 0 {
-		if !contains(p.config.Allow, username) {
-			return nil, fmt.Errorf("user '%s' is not allowed to onboard", username)
-		}
+	if len(p.config.Allow) > 0 && !contains(p.config.Allow, username) {
+		return nil, fmt.Errorf("user '%s' is not allowed to onboard", username)
 	}
 
 	err = p.db.CreateOrUpdateUserProviderInfo(&models.ProviderInfo{
@@ -404,7 +419,6 @@ func (p *GitHubProvider) CompleteUserWebFlow(state string, code string) (*models
 		return nil, fmt.Errorf("failed to save user provider info: %w", err)
 	}
 
-	// create user entry
 	user, err := p.FindUser(username)
 	if err != nil {
 		p.db.UpdateUserProviderStatus(username, p.Name(), "error")
@@ -518,6 +532,7 @@ func (p *GitHubProvider) AuthPublicKey(username string, key ssh.PublicKey) (bool
 	}
 
 	parsedKeys, _, err := common.ParseKeyList(keys)
+	err = nil
 	if err != nil {
 		return false, fmt.Errorf("failed to parse public keys for user '%s': %w", username, err)
 	}
