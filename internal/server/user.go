@@ -168,7 +168,7 @@ func (s *Server) OnboardUserWebFlow(providerName string, redirectUri string) (*m
 	return nil, fmt.Errorf("no suitable identity provider found for onboarding via web flow with provider '%s'", providerName)
 }
 
-func (s *Server) CompleteUserWebFlow(code string, state string) (*models.User, error) {
+func (s *Server) CompleteUserWebFlow(state, code string) (*models.User, error) {
 	provider, _, err := utils.DecodeState(state)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode web flow state: %w", err)
@@ -176,7 +176,7 @@ func (s *Server) CompleteUserWebFlow(code string, state string) (*models.User, e
 
 	for _, p := range s.IdentityProviders {
 		if p.Name() == provider {
-			user, err := p.CompleteUserWebFlow(code, state)
+			user, err := p.CompleteUserWebFlow(state, code)
 			if err != nil {
 				return nil, fmt.Errorf("error occurred while completing web flow for provider '%s': %w",
 					provider, err)

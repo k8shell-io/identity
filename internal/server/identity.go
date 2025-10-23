@@ -114,7 +114,7 @@ func (s *IdentityService) OnboardUserWebFlow(ctx context.Context,
 
 func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 	req *identitypb.CompleteUserWebFlowRequest) (*commonpb.User, error) {
-	user, err := s.server.CompleteUserWebFlow(req.Code, req.State)
+	user, err := s.server.CompleteUserWebFlow(req.State, req.Code)
 	if err != nil {
 		return nil, fmt.Errorf("failed to complete user web flow: %w", err)
 	}
