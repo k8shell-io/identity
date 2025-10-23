@@ -251,7 +251,7 @@ func (p *GitHubProvider) OnboardUserDeviceFlow(username string) (*models.Onboard
 	}
 
 	expiresAt := time.Now().Add(time.Duration(resp.ExpiresIn) * time.Second)
-	err = p.db.CreateUserProviderInfo(&models.ProviderInfo{
+	err = p.db.CreateOrUpdateUserProviderInfo(&models.ProviderInfo{
 		Status:          "pending",
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),
@@ -393,7 +393,7 @@ func (p *GitHubProvider) CompleteUserWebFlow(state string, code string) (*models
 		}
 	}
 
-	err = p.db.CreateUserProviderInfo(&models.ProviderInfo{
+	err = p.db.CreateOrUpdateUserProviderInfo(&models.ProviderInfo{
 		Status:      "ready",
 		UpdatedAt:   time.Now(),
 		Username:    username,

@@ -31,17 +31,27 @@ func (d *DB) GetUserProviderInfo(username string, provider string) (*models.Prov
 	return &info, nil
 }
 
-func (d *DB) CreateUserProviderInfo(info *models.ProviderInfo) error {
+func (d *DB) CreateOrUpdateUserProviderInfo(info *models.ProviderInfo) error {
 	query := `INSERT INTO provider_info (
 		username, provider, status, created_at, updated_at,
 		user_code, device_code, expires_at, verification_uri, access_token, refresh_token
-	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
+	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+	ON CONFLICT (username, provider) DO UPDATE SET
+		status = EXCLUDED.status,
+		updated_at = EXCLUDED.updated_at,
+		user_code = EXCLUDED.user_code,
+		device_code = EXCLUDED.device_code,
+		expires_at = EXCLUDED.expires_at,
+		verification_uri = EXCLUDED.verification_uri,
+		access_token = EXCLUDED.access_token,
+		refresh_token = EXCLUDED.refresh_token`
+
 	_, err := d.Pool.Exec(context.Background(), query,
 		info.Username, info.Provider, info.Status, info.CreatedAt, info.UpdatedAt,
 		info.UserCode, info.DeviceCode, info.ExpiresAt, info.VerificationURI,
 		info.AccessToken, info.RefreshToken)
 	if err != nil {
-		return fmt.Errorf("create provider_info: %w", err)
+		return fmt.Errorf("upsert provider_info: %w", err)
 	}
 	return nil
 }
