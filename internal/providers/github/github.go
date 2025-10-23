@@ -167,6 +167,43 @@ func getAccessToken(client *http.Client, clientId, deviceCode string) (*AccessTo
 	return &result, nil
 }
 
+func exchangeCodeForAccessToken(client *http.Client, clientID, clientSecret, code,
+	codeVerifier string) (*AccessTokenResponse, error) {
+	data := url.Values{}
+	data.Set("client_id", clientID)
+	data.Set("client_secret", clientSecret)
+	data.Set("code", code)
+	data.Set("code_verifier", codeVerifier)
+
+	req, err := http.NewRequest("POST", GITHUB_ACCESSTOKEN_URL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("create access token request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("perform access token request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("access token request returned status %d", resp.StatusCode)
+	}
+
+	var tokenResp AccessTokenResponse
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return nil, fmt.Errorf("decode access token response: %w", err)
+	}
+
+	if tokenResp.Error != "" {
+		return nil, fmt.Errorf("access token error: %s", tokenResp.Error)
+	}
+
+	return &tokenResp, nil
+}
+
 func getPublicKeys(client *http.Client, username string, accessToken string) ([]string, error) {
 	keysURL := fmt.Sprintf(GITHUB_KEYS_URL, username)
 	keysResource, _, err := MakeRequest(client, "GET", keysURL, accessToken, true)

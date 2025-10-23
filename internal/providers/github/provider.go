@@ -335,6 +335,83 @@ func (p *GitHubProvider) OnboardUserWebFlow(redirectUri string) (*models.Onboard
 	}, nil
 }
 
+// CompleteUserWebFlow completes the OAuth web flow for user onboarding.
+// It exchanges the authorization code for an access token, retrieves user info, and creates the user in the system.
+// It also checks if the user can onboard based on the allow list.
+func (p *GitHubProvider) CompleteUserWebFlow(state string, code string) (*models.User, error) {
+	if p.memcache == nil {
+		return nil, fmt.Errorf("memcache is required for web flow onboarding")
+	}
+
+	cacheKey := fmt.Sprintf("github:webflow:%s", state)
+	cacheItem, err := p.memcache.Get(cacheKey)
+	if err != nil {
+		if err == memcache.ErrCacheMiss {
+			return nil, fmt.Errorf("invalid or expired state")
+		}
+		return nil, fmt.Errorf("get web flow context from cache: %w", err)
+	}
+
+	if err := p.memcache.Delete(cacheKey); err != nil && err != memcache.ErrCacheMiss {
+		p.log.Warn().Err(err).Msgf("failed to invalidate web flow cache for state '%s'", state)
+	}
+
+	var cachePayload map[string]any
+	if err := json.Unmarshal(cacheItem.Value, &cachePayload); err != nil {
+		return nil, fmt.Errorf("unmarshal web flow context from cache: %w", err)
+	}
+
+	clientID, ok := cachePayload["client_id"].(string)
+	if !ok {
+		return nil, fmt.Errorf("invalid client_id in cached web flow context")
+	}
+	codeVerifier, ok := cachePayload["code_verifier"].(string)
+	if !ok {
+		return nil, fmt.Errorf("invalid code_verifier in cached web flow context")
+	}
+
+	tokenResp, err := exchangeCodeForAccessToken(p.httpClient, clientID, p.config.ClientSecret, code, codeVerifier)
+	if err != nil {
+		return nil, fmt.Errorf("exchange code for access token: %w", err)
+	}
+
+	userData, _, err := MakeRequest(p.httpClient, "GET", GITHUB_USER_URL, tokenResp.AccessToken, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request to GitHub API: %w", err)
+	}
+
+	username, ok := userData.(map[string]interface{})["login"].(string)
+	if !ok || username == "" {
+		return nil, fmt.Errorf("failed to get username from GitHub user data")
+	}
+
+	if len(p.config.Allow) > 0 {
+		if !contains(p.config.Allow, username) {
+			return nil, fmt.Errorf("user '%s' is not allowed to onboard", username)
+		}
+	}
+
+	err = p.db.CreateUserProviderInfo(&models.ProviderInfo{
+		Status:      "ready",
+		UpdatedAt:   time.Now(),
+		Username:    username,
+		Provider:    p.Name(),
+		AccessToken: tokenResp.AccessToken,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to save user provider info: %w", err)
+	}
+
+	// create user entry
+	user, err := p.FindUser(username)
+	if err != nil {
+		p.db.UpdateUserProviderStatus(username, p.Name(), "error")
+		return nil, fmt.Errorf("failed to find user '%s' after onboarding: %w", username, err)
+	}
+
+	return user, nil
+}
+
 // randomURLSafeString returns a base64url string generated from n random bytes.
 func randomURLSafeString(n int) (string, error) {
 	buf := make([]byte, n)

@@ -15,6 +15,7 @@ service IdentityService {
   rpc GetUserOnboardCapability (Username) returns (common.UserOnboardCapability);
   rpc OnboardUserDeviceFlow (Username) returns (common.OnboardUserDeviceFlow);
   rpc OnboardUserWebFlow (OnboardUserWebFlowRequest) returns (common.OnboardUserWebFlow);
+  rpc CompleteUserWebFlow (CompleteUserWebFlowRequest) returns (common.User);
 
   rpc GetBlueprintByUserStr (UserStr) returns (Blueprint);
 
@@ -27,10 +28,10 @@ service IdentityService {
 // *** Messages ***   
 
 message Username { 
-  string username = 1; 
+  string username = 1;  
 }
 
-message UserStr { 
+message UserStr {  
   string userstr = 1;
 }
 
@@ -69,6 +70,11 @@ message AuthUserResponse {
 message OnboardUserWebFlowRequest {
   string provider = 1;
   string redirect_uri = 2;
+}
+
+message CompleteUserWebFlowRequest {
+  string state = 1;
+  string code = 2;
 }
 
 // Blueprint related messages

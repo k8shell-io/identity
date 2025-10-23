@@ -100,6 +100,8 @@ func (d *DB) UpdateUserProviderStatus(username string, provider string, status s
 				updated_at = now(),
 				user_code = '',
 				device_code = '',
+				access_token = '',
+				refresh_token = '',
 				expires_at = null
 			WHERE username = $2 AND provider = $3`,
 			status, username, provider)

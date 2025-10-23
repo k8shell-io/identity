@@ -26,6 +26,7 @@ const (
 	IdentityService_GetUserOnboardCapability_FullMethodName = "/identity.IdentityService/GetUserOnboardCapability"
 	IdentityService_OnboardUserDeviceFlow_FullMethodName    = "/identity.IdentityService/OnboardUserDeviceFlow"
 	IdentityService_OnboardUserWebFlow_FullMethodName       = "/identity.IdentityService/OnboardUserWebFlow"
+	IdentityService_CompleteUserWebFlow_FullMethodName      = "/identity.IdentityService/CompleteUserWebFlow"
 	IdentityService_GetBlueprintByUserStr_FullMethodName    = "/identity.IdentityService/GetBlueprintByUserStr"
 	IdentityService_GetUserCredentials_FullMethodName       = "/identity.IdentityService/GetUserCredentials"
 	IdentityService_AddUserCredential_FullMethodName        = "/identity.IdentityService/AddUserCredential"
@@ -43,6 +44,7 @@ type IdentityServiceClient interface {
 	GetUserOnboardCapability(ctx context.Context, in *Username, opts ...grpc.CallOption) (*commonpb.UserOnboardCapability, error)
 	OnboardUserDeviceFlow(ctx context.Context, in *Username, opts ...grpc.CallOption) (*commonpb.OnboardUserDeviceFlow, error)
 	OnboardUserWebFlow(ctx context.Context, in *OnboardUserWebFlowRequest, opts ...grpc.CallOption) (*commonpb.OnboardUserWebFlow, error)
+	CompleteUserWebFlow(ctx context.Context, in *CompleteUserWebFlowRequest, opts ...grpc.CallOption) (*commonpb.User, error)
 	GetBlueprintByUserStr(ctx context.Context, in *UserStr, opts ...grpc.CallOption) (*Blueprint, error)
 	GetUserCredentials(ctx context.Context, in *Username, opts ...grpc.CallOption) (*GetUserCredentialsResponse, error)
 	AddUserCredential(ctx context.Context, in *commonpb.ExternalCredential, opts ...grpc.CallOption) (*AddUserCredentialResponse, error)
@@ -118,6 +120,16 @@ func (c *identityServiceClient) OnboardUserWebFlow(ctx context.Context, in *Onbo
 	return out, nil
 }
 
+func (c *identityServiceClient) CompleteUserWebFlow(ctx context.Context, in *CompleteUserWebFlowRequest, opts ...grpc.CallOption) (*commonpb.User, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(commonpb.User)
+	err := c.cc.Invoke(ctx, IdentityService_CompleteUserWebFlow_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *identityServiceClient) GetBlueprintByUserStr(ctx context.Context, in *UserStr, opts ...grpc.CallOption) (*Blueprint, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Blueprint)
@@ -178,6 +190,7 @@ type IdentityServiceServer interface {
 	GetUserOnboardCapability(context.Context, *Username) (*commonpb.UserOnboardCapability, error)
 	OnboardUserDeviceFlow(context.Context, *Username) (*commonpb.OnboardUserDeviceFlow, error)
 	OnboardUserWebFlow(context.Context, *OnboardUserWebFlowRequest) (*commonpb.OnboardUserWebFlow, error)
+	CompleteUserWebFlow(context.Context, *CompleteUserWebFlowRequest) (*commonpb.User, error)
 	GetBlueprintByUserStr(context.Context, *UserStr) (*Blueprint, error)
 	GetUserCredentials(context.Context, *Username) (*GetUserCredentialsResponse, error)
 	AddUserCredential(context.Context, *commonpb.ExternalCredential) (*AddUserCredentialResponse, error)
@@ -210,6 +223,9 @@ func (UnimplementedIdentityServiceServer) OnboardUserDeviceFlow(context.Context,
 }
 func (UnimplementedIdentityServiceServer) OnboardUserWebFlow(context.Context, *OnboardUserWebFlowRequest) (*commonpb.OnboardUserWebFlow, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method OnboardUserWebFlow not implemented")
+}
+func (UnimplementedIdentityServiceServer) CompleteUserWebFlow(context.Context, *CompleteUserWebFlowRequest) (*commonpb.User, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CompleteUserWebFlow not implemented")
 }
 func (UnimplementedIdentityServiceServer) GetBlueprintByUserStr(context.Context, *UserStr) (*Blueprint, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBlueprintByUserStr not implemented")
@@ -355,6 +371,24 @@ func _IdentityService_OnboardUserWebFlow_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _IdentityService_CompleteUserWebFlow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CompleteUserWebFlowRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IdentityServiceServer).CompleteUserWebFlow(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IdentityService_CompleteUserWebFlow_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IdentityServiceServer).CompleteUserWebFlow(ctx, req.(*CompleteUserWebFlowRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _IdentityService_GetBlueprintByUserStr_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(UserStr)
 	if err := dec(in); err != nil {
@@ -475,6 +509,10 @@ var IdentityService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "OnboardUserWebFlow",
 			Handler:    _IdentityService_OnboardUserWebFlow_Handler,
+		},
+		{
+			MethodName: "CompleteUserWebFlow",
+			Handler:    _IdentityService_CompleteUserWebFlow_Handler,
 		},
 		{
 			MethodName: "GetBlueprintByUserStr",

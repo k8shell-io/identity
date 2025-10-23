@@ -140,3 +140,8 @@ func (f *FileUserProvider) OnboardUserWebFlow(redirectUri string) (*models.Onboa
 	return nil, fmt.Errorf("%w: file user provider does not support onboarding via web flow",
 		models.ErrMethodNotSupported)
 }
+
+func (f *FileUserProvider) CompleteUserWebFlow(state string, code string) (*models.User, error) {
+	return nil, fmt.Errorf("%w: file user provider does not support onboarding via web flow",
+		models.ErrMethodNotSupported)
+}
