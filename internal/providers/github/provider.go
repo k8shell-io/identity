@@ -16,6 +16,7 @@ import (
 	"github.com/bradfitz/gomemcache/memcache"
 	log "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/common/pkg/models"
+	"github.com/k8shell-io/common/pkg/utils"
 	"github.com/k8shell-io/identity/internal/backend"
 	"github.com/k8shell-io/identity/internal/common"
 	"github.com/k8shell-io/yaml-cel/pkg/yamlcel"
@@ -276,10 +277,12 @@ func (p *GitHubProvider) OnboardUserWebFlow(redirectUri string) (*models.Onboard
 		return nil, fmt.Errorf("memcache is required for web flow onboarding")
 	}
 
-	state, err := randomURLSafeString(24)
+	nonce, err := randomURLSafeString(24)
 	if err != nil {
 		return nil, fmt.Errorf("generate state: %w", err)
 	}
+	state := utils.EncodeState(p.Name(), nonce)
+
 	codeVerifier, err := randomURLSafeString(64)
 	if err != nil {
 		return nil, fmt.Errorf("generate code verifier: %w", err)
@@ -309,9 +312,6 @@ func (p *GitHubProvider) OnboardUserWebFlow(redirectUri string) (*models.Onboard
 		return nil, fmt.Errorf("cache web flow context: %w", err)
 	}
 
-	// build authorization URL
-	// see https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps
-	// we do not set redirect_uri here, it should be set in api-server
 	u, _ := url.Parse("https://github.com/login/oauth/authorize")
 	q := u.Query()
 	q.Set("client_id", p.config.ClientID)

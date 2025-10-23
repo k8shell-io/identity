@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/k8shell-io/common/pkg/models"
+	"github.com/k8shell-io/common/utils"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -165,6 +166,25 @@ func (s *Server) OnboardUserWebFlow(providerName string, redirectUri string) (*m
 		}
 	}
 	return nil, fmt.Errorf("no suitable identity provider found for onboarding via web flow with provider '%s'", providerName)
+}
+
+func (s *Server) CompleteUserWebFlow(code string, state string) (*models.User, error) {
+	provider, nonce, err := utils.DecodeWebFlowState(state)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode web flow state: %w", err)
+	}
+
+	for _, p := range s.IdentityProviders {
+		if p.Name() == provider {
+			user, err := p.CompleteUserWebFlow(code, nonce)
+			if err != nil {
+				return nil, fmt.Errorf("error occurred while completing web flow for provider '%s': %w",
+					provider, err)
+			}
+			return user, nil
+		}
+	}
+	return nil, fmt.Errorf("no suitable identity provider found for completing web flow with provider '%s'", provider)
 }
 
 // OnboardCapability checks the onboarding capability for a user across all identity providers.

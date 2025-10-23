@@ -3,7 +3,7 @@ module github.com/k8shell-io/identity/pkg/api
 go 1.24.5
 
 require (
-	github.com/k8shell-io/common v0.12.50
+	github.com/k8shell-io/common v0.12.51
 	google.golang.org/grpc v1.76.0
 	google.golang.org/protobuf v1.36.10
 )
