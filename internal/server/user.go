@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/k8shell-io/common/pkg/models"
-	"github.com/k8shell-io/common/utils"
+	"github.com/k8shell-io/common/pkg/utils"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -169,7 +169,7 @@ func (s *Server) OnboardUserWebFlow(providerName string, redirectUri string) (*m
 }
 
 func (s *Server) CompleteUserWebFlow(code string, state string) (*models.User, error) {
-	provider, nonce, err := utils.DecodeWebFlowState(state)
+	provider, nonce, err := utils.DecodeState(state)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode web flow state: %w", err)
 	}

@@ -6,7 +6,7 @@ require (
 	github.com/bradfitz/gomemcache v0.0.0-20250403215159-8d39553ac7cf
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/k8shell-io/common v0.12.51
-	github.com/k8shell-io/identity/pkg/api v0.1.7
+	github.com/k8shell-io/identity/pkg/api v0.1.8
 	github.com/k8shell-io/yaml-cel v0.2.5
 	github.com/ory/dockertest/v3 v3.12.0
 	github.com/rs/zerolog v1.34.0

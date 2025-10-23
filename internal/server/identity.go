@@ -112,6 +112,16 @@ func (s *IdentityService) OnboardUserWebFlow(ctx context.Context,
 	return gapi.OnboardUserWebFlowToProto(onboardUser), nil
 }
 
+func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
+	req *identitypb.CompleteUserWebFlowRequest) (*commonpb.User, error) {
+	user, err := s.server.CompleteUserWebFlow(req.Code, req.State)
+	if err != nil {
+		return nil, fmt.Errorf("failed to complete user web flow: %w", err)
+	}
+
+	return gapi.UserToProto(user), nil
+}
+
 // Blueprint methods
 func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context, req *identitypb.UserStr) (*identitypb.Blueprint, error) {
 	userStr, err := models.NewUserStr(req.Userstr)
