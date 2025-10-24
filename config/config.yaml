@@ -5,6 +5,7 @@ grpc:
   port: 9020
 
   # JWT required claims for authentication
+  authEnabled: true
   audience: identity
   allowed:
     - serviceAccount: ssh-proxy
