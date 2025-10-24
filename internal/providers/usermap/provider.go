@@ -160,7 +160,7 @@ func (p *UserMapProvider) OnboardUserWebFlow(redirectUri string) (*models.Onboar
 		models.ErrMethodNotSupported)
 }
 
-func (p *UserMapProvider) CompleteUserWebFlow(state string, code string) (*models.User, error) {
-	return nil, fmt.Errorf("%w: usermap provider does not support onboarding via web flow",
+func (p *UserMapProvider) CompleteUserWebFlow(state string, code string) (string, error) {
+	return "", fmt.Errorf("%w: usermap provider does not support onboarding via web flow",
 		models.ErrMethodNotSupported)
 }

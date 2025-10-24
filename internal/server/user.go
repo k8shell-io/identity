@@ -176,11 +176,17 @@ func (s *Server) CompleteUserWebFlow(state, code string) (*models.User, error) {
 
 	for _, p := range s.IdentityProviders {
 		if p.Name() == provider {
-			user, err := p.CompleteUserWebFlow(state, code)
+			username, err := p.CompleteUserWebFlow(state, code)
 			if err != nil {
 				return nil, fmt.Errorf("error occurred while completing web flow for provider '%s': %w",
 					provider, err)
 			}
+
+			user, err := s.GetUser(username)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get user '%s' after completing web flow: %w", username, err)
+			}
+
 			return user, nil
 		}
 	}

@@ -5,7 +5,7 @@ grpc:
   port: 9020
 
   # JWT required claims for authentication
-  authEnabled: true
+  authEnabled: false
   audience: identity
   allowed:
     - serviceAccount: ssh-proxy
@@ -13,9 +13,9 @@ grpc:
 
 # memcached
 cache:
-  enabled: false
-  address: ${MEMCACHED_HOSTNAME}
-  port: !!int ${MEMCACHED_PORT}
+  enabled: true
+  address: cache-memcached.k8shell-test
+  port: 11211
 
 # DB configuration
 db:
