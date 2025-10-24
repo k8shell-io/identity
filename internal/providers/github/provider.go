@@ -532,7 +532,6 @@ func (p *GitHubProvider) AuthPublicKey(username string, key ssh.PublicKey) (bool
 	}
 
 	parsedKeys, _, err := common.ParseKeyList(keys)
-	err = nil
 	if err != nil {
 		return false, fmt.Errorf("failed to parse public keys for user '%s': %w", username, err)
 	}
