@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/k8shell-io/common/pkg/cache"
 	"github.com/k8shell-io/common/pkg/models"
-	"github.com/k8shell-io/identity/internal/backend"
 	"github.com/k8shell-io/identity/internal/common"
 	"github.com/k8shell-io/yaml-cel/pkg/yamlcel"
 	"golang.org/x/crypto/ssh"
@@ -35,7 +35,7 @@ type UserMapProvider struct {
 	template   *yamlcel.CELTemplate
 }
 
-func NewUserMapProvider(cfg UserMapProviderConfig, baseDir string, cacheCfg backend.CacheConfig) (*UserMapProvider, error) {
+func NewUserMapProvider(cfg UserMapProviderConfig, baseDir string, cacheCfg cache.ClientConfig) (*UserMapProvider, error) {
 	template, err := yamlcel.NewTemplate(common.NormalizePath(cfg.Template, baseDir))
 	if err != nil {
 		return nil, fmt.Errorf("load user template '%s': %w", cfg.Template, err)

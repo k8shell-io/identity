@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/k8shell-io/common/pkg/cache"
 	"github.com/k8shell-io/common/pkg/config"
 	"github.com/k8shell-io/common/pkg/db"
 	"github.com/k8shell-io/common/pkg/gapi"
-	"github.com/k8shell-io/identity/internal/backend"
 	"github.com/k8shell-io/identity/internal/providers/file"
 	"github.com/k8shell-io/identity/internal/providers/github"
 	"github.com/k8shell-io/identity/internal/providers/usermap"
@@ -18,10 +18,10 @@ import (
 
 // Config represents the server configuration structure.
 type Config struct {
-	GrpcConfig        gapi.ServerConfig   `yaml:"grpc"`
-	Cache             backend.CacheConfig `yaml:"cache"`
-	DB                db.DBConfig         `yaml:"db"`
-	IdentityProviders []yaml.Node         `yaml:"identityProviders"`
+	GrpcConfig        gapi.ServerConfig  `yaml:"grpc"`
+	Cache             cache.ClientConfig `yaml:"cache"`
+	DB                db.DBConfig        `yaml:"db"`
+	IdentityProviders []yaml.Node        `yaml:"identityProviders"`
 
 	// ConfigDir is the directory where the configuration file is located.
 	configDir string

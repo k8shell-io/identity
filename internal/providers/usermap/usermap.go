@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/bradfitz/gomemcache/memcache"
+	"github.com/k8shell-io/common/pkg/cache"
 	log "github.com/k8shell-io/common/pkg/logger"
-	"github.com/k8shell-io/identity/internal/backend"
 	"github.com/rs/zerolog"
 )
 
@@ -35,7 +35,7 @@ type PeopleModel struct {
 
 type UsermapAPI struct {
 	config     UserMapProviderConfig
-	memcache   *memcache.Client
+	cache      *cache.Cache
 	httpClient *http.Client
 	log        *zerolog.Logger
 
@@ -54,21 +54,19 @@ type TokenResponse struct {
 	ExpiresAt   int64  `json:"expires_at"`
 }
 
-func NewUsermapAPI(cfg UserMapProviderConfig, cacheCfg backend.CacheConfig, httpTimeout int) *UsermapAPI {
-	memcache := backend.NewCache(cacheCfg)
-
+func NewUsermapAPI(cfg UserMapProviderConfig, cacheCfg cache.ClientConfig, httpTimeout int) *UsermapAPI {
 	u := &UsermapAPI{
 		log:        log.NewLogger("usermap"),
 		config:     cfg,
-		memcache:   memcache,
+		cache:      cache.NewClient(cacheCfg),
 		httpClient: &http.Client{Timeout: time.Duration(httpTimeout) * time.Millisecond},
 	}
 	return u
 }
 
 func (u *UsermapAPI) invalidateToken() {
-	if u.memcache != nil {
-		u.memcache.Delete(tokenCacheKey)
+	if u.cache != nil {
+		u.cache.DeleteWithRetry(tokenCacheKey)
 	}
 	u.accessToken = ""
 	u.tokenType = ""
@@ -77,8 +75,8 @@ func (u *UsermapAPI) invalidateToken() {
 }
 
 func (u *UsermapAPI) ensureToken() error {
-	if u.memcache != nil {
-		item, err := u.memcache.Get(tokenCacheKey)
+	if u.cache != nil {
+		item, err := u.cache.GetWithRetry(tokenCacheKey)
 		if err == nil {
 			var tokenResp TokenResponse
 			if err := json.Unmarshal(item.Value, &tokenResp); err == nil {
@@ -117,9 +115,9 @@ func (u *UsermapAPI) ensureToken() error {
 	u.setTokenFromResponse(&tokenResp)
 	u.log.Debug().Msgf("New token acquired, expires at %d", tokenResp.ExpiresAt)
 
-	if u.memcache != nil {
+	if u.cache != nil {
 		b, _ := json.Marshal(tokenResp)
-		u.memcache.Set(&memcache.Item{
+		u.cache.SetWithRetry(&memcache.Item{
 			Key:        tokenCacheKey,
 			Value:      b,
 			Expiration: int32(tokenResp.ExpiresIn),
@@ -138,8 +136,8 @@ func (u *UsermapAPI) setTokenFromResponse(tr *TokenResponse) {
 func (u *UsermapAPI) GetPeopleResource(username string) (*PeopleModel, error) {
 	cacheKey := fmt.Sprintf("usermap_people_%s", username)
 
-	if u.memcache != nil {
-		item, err := u.memcache.Get(cacheKey)
+	if u.cache != nil {
+		item, err := u.cache.GetWithRetry(cacheKey)
 		if err == nil {
 			u.log.Debug().Msgf("User '%s' found in cache", username)
 			var cached PeopleModel
@@ -181,9 +179,9 @@ func (u *UsermapAPI) GetPeopleResource(username string) (*PeopleModel, error) {
 		return nil, fmt.Errorf("invalid JSON response: %w", err)
 	}
 
-	if u.memcache != nil && u.config.CacheTimeout > 0 {
+	if u.cache != nil && u.config.CacheTimeout > 0 {
 		b, _ := json.Marshal(user)
-		_ = u.memcache.Set(&memcache.Item{
+		_ = u.cache.SetWithRetry(&memcache.Item{
 			Key:        cacheKey,
 			Value:      b,
 			Expiration: int32(u.config.CacheTimeout),
