@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bradfitz/gomemcache/memcache"
 	"github.com/k8shell-io/common/pkg/cache"
 	log "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/common/pkg/models"
+	natsc "github.com/k8shell-io/common/pkg/nats"
 	"github.com/k8shell-io/common/pkg/utils"
 	"github.com/k8shell-io/identity/internal/backend"
 	"github.com/k8shell-io/identity/internal/common"
@@ -46,7 +46,7 @@ type GitHubProviderConfig struct {
 type GitHubProvider struct {
 	config                 GitHubProviderConfig
 	baseDir                string
-	cache                  *cache.Cache
+	cache                  cache.Cache
 	httpClient             *http.Client
 	log                    *zerolog.Logger
 	db                     *backend.DB
@@ -57,11 +57,16 @@ type GitHubProvider struct {
 var ErrUnauthorized = errors.New("unauthorized")
 var ErrWebFlowInProgress = errors.New("web flow state is already being processed")
 
-func NewGitHubProvider(cfg GitHubProviderConfig, cacheCfg cache.ClientConfig, db *backend.DB,
+func NewGitHubProvider(cfg GitHubProviderConfig, natsCfg natsc.NATSClientConfig, db *backend.DB,
 	baseDir string) (*GitHubProvider, error) {
 	template, err := yamlcel.NewTemplate(common.NormalizePath(cfg.Template, baseDir))
 	if err != nil {
 		return nil, fmt.Errorf("load user template '%s': %w", cfg.Template, err)
+	}
+
+	cache, err := cache.NewJetStreamCache(natsCfg, cache.BucketOptions{Bucket: "idp-github-cache"})
+	if err != nil {
+		return nil, fmt.Errorf("create cache: %w", err)
 	}
 
 	var cbp *models.CustomBlueprint
@@ -93,7 +98,7 @@ func NewGitHubProvider(cfg GitHubProviderConfig, cacheCfg cache.ClientConfig, db
 	provider := &GitHubProvider{
 		config:                 cfg,
 		baseDir:                baseDir,
-		cache:                  cache.NewClient(cacheCfg),
+		cache:                  cache,
 		httpClient:             &http.Client{},
 		log:                    log.NewLogger("github"),
 		db:                     db,
@@ -306,11 +311,7 @@ func (p *GitHubProvider) OnboardUserWebFlow(redirectUri string) (*models.Onboard
 	if err != nil {
 		return nil, fmt.Errorf("marshal cache payload: %w", err)
 	}
-	if err := p.cache.SetWithRetry(&memcache.Item{
-		Key:        cacheKey,
-		Value:      cacheBytes,
-		Expiration: int32(10 * 60),
-	}); err != nil {
+	if err := p.cache.Set(cacheKey, cacheBytes, time.Duration(10)*time.Minute); err != nil {
 		return nil, fmt.Errorf("cache web flow context: %w", err)
 	}
 
@@ -352,32 +353,26 @@ func (p *GitHubProvider) CompleteUserWebFlow(state string, code string) (string,
 	p.log.Debug().Msgf("Completing GitHub web flow for state '%s'", state)
 
 	// Acquire a per-state lock
-	lockKey := fmt.Sprintf("github:webflow:%s:lock", state)
-	if err := p.cache.AddWithRetry(&memcache.Item{
-		Key:        lockKey,
-		Value:      []byte("1"),
-		Expiration: int32(30),
-	}); err != nil {
-		if err == memcache.ErrNotStored {
-			return "", ErrWebFlowInProgress
-		}
+	lockKey := fmt.Sprintf("githubwebflow-%s-lock", state)
+	lock, err := p.cache.AcquireLock(lockKey, time.Duration(30)*time.Second)
+	if err != nil {
 		return "", fmt.Errorf("acquire web flow lock: %w", err)
 	}
 	defer func() {
-		_ = p.cache.DeleteWithRetry(lockKey)
+		_ = lock.Release()
 	}()
 
-	cacheKey := fmt.Sprintf("github:webflow:%s", state)
-	cacheItem, err := p.cache.GetWithRetry(cacheKey)
+	cacheKey := fmt.Sprintf("githubwebflow-%s", state)
+	cacheItem, err := p.cache.Get(cacheKey)
 	if err != nil {
-		if err == memcache.ErrCacheMiss {
+		if err == cache.ErrCacheMiss {
 			return "", fmt.Errorf("invalid or expired state")
 		}
 		return "", fmt.Errorf("get web flow context from cache: %w", err)
 	}
 
 	var cachePayload map[string]any
-	if err := json.Unmarshal(cacheItem.Value, &cachePayload); err != nil {
+	if err := json.Unmarshal(cacheItem, &cachePayload); err != nil {
 		return "", fmt.Errorf("unmarshal web flow context from cache: %w", err)
 	}
 
@@ -395,7 +390,7 @@ func (p *GitHubProvider) CompleteUserWebFlow(state string, code string) (string,
 		return "", fmt.Errorf("exchange code for access token: %w", err)
 	}
 
-	if err := p.cache.DeleteWithRetry(cacheKey); err != nil && err != memcache.ErrCacheMiss {
+	if err := p.cache.Delete(cacheKey); err != nil && err != cache.ErrCacheMiss {
 		p.log.Warn().Err(err).Msgf("failed to invalidate web flow cache for state '%s'", state)
 	}
 
@@ -498,11 +493,11 @@ func (p *GitHubProvider) AuthPublicKey(username string, key ssh.PublicKey) (bool
 	var keys []string
 	if p.cache != nil {
 		CacheKeys := fmt.Sprintf("github:%s:keys", username)
-		cacheItem, err := p.cache.GetWithRetry(CacheKeys)
+		cacheItem, err := p.cache.Get(CacheKeys)
 		if err == nil && cacheItem != nil {
-			keys = strings.Split(strings.TrimSpace(string(cacheItem.Value)), "\n")
+			keys = strings.Split(strings.TrimSpace(string(cacheItem)), "\n")
 		}
-		if err != nil && err != memcache.ErrCacheMiss {
+		if err != nil && err != cache.ErrCacheMiss {
 			p.log.Warn().Err(err).Msgf("failed to get cached public keys for user '%s'", username)
 		}
 	}
@@ -520,11 +515,10 @@ func (p *GitHubProvider) AuthPublicKey(username string, key ssh.PublicKey) (bool
 		if p.cache != nil && len(keys) > 0 {
 			// Cache the public keys for 10 seconds
 			CacheKeys := fmt.Sprintf("github:%s:keys", username)
-			if err := p.cache.SetWithRetry(&memcache.Item{
-				Key:        CacheKeys,
-				Value:      []byte(strings.Join(keys, "\n")),
-				Expiration: 10,
-			}); err != nil {
+			if err := p.cache.Set(CacheKeys,
+				[]byte(strings.Join(keys, "\n")),
+				time.Duration(10)*time.Second,
+			); err != nil {
 				p.log.Warn().Err(err).Msgf("failed to cache public keys for user '%s'", username)
 			}
 		}

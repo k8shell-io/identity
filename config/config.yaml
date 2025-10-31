@@ -11,11 +11,11 @@ grpc:
     - serviceAccount: ssh-proxy
     - serviceAccount: api-server
 
-# memcached
-cache:
+nats:
   enabled: true
-  address: cache-memcached.k8shell-test
-  port: 11211
+  url: nats://nats.k8shell-test:4222
+  username: identity
+  password: ${IDENTITY_NATS_PASSWORD}
 
 # DB configuration
 db:

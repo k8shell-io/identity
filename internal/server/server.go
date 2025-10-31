@@ -51,7 +51,7 @@ func NewServer(configFile string) (*Server, error) {
 		return nil, fmt.Errorf("create database pool: %w", err)
 	}
 
-	err = server.LoadProviders(config)
+	err = server.loadProviders(config)
 	if err != nil {
 		return nil, fmt.Errorf("load identity providers: %w", err)
 	}
@@ -70,7 +70,7 @@ func NewServer(configFile string) (*Server, error) {
 }
 
 // LoadProviders initializes the identity providers based on the configuration.
-func (s *Server) LoadProviders(config *Config) error {
+func (s *Server) loadProviders(config *Config) error {
 	for _, node := range config.IdentityProviders {
 		var raw map[string]any
 		if err := node.Decode(&raw); err != nil {
@@ -101,7 +101,7 @@ func (s *Server) LoadProviders(config *Config) error {
 			if err := node.Decode(&usermapProvCfg); err != nil {
 				return fmt.Errorf("usermap provider config decode: %w", err)
 			}
-			p, err := usermap.NewUserMapProvider(usermapProvCfg, config.configDir, config.Cache)
+			p, err := usermap.NewUserMapProvider(usermapProvCfg, config.configDir, config.Nats)
 			if err != nil {
 				return fmt.Errorf("usermap provider creation: %w", err)
 			}
@@ -112,7 +112,7 @@ func (s *Server) LoadProviders(config *Config) error {
 			if err := node.Decode(&githubProvCfg); err != nil {
 				return fmt.Errorf("github provider config decode: %w", err)
 			}
-			p, err := github.NewGitHubProvider(githubProvCfg, config.Cache, s.DB, config.configDir)
+			p, err := github.NewGitHubProvider(githubProvCfg, config.Nats, s.DB, config.configDir)
 			if err != nil {
 				return fmt.Errorf("github provider creation: %w", err)
 			}

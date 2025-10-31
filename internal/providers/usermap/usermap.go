@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bradfitz/gomemcache/memcache"
 	"github.com/k8shell-io/common/pkg/cache"
 	log "github.com/k8shell-io/common/pkg/logger"
 	"github.com/rs/zerolog"
@@ -35,7 +34,7 @@ type PeopleModel struct {
 
 type UsermapAPI struct {
 	config     UserMapProviderConfig
-	cache      *cache.Cache
+	cache      cache.Cache
 	httpClient *http.Client
 	log        *zerolog.Logger
 
@@ -54,11 +53,11 @@ type TokenResponse struct {
 	ExpiresAt   int64  `json:"expires_at"`
 }
 
-func NewUsermapAPI(cfg UserMapProviderConfig, cacheCfg cache.ClientConfig, httpTimeout int) *UsermapAPI {
+func NewUsermapAPI(cfg UserMapProviderConfig, cache cache.Cache, httpTimeout int) *UsermapAPI {
 	u := &UsermapAPI{
 		log:        log.NewLogger("usermap"),
 		config:     cfg,
-		cache:      cache.NewClient(cacheCfg),
+		cache:      cache,
 		httpClient: &http.Client{Timeout: time.Duration(httpTimeout) * time.Millisecond},
 	}
 	return u
@@ -66,7 +65,7 @@ func NewUsermapAPI(cfg UserMapProviderConfig, cacheCfg cache.ClientConfig, httpT
 
 func (u *UsermapAPI) invalidateToken() {
 	if u.cache != nil {
-		u.cache.DeleteWithRetry(tokenCacheKey)
+		u.cache.Delete(tokenCacheKey)
 	}
 	u.accessToken = ""
 	u.tokenType = ""
@@ -76,10 +75,10 @@ func (u *UsermapAPI) invalidateToken() {
 
 func (u *UsermapAPI) ensureToken() error {
 	if u.cache != nil {
-		item, err := u.cache.GetWithRetry(tokenCacheKey)
+		item, err := u.cache.Get(tokenCacheKey)
 		if err == nil {
 			var tokenResp TokenResponse
-			if err := json.Unmarshal(item.Value, &tokenResp); err == nil {
+			if err := json.Unmarshal(item, &tokenResp); err == nil {
 				if time.Now().Unix() < tokenResp.ExpiresAt {
 					u.setTokenFromResponse(&tokenResp)
 					u.log.Debug().Msgf("Using cached token, expires at %d", tokenResp.ExpiresAt)
@@ -117,11 +116,7 @@ func (u *UsermapAPI) ensureToken() error {
 
 	if u.cache != nil {
 		b, _ := json.Marshal(tokenResp)
-		u.cache.SetWithRetry(&memcache.Item{
-			Key:        tokenCacheKey,
-			Value:      b,
-			Expiration: int32(tokenResp.ExpiresIn),
-		})
+		u.cache.Set(tokenCacheKey, b, time.Duration(tokenResp.ExpiresIn)*time.Second)
 	}
 	return nil
 }
@@ -137,11 +132,11 @@ func (u *UsermapAPI) GetPeopleResource(username string) (*PeopleModel, error) {
 	cacheKey := fmt.Sprintf("usermap_people_%s", username)
 
 	if u.cache != nil {
-		item, err := u.cache.GetWithRetry(cacheKey)
+		item, err := u.cache.Get(cacheKey)
 		if err == nil {
 			u.log.Debug().Msgf("User '%s' found in cache", username)
 			var cached PeopleModel
-			if err := json.Unmarshal(item.Value, &cached); err == nil {
+			if err := json.Unmarshal(item, &cached); err == nil {
 				return &cached, nil
 			}
 		}
@@ -181,11 +176,7 @@ func (u *UsermapAPI) GetPeopleResource(username string) (*PeopleModel, error) {
 
 	if u.cache != nil && u.config.CacheTimeout > 0 {
 		b, _ := json.Marshal(user)
-		_ = u.cache.SetWithRetry(&memcache.Item{
-			Key:        cacheKey,
-			Value:      b,
-			Expiration: int32(u.config.CacheTimeout),
-		})
+		_ = u.cache.Set(cacheKey, b, time.Duration(u.config.CacheTimeout)*time.Second)
 		u.log.Debug().Msgf("User '%s' cached for %d seconds", username, u.config.CacheTimeout)
 	}
 
