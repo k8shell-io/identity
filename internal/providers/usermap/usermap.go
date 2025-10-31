@@ -13,7 +13,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-const tokenCacheKey = "usermap_token"
+const tokenCacheKey = "usermap-token"
 
 // PeopleModel represents the structure of a user returned by Usermap backend.
 type PeopleModel struct {
@@ -129,7 +129,7 @@ func (u *UsermapAPI) setTokenFromResponse(tr *TokenResponse) {
 }
 
 func (u *UsermapAPI) GetPeopleResource(username string) (*PeopleModel, error) {
-	cacheKey := fmt.Sprintf("usermap_people_%s", username)
+	cacheKey := fmt.Sprintf("usermap-people-%s", username)
 
 	if u.cache != nil {
 		item, err := u.cache.Get(cacheKey)

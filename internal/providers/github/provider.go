@@ -299,7 +299,7 @@ func (p *GitHubProvider) OnboardUserWebFlow(redirectUri string) (*models.Onboard
 
 	p.log.Debug().Msgf("Generated PKCE code challenge '%s' for state '%s'", codeChallenge, state)
 
-	cacheKey := fmt.Sprintf("github:webflow:%s", state)
+	cacheKey := fmt.Sprintf("github-webflow-%s", state)
 	cachePayload := map[string]any{
 		"provider":        p.Name(),
 		"client_id":       p.config.ClientID,
@@ -514,7 +514,7 @@ func (p *GitHubProvider) AuthPublicKey(username string, key ssh.PublicKey) (bool
 
 		if p.cache != nil && len(keys) > 0 {
 			// Cache the public keys for 10 seconds
-			CacheKeys := fmt.Sprintf("github:%s:keys", username)
+			CacheKeys := fmt.Sprintf("github-%s-keys", username)
 			if err := p.cache.Set(CacheKeys,
 				[]byte(strings.Join(keys, "\n")),
 				time.Duration(10)*time.Second,
