@@ -299,7 +299,7 @@ func (p *GitHubProvider) OnboardUserWebFlow(redirectUri string) (*models.Onboard
 
 	p.log.Debug().Msgf("Generated PKCE code challenge '%s' for state '%s'", codeChallenge, state)
 
-	cacheKey := fmt.Sprintf("github-webflow-%s", state)
+	cacheKey := fmt.Sprintf("gh-webflow-state-%s", state)
 	cachePayload := map[string]any{
 		"provider":        p.Name(),
 		"client_id":       p.config.ClientID,
@@ -353,7 +353,7 @@ func (p *GitHubProvider) CompleteUserWebFlow(state string, code string) (string,
 	p.log.Debug().Msgf("Completing GitHub web flow for state '%s'", state)
 
 	// Acquire a per-state lock
-	lockKey := fmt.Sprintf("githubwebflow-%s-lock", state)
+	lockKey := fmt.Sprintf("gh-webflow-lock-%s", state)
 	lock, err := p.cache.AcquireLock(lockKey, time.Duration(30)*time.Second)
 	if err != nil {
 		return "", fmt.Errorf("acquire web flow lock: %w", err)
@@ -362,7 +362,7 @@ func (p *GitHubProvider) CompleteUserWebFlow(state string, code string) (string,
 		_ = lock.Release()
 	}()
 
-	cacheKey := fmt.Sprintf("githubwebflow-%s", state)
+	cacheKey := fmt.Sprintf("gh-webflow-state-%s", state)
 	cacheItem, err := p.cache.Get(cacheKey)
 	if err != nil {
 		if err == cache.ErrCacheMiss {
