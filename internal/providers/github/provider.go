@@ -278,6 +278,56 @@ func (p *GitHubProvider) OnboardUserDeviceFlow(username string) (*models.Onboard
 	return onboardUser, nil
 }
 
+// pollForAccessToken polls GitHub for the access token using the device code flow.
+func (p *GitHubProvider) pollForAccessToken(username, deviceCode string, intervalSec, expiresIn int) {
+	timeout := time.After(time.Duration(expiresIn) * time.Second)
+	tick := time.Tick(time.Duration(intervalSec) * time.Second)
+	for {
+		select {
+		case <-timeout:
+			p.db.UpdateUserProviderStatus(username, p.Name(), "expired")
+			return
+		case <-tick:
+			resp, err := getAccessToken(p.httpClient, p.config.ClientID, deviceCode)
+			if err != nil {
+				continue
+			}
+			switch resp.Error {
+			case "":
+				// user should have completed the device flow
+				// check if we can get user data
+				userData, _, err := MakeRequest(p.httpClient, "GET", GITHUB_USER_URL, resp.AccessToken, true)
+				if err != nil {
+					p.log.Error().Err(err).Msgf("failed to get user data for '%s' from GitHub", username)
+					p.db.UpdateUserProviderStatus(username, p.Name(), "error")
+					return
+				}
+
+				// check if the username matches
+				login, ok := userData.(map[string]interface{})["login"].(string)
+				if !ok || !strings.EqualFold(login, username) {
+					p.log.Error().Msgf("username mismatch: expected '%s', got '%v'", username, login)
+					p.db.UpdateUserProviderStatus(username, p.Name(), "error")
+					return
+				}
+
+				if p.db.UpdateUserProvider(username, p.Name(), resp.AccessToken, "", "ready") != nil {
+					p.log.Error().Err(err).Msgf("failed to update user provider token for '%s'", username)
+				}
+				return
+			case "authorization_pending":
+				continue
+			case "slow_down":
+				intervalSec += 5
+				tick = time.Tick(time.Duration(intervalSec) * time.Second)
+			default:
+				p.db.UpdateUserProviderStatus(username, p.Name(), "error")
+				return
+			}
+		}
+	}
+}
+
 // OnboardUserWebFlow initiates the OAuth web flow for user onboarding.
 func (p *GitHubProvider) OnboardUserWebFlow(redirectUri string) (*models.OnboardUserWebFlow, error) {
 	if p.cache == nil {
@@ -370,6 +420,11 @@ func (p *GitHubProvider) CompleteUserWebFlow(state string, code string) (string,
 		}
 		return "", fmt.Errorf("get web flow context from cache: %w", err)
 	}
+	defer func() {
+		if err := p.cache.Delete(cacheKey); err != nil && err != cache.ErrCacheMiss {
+			p.log.Warn().Err(err).Msgf("failed to invalidate web flow cache for state '%s'", state)
+		}
+	}()
 
 	var cachePayload map[string]any
 	if err := json.Unmarshal(cacheItem, &cachePayload); err != nil {
@@ -380,6 +435,7 @@ func (p *GitHubProvider) CompleteUserWebFlow(state string, code string) (string,
 	if !ok {
 		return "", fmt.Errorf("invalid client_id in cached web flow context")
 	}
+
 	codeVerifier, ok := cachePayload["code_verifier"].(string)
 	if !ok {
 		return "", fmt.Errorf("invalid code_verifier in cached web flow context")
@@ -388,10 +444,6 @@ func (p *GitHubProvider) CompleteUserWebFlow(state string, code string) (string,
 	tokenResp, err := exchangeCodeForAccessToken(p.httpClient, clientID, p.config.ClientSecret, code, codeVerifier)
 	if err != nil {
 		return "", fmt.Errorf("exchange code for access token: %w", err)
-	}
-
-	if err := p.cache.Delete(cacheKey); err != nil && err != cache.ErrCacheMiss {
-		p.log.Warn().Err(err).Msgf("failed to invalidate web flow cache for state '%s'", state)
 	}
 
 	userData, _, err := MakeRequest(p.httpClient, "GET", GITHUB_USER_URL, tokenResp.AccessToken, true)
@@ -422,64 +474,7 @@ func (p *GitHubProvider) CompleteUserWebFlow(state string, code string) (string,
 	return username, nil
 }
 
-// randomURLSafeString returns a base64url string generated from n random bytes.
-func randomURLSafeString(n int) (string, error) {
-	buf := make([]byte, n)
-	if _, err := rand.Read(buf); err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(buf), nil
-}
-
-func (p *GitHubProvider) pollForAccessToken(username, deviceCode string, intervalSec, expiresIn int) {
-	timeout := time.After(time.Duration(expiresIn) * time.Second)
-	tick := time.Tick(time.Duration(intervalSec) * time.Second)
-	for {
-		select {
-		case <-timeout:
-			p.db.UpdateUserProviderStatus(username, p.Name(), "expired")
-			return
-		case <-tick:
-			resp, err := getAccessToken(p.httpClient, p.config.ClientID, deviceCode)
-			if err != nil {
-				continue
-			}
-			switch resp.Error {
-			case "":
-				// user should have completed the device flow
-				// check if we can get user data
-				userData, _, err := MakeRequest(p.httpClient, "GET", GITHUB_USER_URL, resp.AccessToken, true)
-				if err != nil {
-					p.log.Error().Err(err).Msgf("failed to get user data for '%s' from GitHub", username)
-					p.db.UpdateUserProviderStatus(username, p.Name(), "error")
-					return
-				}
-
-				// check if the username matches
-				login, ok := userData.(map[string]interface{})["login"].(string)
-				if !ok || !strings.EqualFold(login, username) {
-					p.log.Error().Msgf("username mismatch: expected '%s', got '%v'", username, login)
-					p.db.UpdateUserProviderStatus(username, p.Name(), "error")
-					return
-				}
-
-				if p.db.UpdateUserProvider(username, p.Name(), resp.AccessToken, "", "ready") != nil {
-					p.log.Error().Err(err).Msgf("failed to update user provider token for '%s'", username)
-				}
-				return
-			case "authorization_pending":
-				continue
-			case "slow_down":
-				intervalSec += 5
-				tick = time.Tick(time.Duration(intervalSec) * time.Second)
-			default:
-				p.db.UpdateUserProviderStatus(username, p.Name(), "error")
-				return
-			}
-		}
-	}
-}
-
+// AuthPublicKey checks if the provided SSH public key is associated with the user's GitHub account.
 func (p *GitHubProvider) AuthPublicKey(username string, key ssh.PublicKey) (bool, error) {
 	providerInfo, err := p.db.GetUserProviderInfo(username, p.Name())
 	if err != nil {
@@ -538,6 +533,7 @@ func (p *GitHubProvider) AuthPublicKey(username string, key ssh.PublicKey) (bool
 	return false, nil
 }
 
+// GetUserToken retrieves the access token for the specified user.
 func (p *GitHubProvider) GetUserToken(username string) (*models.UserToken, error) {
 	providerInfo, err := p.db.GetUserProviderInfo(username, p.Name())
 	if err != nil {
@@ -557,6 +553,7 @@ func (p *GitHubProvider) GetUserToken(username string) (*models.UserToken, error
 	}, nil
 }
 
+// GetCustomBlueprint retrieves the custom blueprint for the specified user string.
 func (p *GitHubProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlueprint, error) {
 	if !userStr.HasCustomBlueprint {
 		return nil, fmt.Errorf("user string does not use a custom blueprint")
@@ -610,6 +607,9 @@ func (p *GitHubProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.Cu
 	return bp, nil
 }
 
+// *** helpers ***
+
+// contains checks if a slice contains a specific value.
 func contains(slice []string, value string) bool {
 	for _, v := range slice {
 		if v == value {
@@ -619,6 +619,7 @@ func contains(slice []string, value string) bool {
 	return false
 }
 
+// deepCopyBlueprint creates a deep copy of a CustomBlueprint.
 func deepCopyBlueprint(src *models.CustomBlueprint) (*models.CustomBlueprint, error) {
 	if src == nil {
 		return nil, nil
@@ -636,4 +637,13 @@ func deepCopyBlueprint(src *models.CustomBlueprint) (*models.CustomBlueprint, er
 	}
 
 	return &dst, nil
+}
+
+// randomURLSafeString returns a base64url string generated from n random bytes.
+func randomURLSafeString(n int) (string, error) {
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
