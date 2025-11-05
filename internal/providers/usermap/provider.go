@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/k8shell-io/common/pkg/cache"
 	"github.com/k8shell-io/common/pkg/models"
 	natsc "github.com/k8shell-io/common/pkg/nats"
 	"github.com/k8shell-io/identity/internal/common"
@@ -36,16 +35,15 @@ type UserMapProvider struct {
 	template   *yamlcel.CELTemplate
 }
 
-func NewUserMapProvider(cfg UserMapProviderConfig, baseDir string,
-	natsCfg natsc.NATSClientConfig) (*UserMapProvider, error) {
+func NewUserMapProvider(cfg UserMapProviderConfig, baseDir string, nats *natsc.NATSClient) (*UserMapProvider, error) {
 	template, err := yamlcel.NewTemplate(common.NormalizePath(cfg.Template, baseDir))
 	if err != nil {
 		return nil, fmt.Errorf("load user template '%s': %w", cfg.Template, err)
 	}
 
-	cache, err := cache.NewJetStreamCache(natsCfg, cache.BucketOptions{Bucket: "idp-usermap-cache"})
+	cache, err := nats.NewKV(natsc.BucketOptions{Bucket: "idp-usermap-cache"})
 	if err != nil {
-		return nil, fmt.Errorf("create cache: %w", err)
+		return nil, fmt.Errorf("create kv cache: %w", err)
 	}
 
 	provider := &UserMapProvider{

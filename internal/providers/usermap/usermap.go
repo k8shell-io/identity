@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/k8shell-io/common/pkg/cache"
 	log "github.com/k8shell-io/common/pkg/logger"
+	natsc "github.com/k8shell-io/common/pkg/nats"
 	"github.com/rs/zerolog"
 )
 
@@ -34,7 +34,7 @@ type PeopleModel struct {
 
 type UsermapAPI struct {
 	config     UserMapProviderConfig
-	cache      cache.Cache
+	cache      *natsc.JetStreamKV
 	httpClient *http.Client
 	log        *zerolog.Logger
 
@@ -53,7 +53,7 @@ type TokenResponse struct {
 	ExpiresAt   int64  `json:"expires_at"`
 }
 
-func NewUsermapAPI(cfg UserMapProviderConfig, cache cache.Cache, httpTimeout int) *UsermapAPI {
+func NewUsermapAPI(cfg UserMapProviderConfig, cache *natsc.JetStreamKV, httpTimeout int) *UsermapAPI {
 	u := &UsermapAPI{
 		log:        log.NewLogger("usermap"),
 		config:     cfg,
@@ -78,7 +78,7 @@ func (u *UsermapAPI) ensureToken() error {
 		item, err := u.cache.Get(tokenCacheKey)
 		if err == nil {
 			var tokenResp TokenResponse
-			if err := json.Unmarshal(item, &tokenResp); err == nil {
+			if err := json.Unmarshal(item.Value(), &tokenResp); err == nil {
 				if time.Now().Unix() < tokenResp.ExpiresAt {
 					u.setTokenFromResponse(&tokenResp)
 					u.log.Debug().Msgf("Using cached token, expires at %d", tokenResp.ExpiresAt)
@@ -116,7 +116,7 @@ func (u *UsermapAPI) ensureToken() error {
 
 	if u.cache != nil {
 		b, _ := json.Marshal(tokenResp)
-		u.cache.Set(tokenCacheKey, b, time.Duration(tokenResp.ExpiresIn)*time.Second)
+		u.cache.Set(tokenCacheKey, b)
 	}
 	return nil
 }
@@ -136,7 +136,7 @@ func (u *UsermapAPI) GetPeopleResource(username string) (*PeopleModel, error) {
 		if err == nil {
 			u.log.Debug().Msgf("User '%s' found in cache", username)
 			var cached PeopleModel
-			if err := json.Unmarshal(item, &cached); err == nil {
+			if err := json.Unmarshal(item.Value(), &cached); err == nil {
 				return &cached, nil
 			}
 		}
@@ -175,9 +175,17 @@ func (u *UsermapAPI) GetPeopleResource(username string) (*PeopleModel, error) {
 	}
 
 	if u.cache != nil && u.config.CacheTimeout > 0 {
-		b, _ := json.Marshal(user)
-		_ = u.cache.Set(cacheKey, b, time.Duration(u.config.CacheTimeout)*time.Second)
-		u.log.Debug().Msgf("User '%s' cached for %d seconds", username, u.config.CacheTimeout)
+		b, err := json.Marshal(user)
+		if err != nil {
+			u.log.Warn().Msgf("Failed to marshal user '%s' for caching: %v", username, err)
+			return &user, nil
+		}
+		_, err = u.cache.Set(cacheKey, b)
+		if err != nil {
+			u.log.Warn().Msgf("Failed to cache user '%s': %v", username, err)
+		} else {
+			u.log.Debug().Msgf("User '%s' cached for %d seconds", username, u.config.CacheTimeout)
+		}
 	}
 
 	return &user, nil

@@ -13,6 +13,7 @@ import (
 
 	"github.com/k8shell-io/common/pkg/gapi"
 	log "github.com/k8shell-io/common/pkg/logger"
+	natsc "github.com/k8shell-io/common/pkg/nats"
 	"github.com/k8shell-io/identity/internal/backend"
 	"github.com/k8shell-io/identity/internal/providers/file"
 	"github.com/k8shell-io/identity/internal/providers/github"
@@ -28,6 +29,7 @@ type Server struct {
 	DB                *backend.DB
 	IdentityProviders []identModels.IdentityProvider
 	grpc              *gapi.Server
+	nats              *natsc.NATSClient
 	log               *zerolog.Logger
 }
 
@@ -59,6 +61,11 @@ func NewServer(configFile string) (*Server, error) {
 	server.grpc, err = gapi.NewServer(&config.GrpcConfig, true)
 	if err != nil {
 		return nil, fmt.Errorf("create gRPC server: %w", err)
+	}
+
+	server.nats, err = natsc.NewNATSClient(config.Nats)
+	if err != nil {
+		return nil, fmt.Errorf("create NATS client: %w", err)
 	}
 
 	server.grpc.RegisterService(func(s *grpc.Server) error {
@@ -101,7 +108,7 @@ func (s *Server) loadProviders(config *Config) error {
 			if err := node.Decode(&usermapProvCfg); err != nil {
 				return fmt.Errorf("usermap provider config decode: %w", err)
 			}
-			p, err := usermap.NewUserMapProvider(usermapProvCfg, config.configDir, config.Nats)
+			p, err := usermap.NewUserMapProvider(usermapProvCfg, config.configDir, s.nats)
 			if err != nil {
 				return fmt.Errorf("usermap provider creation: %w", err)
 			}
@@ -112,7 +119,7 @@ func (s *Server) loadProviders(config *Config) error {
 			if err := node.Decode(&githubProvCfg); err != nil {
 				return fmt.Errorf("github provider config decode: %w", err)
 			}
-			p, err := github.NewGitHubProvider(githubProvCfg, config.Nats, s.DB, config.configDir)
+			p, err := github.NewGitHubProvider(githubProvCfg, s.nats, s.DB, config.configDir)
 			if err != nil {
 				return fmt.Errorf("github provider creation: %w", err)
 			}

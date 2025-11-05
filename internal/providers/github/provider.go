@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/k8shell-io/common/pkg/cache"
 	log "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/common/pkg/models"
 	natsc "github.com/k8shell-io/common/pkg/nats"
@@ -21,6 +20,7 @@ import (
 	"github.com/k8shell-io/identity/internal/backend"
 	"github.com/k8shell-io/identity/internal/common"
 	"github.com/k8shell-io/yaml-cel/pkg/yamlcel"
+	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert/yaml"
 	"golang.org/x/crypto/ssh"
@@ -46,7 +46,7 @@ type GitHubProviderConfig struct {
 type GitHubProvider struct {
 	config                 GitHubProviderConfig
 	baseDir                string
-	cache                  cache.Cache
+	cache                  *natsc.JetStreamKV
 	httpClient             *http.Client
 	log                    *zerolog.Logger
 	db                     *backend.DB
@@ -57,14 +57,18 @@ type GitHubProvider struct {
 var ErrUnauthorized = errors.New("unauthorized")
 var ErrWebFlowInProgress = errors.New("web flow state is already being processed")
 
-func NewGitHubProvider(cfg GitHubProviderConfig, natsCfg natsc.NATSClientConfig, db *backend.DB,
+func NewGitHubProvider(cfg GitHubProviderConfig, nats *natsc.NATSClient, db *backend.DB,
 	baseDir string) (*GitHubProvider, error) {
 	template, err := yamlcel.NewTemplate(common.NormalizePath(cfg.Template, baseDir))
 	if err != nil {
 		return nil, fmt.Errorf("load user template '%s': %w", cfg.Template, err)
 	}
 
-	cache, err := cache.NewJetStreamCache(natsCfg, cache.BucketOptions{Bucket: "idp-github-cache"})
+	if nats == nil {
+		return nil, fmt.Errorf("nats client is required to use GitHub provider")
+	}
+
+	cache, err := nats.NewKV(natsc.BucketOptions{Bucket: "idp-github-cache"})
 	if err != nil {
 		return nil, fmt.Errorf("create cache: %w", err)
 	}
@@ -361,7 +365,7 @@ func (p *GitHubProvider) OnboardUserWebFlow(redirectUri string) (*models.Onboard
 	if err != nil {
 		return nil, fmt.Errorf("marshal cache payload: %w", err)
 	}
-	if err := p.cache.Set(cacheKey, cacheBytes, time.Duration(10)*time.Minute); err != nil {
+	if _, err := p.cache.Set(cacheKey, cacheBytes); err != nil {
 		return nil, fmt.Errorf("cache web flow context: %w", err)
 	}
 
@@ -415,19 +419,19 @@ func (p *GitHubProvider) CompleteUserWebFlow(state string, code string) (string,
 	cacheKey := fmt.Sprintf("gh-webflow-state-%s", state)
 	cacheItem, err := p.cache.Get(cacheKey)
 	if err != nil {
-		if err == cache.ErrCacheMiss {
+		if err == nats.ErrKeyNotFound {
 			return "", fmt.Errorf("invalid or expired state")
 		}
 		return "", fmt.Errorf("get web flow context from cache: %w", err)
 	}
 	defer func() {
-		if err := p.cache.Delete(cacheKey); err != nil && err != cache.ErrCacheMiss {
+		if err := p.cache.Delete(cacheKey); err != nil && err != nats.ErrKeyNotFound {
 			p.log.Warn().Err(err).Msgf("failed to invalidate web flow cache for state '%s'", state)
 		}
 	}()
 
 	var cachePayload map[string]any
-	if err := json.Unmarshal(cacheItem, &cachePayload); err != nil {
+	if err := json.Unmarshal(cacheItem.Value(), &cachePayload); err != nil {
 		return "", fmt.Errorf("unmarshal web flow context from cache: %w", err)
 	}
 
@@ -490,9 +494,9 @@ func (p *GitHubProvider) AuthPublicKey(username string, key ssh.PublicKey) (bool
 		CacheKeys := fmt.Sprintf("github:%s:keys", username)
 		cacheItem, err := p.cache.Get(CacheKeys)
 		if err == nil && cacheItem != nil {
-			keys = strings.Split(strings.TrimSpace(string(cacheItem)), "\n")
+			keys = strings.Split(strings.TrimSpace(string(cacheItem.Value())), "\n")
 		}
-		if err != nil && err != cache.ErrCacheMiss {
+		if err != nil && err != nats.ErrKeyNotFound {
 			p.log.Warn().Err(err).Msgf("failed to get cached public keys for user '%s'", username)
 		}
 	}
@@ -510,10 +514,8 @@ func (p *GitHubProvider) AuthPublicKey(username string, key ssh.PublicKey) (bool
 		if p.cache != nil && len(keys) > 0 {
 			// Cache the public keys for 10 seconds
 			CacheKeys := fmt.Sprintf("github-%s-keys", username)
-			if err := p.cache.Set(CacheKeys,
-				[]byte(strings.Join(keys, "\n")),
-				time.Duration(10)*time.Second,
-			); err != nil {
+			if _, err := p.cache.Set(CacheKeys,
+				[]byte(strings.Join(keys, "\n"))); err != nil {
 				p.log.Warn().Err(err).Msgf("failed to cache public keys for user '%s'", username)
 			}
 		}
