@@ -8,6 +8,7 @@ require (
 	github.com/k8shell-io/common v0.12.73
 	github.com/k8shell-io/identity/pkg/api v0.1.8
 	github.com/k8shell-io/yaml-cel v0.2.5
+	github.com/nats-io/nats.go v1.47.0
 	github.com/ory/dockertest/v3 v3.12.0
 	github.com/rs/zerolog v1.34.0
 	github.com/stretchr/testify v1.11.1
@@ -56,7 +57,6 @@ require (
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/sys/user v0.3.0 // indirect
 	github.com/moby/term v0.5.0 // indirect
-	github.com/nats-io/nats.go v1.47.0 // indirect
 	github.com/nats-io/nkeys v0.4.11 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
