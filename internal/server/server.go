@@ -53,9 +53,13 @@ func NewServer(configFile string) (*Server, error) {
 		return nil, fmt.Errorf("create database pool: %w", err)
 	}
 
-	err = server.loadProviders(config)
+	server.nats, err = natsc.NewNATSClient(config.Nats)
 	if err != nil {
-		return nil, fmt.Errorf("load identity providers: %w", err)
+		return nil, fmt.Errorf("create NATS client: %w", err)
+	}
+
+	if server.nats == nil {
+		server.log.Warn().Msg("NATS client is not configured; caching and messaging features will be disabled")
 	}
 
 	server.grpc, err = gapi.NewServer(&config.GrpcConfig, true)
@@ -63,15 +67,15 @@ func NewServer(configFile string) (*Server, error) {
 		return nil, fmt.Errorf("create gRPC server: %w", err)
 	}
 
-	server.nats, err = natsc.NewNATSClient(config.Nats)
-	if err != nil {
-		return nil, fmt.Errorf("create NATS client: %w", err)
-	}
-
 	server.grpc.RegisterService(func(s *grpc.Server) error {
 		identitypb.RegisterIdentityServiceServer(s, NewIdentityService(server))
 		return nil
 	})
+
+	err = server.loadProviders(config)
+	if err != nil {
+		return nil, fmt.Errorf("load identity providers: %w", err)
+	}
 
 	return server, nil
 }
