@@ -41,9 +41,12 @@ func NewUserMapProvider(cfg UserMapProviderConfig, baseDir string, nats *natsc.N
 		return nil, fmt.Errorf("load user template '%s': %w", cfg.Template, err)
 	}
 
-	cache, err := nats.NewKV(natsc.BucketOptions{Bucket: "idp-usermap-cache"})
-	if err != nil {
-		return nil, fmt.Errorf("create kv cache: %w", err)
+	var cache *natsc.JetStreamKV
+	if nats != nil {
+		cache, err = nats.NewKV(natsc.BucketOptions{Bucket: "idp-usermap-cache"})
+		if err != nil {
+			return nil, fmt.Errorf("create kv cache: %w", err)
+		}
 	}
 
 	provider := &UserMapProvider{
