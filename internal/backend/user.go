@@ -56,7 +56,7 @@ func (d *DB) FindUser(username string) (*models.User, error) {
 func (d *DB) FindUserByAccessToken(token string) (*models.User, error) {
 	query := `
 		SELECT username, is_valid, expires_at, uid, gid, fullname,
-		       access_token, email, password, locked, failed_logins,
+		       access_token, email, COALESCE(password, '') AS password, locked, failed_logins,
 		       auths, auth_keys, channels, envs, roles, blueprints, source, organization
 		FROM public.users
 		WHERE access_token=$1
@@ -170,7 +170,7 @@ func (d *DB) ListUsers(limit, offset int) ([]*models.User, error) {
 
 	query := `
 		SELECT username, is_valid, expires_at, uid, gid, fullname,
-		       access_token, email, password, locked, failed_logins,
+		       access_token, email, COALESCE(password, '') AS password, locked, failed_logins,
 		       auths, auth_keys, channels, envs, roles, blueprints, source, organization
 		FROM public.users
 		ORDER BY username
