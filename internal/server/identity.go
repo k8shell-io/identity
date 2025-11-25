@@ -66,6 +66,9 @@ func (s *IdentityService) FindUser(ctx context.Context, req *identitypb.FindUser
 
 	user, err := s.server.DB.FindUserByAccessToken(req.Token)
 	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Error(codes.NotFound, "user not found by token")
+		}
 		s.log.Error().Err(err).Msg("failed to get user by token")
 		return nil, status.Error(codes.Internal, "failed to get user by token")
 	}
