@@ -11,6 +11,8 @@ import (
 	"github.com/k8shell-io/common/pkg/models"
 	"github.com/k8shell-io/identity/pkg/api/identitypb"
 	"github.com/rs/zerolog"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type IdentityService struct {
@@ -43,34 +45,34 @@ func (s *IdentityService) GetUsers(ctx context.Context, req *identitypb.GetUsers
 
 // FindUser looks up a user by username or access token.
 func (s *IdentityService) FindUser(ctx context.Context, req *identitypb.FindUserRequest) (*commonpb.User, error) {
-	if req.Username != "" {
-		if req.Token != "" {
-			return nil, fmt.Errorf("only one of username or token can be provided")
-		}
+	if req.Username != "" && req.Token != "" {
+		return nil, status.Error(codes.InvalidArgument, "only one of username or token can be provided")
+	}
+	if req.Username == "" && req.Token == "" {
+		return nil, status.Error(codes.InvalidArgument, "no username or token provided")
+	}
 
+	if req.Username != "" {
 		user, err := s.server.GetUser(req.Username)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get user: %w", err)
+			if errors.Is(err, models.ErrUserNotFound) {
+				return nil, status.Error(codes.NotFound, "user not found")
+			}
+			s.log.Error().Err(err).Msg("failed to get user")
+			return nil, status.Error(codes.Internal, "failed to get user")
 		}
 		return gapi.UserToProto(user), nil
 	}
 
-	if req.Token != "" {
-		if req.Username != "" {
-			return nil, fmt.Errorf("only one of username or token can be provided")
-		}
-
-		user, err := s.server.DB.FindUserByAccessToken(req.Token)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get user by token: %w", err)
-		}
-		if user == nil {
-			return nil, errors.New("user not found for the provided token")
-		}
-		return gapi.UserToProto(user), nil
+	user, err := s.server.DB.FindUserByAccessToken(req.Token)
+	if err != nil {
+		s.log.Error().Err(err).Msg("failed to get user by token")
+		return nil, status.Error(codes.Internal, "failed to get user by token")
 	}
-
-	return nil, fmt.Errorf("invalid request: no username or token provided")
+	if user == nil {
+		return nil, status.Error(codes.NotFound, "user not found for the provided token")
+	}
+	return gapi.UserToProto(user), nil
 }
 
 func (s *IdentityService) AuthUserPublicKey(ctx context.Context,
