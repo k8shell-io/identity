@@ -150,11 +150,11 @@ func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context, req *identi
 // External credentials methods
 func (s *IdentityService) GetUserCredentials(ctx context.Context,
 	req *identitypb.Username) (*identitypb.GetUserCredentialsResponse, error) {
-	credentials, err := s.server.DB.GetExternalCredentials(req.Username)
+
+	credentials, err := s.server.GetUserExtCredentials(req.Username)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user credentials: %w", err)
 	}
-
 	pbCredentials := make([]*commonpb.ExternalCredential, len(credentials))
 	for i, cred := range credentials {
 		pbCredentials[i] = gapi.ExternalCredentialToProto(cred)
