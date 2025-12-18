@@ -1,6 +1,7 @@
 package github
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -309,4 +310,109 @@ func GetFile(owner, repo, token, file string, ref string) ([]byte, error) {
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("GitHub API error.\ncode=%d, response=%s", resp.StatusCode, string(body))
 	}
+}
+
+// getRepoRefFromIssue uses GitHub GraphQL API to resolve the first linked branch ref for an issue,
+// returning the first branch that matches the repository owner/name.
+func getRepoRefFromIssue(owner, repo string, issueNumber int, token string) (string, error) {
+	reqBody := map[string]any{
+		"query": `query($owner:String!, $repo:String!, $number:Int!) {
+  repository(owner:$owner, name:$repo) {
+    issue(number:$number) {
+      linkedBranches(first: 50) {
+        nodes {
+          ref {
+            name
+            repository {
+              name
+              owner { login }
+            }
+          }
+        }
+      }
+    }
+  }
+}`,
+		"variables": map[string]any{
+			"owner":  owner,
+			"repo":   repo,
+			"number": issueNumber,
+		},
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("marshal graphql request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", githubGraphQLEndpoint, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return "", fmt.Errorf("create graphql request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", IDENTITY_USERAGENT)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("execute graphql request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("graphql request failed: status %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	var gqlResp struct {
+		Data struct {
+			Repository struct {
+				Issue struct {
+					LinkedBranches struct {
+						Nodes []struct {
+							Ref struct {
+								Name       string `json:"name"`
+								Repository struct {
+									Name  string `json:"name"`
+									Owner struct {
+										Login string `json:"login"`
+									} `json:"owner"`
+								} `json:"repository"`
+							} `json:"ref"`
+						} `json:"nodes"`
+					} `json:"linkedBranches"`
+				} `json:"issue"`
+			} `json:"repository"`
+		} `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&gqlResp); err != nil {
+		return "", fmt.Errorf("decode graphql response: %w", err)
+	}
+
+	if len(gqlResp.Errors) > 0 {
+		return "", fmt.Errorf("graphql error: %s", gqlResp.Errors[0].Message)
+	}
+
+	nodes := gqlResp.Data.Repository.Issue.LinkedBranches.Nodes
+	if len(nodes) == 0 {
+		return "", fmt.Errorf("no linked branches found for issue #%d", issueNumber)
+	}
+
+	for _, n := range nodes {
+		ref := n.Ref
+		if ref.Name == "" {
+			continue
+		}
+		if strings.EqualFold(ref.Repository.Owner.Login, owner) &&
+			strings.EqualFold(ref.Repository.Name, repo) {
+			return ref.Name, nil
+		}
+	}
+
+	return "", fmt.Errorf("no valid linked branch ref name found for issue #%d", issueNumber)
 }

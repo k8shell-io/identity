@@ -27,6 +27,7 @@ import (
 )
 
 const K8SHELL_FILENAME = ".k8shell"
+const githubGraphQLEndpoint = "https://api.github.com/graphql"
 
 type GitHubProviderConfig struct {
 	ID           string            `yaml:"id"`
@@ -574,6 +575,7 @@ func (p *GitHubProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.Cu
 		bp.Metadata.Name = userStr.Blueprint
 		bp.Metadata.RepoName = userStr.RepoName
 		bp.Metadata.RepoOwner = userStr.RepoOwner
+		bp.Metadata.RepoRef = userStr.RepoRef
 		bp.Metadata.RepoAddress = GITHUB_ADDRESS
 		return bp, nil
 	}
@@ -583,7 +585,18 @@ func (p *GitHubProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.Cu
 		return useDefault(err, fmt.Sprintf("get user token for %q failed", userStr.Username))
 	}
 
-	fileContent, err := GetFile(userStr.RepoOwner, userStr.RepoName, token.Token, K8SHELL_FILENAME, userStr.RepoRef)
+	repoRef := userStr.RepoRef
+	if userStr.RepoIssue > 0 {
+		ref, err := getRepoRefFromIssue(userStr.RepoOwner, userStr.RepoName, userStr.RepoIssue, token.Token)
+		if err != nil {
+			p.log.Warn().Err(err).Msgf("get repo ref from issue #%d failed; falling back to user-specified ref or none",
+				userStr.RepoIssue)
+		} else {
+			repoRef = ref
+		}
+	}
+
+	fileContent, err := GetFile(userStr.RepoOwner, userStr.RepoName, token.Token, K8SHELL_FILENAME, repoRef)
 	if err != nil {
 		return useDefault(err, fmt.Sprintf("fetch %s from %s/%s failed", K8SHELL_FILENAME,
 			userStr.RepoOwner, userStr.RepoName))
