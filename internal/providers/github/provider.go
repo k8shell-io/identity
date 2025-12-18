@@ -562,7 +562,7 @@ func (p *GitHubProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.Cu
 		return nil, fmt.Errorf("user string does not use a custom blueprint")
 	}
 
-	useDefault := func(cause error, msg string) (*models.CustomBlueprint, error) {
+	useDefault := func(repoRef string, cause error, msg string) (*models.CustomBlueprint, error) {
 		p.log.Warn().Err(cause).Msgf("%s; falling back to default custom blueprint", msg)
 		if p.defaultCustomBlueprint == nil {
 			return nil, fmt.Errorf("%s; no default custom blueprint configured: %w", msg, cause)
@@ -575,14 +575,14 @@ func (p *GitHubProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.Cu
 		bp.Metadata.Name = userStr.Blueprint
 		bp.Metadata.RepoName = userStr.RepoName
 		bp.Metadata.RepoOwner = userStr.RepoOwner
-		bp.Metadata.RepoRef = userStr.RepoRef
+		bp.Metadata.RepoRef = repoRef
 		bp.Metadata.RepoAddress = GITHUB_ADDRESS
 		return bp, nil
 	}
 
 	token, err := p.GetUserToken(userStr.Username)
 	if err != nil {
-		return useDefault(err, fmt.Sprintf("get user token for %q failed", userStr.Username))
+		return useDefault(userStr.RepoRef, err, fmt.Sprintf("get user token for %q failed", userStr.Username))
 	}
 
 	repoRef := userStr.RepoRef
@@ -598,19 +598,19 @@ func (p *GitHubProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.Cu
 
 	fileContent, err := GetFile(userStr.RepoOwner, userStr.RepoName, token.Token, K8SHELL_FILENAME, repoRef)
 	if err != nil {
-		return useDefault(err, fmt.Sprintf("fetch %s from %s/%s failed", K8SHELL_FILENAME,
+		return useDefault(repoRef, err, fmt.Sprintf("fetch %s from %s/%s failed", K8SHELL_FILENAME,
 			userStr.RepoOwner, userStr.RepoName))
 	}
 
 	var k8shellFile models.K8shellFile
 	if err := yaml.Unmarshal(fileContent, &k8shellFile); err != nil {
-		return useDefault(err, fmt.Sprintf("parse %s in %s/%s failed", K8SHELL_FILENAME,
+		return useDefault(repoRef, err, fmt.Sprintf("parse %s in %s/%s failed", K8SHELL_FILENAME,
 			userStr.RepoOwner, userStr.RepoName))
 	}
 
 	bp, valErrs := models.ValidateK8shellFile(k8shellFile)
 	if len(valErrs) > 0 {
-		return useDefault(fmt.Errorf("%v", valErrs), fmt.Sprintf("validate %s in %s/%s failed",
+		return useDefault(repoRef, fmt.Errorf("%v", valErrs), fmt.Sprintf("validate %s in %s/%s failed",
 			K8SHELL_FILENAME, userStr.RepoOwner, userStr.RepoName))
 	}
 
