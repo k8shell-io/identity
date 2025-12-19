@@ -589,8 +589,7 @@ func (p *GitHubProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.Cu
 	if userStr.RepoIssue > 0 {
 		ref, err := getRepoRefFromIssue(userStr.RepoOwner, userStr.RepoName, userStr.RepoIssue, token.Token)
 		if err != nil {
-			p.log.Warn().Err(err).Msgf("get repo ref from issue #%d failed; falling back to user-specified ref or none",
-				userStr.RepoIssue)
+			return nil, fmt.Errorf("get repo ref from issue #%d: %w", userStr.RepoIssue, err)
 		} else {
 			repoRef = ref
 		}
