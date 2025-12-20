@@ -266,6 +266,26 @@ func (s *Server) GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlue
 	return nil, fmt.Errorf("no suitable identity provider found for user '%s'", userStr.Username)
 }
 
+func (s *Server) ResolveRepoIssueToRef(username string, repoOwner, repoName string, issueNumber int) (string, error) {
+	user, err := s.GetUser(username)
+	if err != nil {
+		return "", fmt.Errorf("error occurred when getting user '%s': %w", username, err)
+	}
+
+	for _, provider := range s.IdentityProviders {
+		if provider.Name() == user.Source {
+			repoRef, err := provider.ResolveIssueRepoRef(username, repoOwner, repoName, issueNumber)
+			if err != nil {
+				return "", fmt.Errorf("failed to resolve repo issue to ref for '%s' with provider '%s': %w",
+					username, provider.Name(), err)
+			}
+			return repoRef, nil
+		}
+	}
+
+	return "", fmt.Errorf("no suitable identity provider found for user '%s'", username)
+}
+
 // normalizeUser ensures that the user's attributes conform to expected formats and defaults.
 func (s *Server) normalizeUser(user *models.User) {
 	if user == nil {

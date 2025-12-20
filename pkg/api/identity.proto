@@ -9,16 +9,24 @@ import "common/pkg/gapi/common.proto";
 // *** Identity service
 
 service IdentityService {
+  // User Management
   rpc FindUser (FindUserRequest) returns (common.User);
   rpc GetUsers (GetUsersRequest) returns (UserList);
-  rpc AuthUserPublicKey (AuthUserPublicKeyRequest) returns (AuthUserResponse);
+
+  // OAuth2 Onboarding 
   rpc GetUserOnboardCapability (Username) returns (common.UserOnboardCapability);
   rpc OnboardUserDeviceFlow (Username) returns (common.OnboardUserDeviceFlow);
   rpc OnboardUserWebFlow (OnboardUserWebFlowRequest) returns (common.OnboardUserWebFlow);
   rpc CompleteUserWebFlow (CompleteUserWebFlowRequest) returns (common.User);
+  
+  // Authentication
+  rpc AuthUserPublicKey (AuthUserPublicKeyRequest) returns (AuthUserResponse);
 
+  // Repository content
   rpc GetBlueprintByUserStr (UserStr) returns (Blueprint);
+  rpc ResolveRepoIssueToRef (RepoIssueRequest) returns (RepoRefResponse);
 
+  // External Credentials
   rpc GetUserCredentials (Username) returns (GetUserCredentialsResponse);
   rpc AddUserCredential (common.ExternalCredential) returns (AddUserCredentialResponse);
   rpc UpdateUserCredential (common.ExternalCredential) returns (UpdateUserCredentialResponse);
@@ -81,6 +89,17 @@ message CompleteUserWebFlowRequest {
 
 message GetBlueprintByUserStrResponse {
   string blueprint = 1;
+}
+
+message RepoIssueRequest {
+  string username = 1;
+  string repo_owner = 2;
+  string repo_name = 3;
+  int32 issue_number = 4;
+}
+
+message RepoRefResponse {
+  string repo_ref = 1;
 }
 
 // External Credential messages

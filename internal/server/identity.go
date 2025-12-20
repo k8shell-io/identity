@@ -147,6 +147,15 @@ func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context, req *identi
 	return &identitypb.Blueprint{BlueprintJson: string(jsonData)}, nil
 }
 
+func (s *IdentityService) ResolveRepoIssueToRef(ctx context.Context,
+	req *identitypb.RepoIssueRequest) (*identitypb.RepoRefResponse, error) {
+	repoRef, err := s.server.ResolveRepoIssueToRef(req.Username, req.RepoOwner, req.RepoName, int(req.IssueNumber))
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to resolve repo issue to ref: %v", err)
+	}
+	return &identitypb.RepoRefResponse{RepoRef: repoRef}, nil
+}
+
 // External credentials methods
 func (s *IdentityService) GetUserCredentials(ctx context.Context,
 	req *identitypb.Username) (*identitypb.GetUserCredentialsResponse, error) {

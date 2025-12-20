@@ -536,6 +536,24 @@ func (p *GitHubProvider) AuthPublicKey(username string, key ssh.PublicKey) (bool
 	return false, nil
 }
 
+// ResolveIssueRepoRef resolves a GitHub issue number to a repository reference (branch or commit SHA).
+func (p *GitHubProvider) ResolveIssueRepoRef(username string, repoOwner, repoName string,
+	issueNumber int) (string, error) {
+	providerInfo, err := p.db.GetUserProviderInfo(username, p.Name())
+	if err != nil {
+		return "", fmt.Errorf("failed to get user provider info for '%s': %w", username, err)
+	}
+	if providerInfo == nil || providerInfo.Status != "ready" {
+		return "", fmt.Errorf("%w: user '%s' is not ready with provider %s", models.ErrUserNotOnboarded,
+			username, p.Name())
+	}
+	ref, err := getRepoRefFromIssue(repoOwner, repoName, issueNumber, providerInfo.AccessToken)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve issue #%d to ref: %w", issueNumber, err)
+	}
+	return ref, nil
+}
+
 // GetUserToken retrieves the access token for the specified user.
 func (p *GitHubProvider) GetUserToken(username string) (*models.UserToken, error) {
 	providerInfo, err := p.db.GetUserProviderInfo(username, p.Name())
@@ -558,7 +576,7 @@ func (p *GitHubProvider) GetUserToken(username string) (*models.UserToken, error
 
 // GetCustomBlueprint retrieves the custom blueprint for the specified user string.
 func (p *GitHubProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlueprint, error) {
-	if !userStr.HasCustomBlueprint {
+	if userStr.BlueprintKind != models.BlueprintKindCustom {
 		return nil, fmt.Errorf("user string does not use a custom blueprint")
 	}
 
@@ -585,39 +603,37 @@ func (p *GitHubProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.Cu
 		return useDefault(userStr.RepoRef, err, fmt.Sprintf("get user token for %q failed", userStr.Username))
 	}
 
-	repoRef := userStr.RepoRef
-	if userStr.RepoIssue > 0 {
-		ref, err := getRepoRefFromIssue(userStr.RepoOwner, userStr.RepoName, userStr.RepoIssue, token.Token)
-		if err != nil {
-			return nil, fmt.Errorf("get repo ref from issue #%d: %w", userStr.RepoIssue, err)
-		} else {
-			repoRef = ref
-		}
+	canUserStr, err := userStr.Canonicalize(p)
+	if err != nil {
+		return nil, fmt.Errorf("canonicalize user string: %w", err)
 	}
 
-	fileContent, err := GetFile(userStr.RepoOwner, userStr.RepoName, token.Token, K8SHELL_FILENAME, repoRef)
+	fileContent, err := GetFile(canUserStr.Identity.RepoOwner, canUserStr.Identity.RepoName, token.Token,
+		K8SHELL_FILENAME, canUserStr.Identity.RepoRef)
 	if err != nil {
-		return useDefault(repoRef, err, fmt.Sprintf("fetch %s from %s/%s failed", K8SHELL_FILENAME,
-			userStr.RepoOwner, userStr.RepoName))
+		return useDefault(canUserStr.Identity.RepoRef, err, fmt.Sprintf("fetch %s from %s/%s failed",
+			K8SHELL_FILENAME, canUserStr.Identity.RepoOwner, canUserStr.Identity.RepoName))
 	}
 
 	var k8shellFile models.K8shellFile
 	if err := yaml.Unmarshal(fileContent, &k8shellFile); err != nil {
-		return useDefault(repoRef, err, fmt.Sprintf("parse %s in %s/%s failed", K8SHELL_FILENAME,
-			userStr.RepoOwner, userStr.RepoName))
+		return useDefault(canUserStr.Identity.RepoRef, err, fmt.Sprintf("parse %s in %s/%s failed",
+			K8SHELL_FILENAME, canUserStr.Identity.RepoOwner, canUserStr.Identity.RepoName))
 	}
 
 	bp, valErrs := models.ValidateK8shellFile(k8shellFile)
 	if len(valErrs) > 0 {
-		return useDefault(repoRef, fmt.Errorf("%v", valErrs), fmt.Sprintf("validate %s in %s/%s failed",
-			K8SHELL_FILENAME, userStr.RepoOwner, userStr.RepoName))
+		return useDefault(canUserStr.Identity.RepoRef, fmt.Errorf("%v", valErrs),
+			fmt.Sprintf("validate %s in %s/%s failed", K8SHELL_FILENAME, canUserStr.Identity.RepoOwner,
+				canUserStr.Identity.RepoName))
 	}
 
-	bp.Name = userStr.Blueprint
-	bp.Metadata.Name = userStr.Blueprint
-	bp.Metadata.RepoName = userStr.RepoName
-	bp.Metadata.RepoRef = repoRef
-	bp.Metadata.RepoOwner = userStr.RepoOwner
+	bp.Name = canUserStr.Identity.Blueprint
+	bp.Metadata.Name = canUserStr.Identity.Blueprint
+	bp.Metadata.RepoName = canUserStr.Identity.RepoName
+	bp.Metadata.RepoOwner = canUserStr.Identity.RepoOwner
+	bp.Metadata.RepoRef = canUserStr.Identity.RepoRef
+	bp.Metadata.RepoOwner = canUserStr.Identity.RepoOwner
 	bp.Metadata.RepoAddress = GITHUB_ADDRESS
 	return bp, nil
 }
