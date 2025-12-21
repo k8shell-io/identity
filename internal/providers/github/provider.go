@@ -110,6 +110,8 @@ func NewGitHubProvider(cfg GitHubProviderConfig, nats *natsc.NATSClient, db *bac
 		template:               template,
 		defaultCustomBlueprint: cbp,
 	}
+
+	models.SetIssueRepoRefResolver(provider)
 	return provider, nil
 }
 
@@ -603,7 +605,7 @@ func (p *GitHubProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.Cu
 		return useDefault(userStr.RepoRef, err, fmt.Sprintf("get user token for %q failed", userStr.Username))
 	}
 
-	canUserStr, err := userStr.Canonicalize(p)
+	canUserStr, err := userStr.Canonicalize()
 	if err != nil {
 		return nil, fmt.Errorf("canonicalize user string: %w", err)
 	}
