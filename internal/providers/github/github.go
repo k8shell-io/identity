@@ -24,6 +24,7 @@ const (
 	GITHUB_ACCESSTOKEN_URL  = "https://github.com/login/oauth/access_token"
 	GITHUB_FILE_CONTENT_URL = "https://api.github.com/repos/%s/%s/contents/%s"
 	GITHUB_REPO_URL         = "https://api.github.com/repos/%s/%s"
+	GITHUB_REF_URL          = "https://api.github.com/repos/%s/%s/git/ref/%s"
 )
 
 type DeviceCodeResponse struct {
@@ -61,6 +62,18 @@ type FileContent struct {
 	Size     int    `json:"size"`
 	Name     string `json:"name"`
 	Path     string `json:"path"`
+}
+
+// GitRef represents the GitHub Git reference response
+type GitRef struct {
+	Ref    string `json:"ref"`
+	NodeID string `json:"node_id"`
+	URL    string `json:"url"`
+	Object struct {
+		SHA  string `json:"sha"`
+		Type string `json:"type"`
+		URL  string `json:"url"`
+	} `json:"object"`
 }
 
 func MakeRequest(client *http.Client, method string, url string, accessToken string,
@@ -309,6 +322,40 @@ func GetFile(owner, repo, token, file string, ref string) ([]byte, error) {
 	default:
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("GitHub API error.\ncode=%d, response=%s", resp.StatusCode, string(body))
+	}
+}
+
+// GetRef fetches a Git ref (e.g. heads/main, tags/v1.0.0) from GitHub.
+func GetRef(owner, repo, ref, token string) (*GitRef, error) {
+	url := fmt.Sprintf(GITHUB_REF_URL, owner, repo, ref)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("token %s", token))
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var refData GitRef
+		if err := json.NewDecoder(resp.Body).Decode(&refData); err != nil {
+			return nil, fmt.Errorf("failed to decode response: %w", err)
+		}
+		return &refData, nil
+	case http.StatusNotFound:
+		return nil, fmt.Errorf("ref '%s' not found in repository '%s/%s'", ref, owner, repo)
+	default:
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("GitHub API error: %d %s", resp.StatusCode, string(body))
 	}
 }
 
