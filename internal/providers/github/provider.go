@@ -613,6 +613,11 @@ func (p *GitHubProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.Cu
 	fileContent, err := GetFile(canUserStr.Identity.RepoOwner, canUserStr.Identity.RepoName, token.Token,
 		K8SHELL_FILENAME, canUserStr.Identity.RepoRef)
 	if err != nil {
+		_, err := GetRepo(canUserStr.Identity.RepoOwner, canUserStr.Identity.RepoName, token.Token)
+		if err != nil {
+			return nil, fmt.Errorf("repository %s/%s does not exist or is not accessible: %w",
+				canUserStr.Identity.RepoOwner, canUserStr.Identity.RepoName, err)
+		}
 		return useDefault(canUserStr.Identity.RepoRef, err, fmt.Sprintf("fetch %s from %s/%s failed",
 			K8SHELL_FILENAME, canUserStr.Identity.RepoOwner, canUserStr.Identity.RepoName))
 	}
