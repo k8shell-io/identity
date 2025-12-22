@@ -613,7 +613,9 @@ func (p *GitHubProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.Cu
 	fileContent, err := GetFile(canUserStr.Identity.RepoOwner, canUserStr.Identity.RepoName, token.Token,
 		K8SHELL_FILENAME, canUserStr.Identity.RepoRef)
 	if err != nil {
-		_, err := GetRepo(canUserStr.Identity.RepoOwner, canUserStr.Identity.RepoName, token.Token)
+		ghRepo, err := GetRepo(canUserStr.Identity.RepoOwner, canUserStr.Identity.RepoName, token.Token)
+		p.log.Debug().Msgf("Checked existence of repo %s/%s: %+v, err: %v",
+			canUserStr.Identity.RepoOwner, canUserStr.Identity.RepoName, ghRepo, err)
 		if err != nil {
 			return nil, fmt.Errorf("repository %s/%s does not exist or is not accessible: %w",
 				canUserStr.Identity.RepoOwner, canUserStr.Identity.RepoName, err)
