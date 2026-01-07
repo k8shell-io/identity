@@ -128,8 +128,9 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 }
 
 // Blueprint methods
-func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context, req *identitypb.UserStr) (*identitypb.Blueprint, error) {
-	userStr, err := models.NewUserStr(req.Userstr)
+func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context,
+	req *identitypb.UserStr) (*identitypb.Blueprint, error) {
+	userStr, err := models.NewUserStr(req.Userstr, false)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid user string: %v", err)
 	}
