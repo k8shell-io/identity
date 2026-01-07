@@ -269,7 +269,7 @@ func (s *Server) GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlue
 func (s *Server) ResolveRepoIssueToRef(username string, repoOwner, repoName string, issueNumber int) (string, error) {
 	user, err := s.GetUser(username)
 	if err != nil {
-		return "", fmt.Errorf("error occurred when getting user '%s': %w", username, err)
+		return "", fmt.Errorf("failed to get user user '%s': %w", username, err)
 	}
 
 	for _, provider := range s.IdentityProviders {
