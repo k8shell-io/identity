@@ -266,7 +266,8 @@ func (s *Server) GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlue
 	return nil, fmt.Errorf("no suitable identity provider found for user '%s'", userStr.Username)
 }
 
-func (s *Server) ResolveRepoIssueToRef(username string, repoOwner, repoName string, issueNumber int) (string, error) {
+func (s *Server) ResolveRepoPullRequestToRef(username string, repoOwner, repoName string,
+	pullRequestNumber int) (string, error) {
 	user, err := s.GetUser(username)
 	if err != nil {
 		return "", fmt.Errorf("failed to get user user '%s': %w", username, err)
@@ -274,9 +275,9 @@ func (s *Server) ResolveRepoIssueToRef(username string, repoOwner, repoName stri
 
 	for _, provider := range s.IdentityProviders {
 		if provider.Name() == user.Source {
-			repoRef, err := provider.ResolveIssueRepoRef(username, repoOwner, repoName, issueNumber)
+			repoRef, err := provider.ResolvePullRequestRef(username, repoOwner, repoName, pullRequestNumber)
 			if err != nil {
-				return "", fmt.Errorf("failed to resolve repo issue to ref for '%s' with provider '%s': %w",
+				return "", fmt.Errorf("failed to resolve repo pull request to ref for '%s' with provider '%s': %w",
 					username, provider.Name(), err)
 			}
 			return repoRef, nil

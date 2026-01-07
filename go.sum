@@ -104,6 +104,8 @@ github.com/k8shell-io/common v0.12.104 h1:U1/JCN+qXCaCxCUZFdmgf8R8R46OFAsuYIC6Z4
 github.com/k8shell-io/common v0.12.104/go.mod h1:d7evWhWgtd39y+aSi6ukSCk37VJClEfFbaAFDT0zs2s=
 github.com/k8shell-io/common v0.12.108 h1:846urVv9RAuLMQYj52WWNJDTddtEl1SYKjJpf8VwHUY=
 github.com/k8shell-io/common v0.12.108/go.mod h1:d7evWhWgtd39y+aSi6ukSCk37VJClEfFbaAFDT0zs2s=
+github.com/k8shell-io/common v0.12.110 h1:H0NVEWgCqNoY9L+hS1UPQNbY5tqxgsq38xpxg60vsgo=
+github.com/k8shell-io/common v0.12.110/go.mod h1:d7evWhWgtd39y+aSi6ukSCk37VJClEfFbaAFDT0zs2s=
 github.com/k8shell-io/yaml-cel v0.2.5 h1:zSFADX2tMqCaDwm0ES4sN6N6YOg352ukAJgfir2JH0g=
 github.com/k8shell-io/yaml-cel v0.2.5/go.mod h1:q3ZgK0aNRjTakgp7KlLbqvkeZ4cMsxXGlDfiC8r0EXU=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=

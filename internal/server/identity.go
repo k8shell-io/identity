@@ -147,11 +147,13 @@ func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context, req *identi
 	return &identitypb.Blueprint{BlueprintJson: string(jsonData)}, nil
 }
 
-func (s *IdentityService) ResolveRepoIssueToRef(ctx context.Context,
-	req *identitypb.RepoIssueRequest) (*identitypb.RepoRefResponse, error) {
-	repoRef, err := s.server.ResolveRepoIssueToRef(req.Username, req.RepoOwner, req.RepoName, int(req.IssueNumber))
+// ResolvePullRequestToRef resolves a repository pull request to its corresponding reference.
+func (s *IdentityService) ResolvePullRequestToRef(ctx context.Context,
+	req *identitypb.RepoPullRequestRequest) (*identitypb.RepoRefResponse, error) {
+	repoRef, err := s.server.ResolveRepoPullRequestToRef(req.Username, req.RepoOwner, req.RepoName,
+		int(req.PullRequestNumber))
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to resolve repo issue to ref: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to resolve pull request to ref: %v", err)
 	}
 	return &identitypb.RepoRefResponse{RepoRef: repoRef}, nil
 }

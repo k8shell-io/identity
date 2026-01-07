@@ -111,7 +111,7 @@ func NewGitHubProvider(cfg GitHubProviderConfig, nats *natsc.NATSClient, db *bac
 		defaultCustomBlueprint: cbp,
 	}
 
-	models.SetIssueRepoRefResolver(provider)
+	models.SetRefResolver(provider)
 	return provider, nil
 }
 
@@ -538,9 +538,9 @@ func (p *GitHubProvider) AuthPublicKey(username string, key ssh.PublicKey) (bool
 	return false, nil
 }
 
-// ResolveIssueRepoRef resolves a GitHub issue number to a repository reference (branch or commit SHA).
-func (p *GitHubProvider) ResolveIssueRepoRef(username string, repoOwner, repoName string,
-	issueNumber int) (string, error) {
+// ResolvePullRequestRef resolves a GitHub pull request number to a repository reference (branch or commit SHA).
+func (p *GitHubProvider) ResolvePullRequestRef(username string, repoOwner, repoName string,
+	pullRequestNumber int) (string, error) {
 	providerInfo, err := p.db.GetUserProviderInfo(username, p.Name())
 	if err != nil {
 		return "", fmt.Errorf("failed to get user provider info for '%s': %w", username, err)
@@ -549,9 +549,9 @@ func (p *GitHubProvider) ResolveIssueRepoRef(username string, repoOwner, repoNam
 		return "", fmt.Errorf("%w: user '%s' is not ready with provider %s", models.ErrUserNotOnboarded,
 			username, p.Name())
 	}
-	ref, err := getRepoRefFromIssue(repoOwner, repoName, issueNumber, providerInfo.AccessToken)
+	ref, err := getRepoRefFromPullRequest(repoOwner, repoName, pullRequestNumber, providerInfo.AccessToken)
 	if err != nil {
-		return "", fmt.Errorf("failed to resolve issue #%d to ref: %w", issueNumber, err)
+		return "", fmt.Errorf("failed to resolve pull request #%d to ref: %w", pullRequestNumber, err)
 	}
 	return ref, nil
 }

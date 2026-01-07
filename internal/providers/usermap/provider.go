@@ -173,8 +173,8 @@ func (p *UserMapProvider) CompleteUserWebFlow(state string, code string) (string
 		models.ErrMethodNotSupported)
 }
 
-func (p *UserMapProvider) ResolveIssueRepoRef(username string, repoOwner, repoName string,
-	issueNumber int) (string, error) {
-	return "", fmt.Errorf("%w: usermap provider does not support resolving repo issues to refs",
+func (f *UserMapProvider) ResolvePullRequestRef(username string, repoOwner, repoName string,
+	pullRequestNumber int) (string, error) {
+	return "", fmt.Errorf("%w: usermap provider does not support resolving pull requests to refs",
 		models.ErrMethodNotSupported)
 }

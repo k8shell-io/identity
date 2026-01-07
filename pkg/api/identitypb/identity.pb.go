@@ -598,30 +598,30 @@ func (x *GetBlueprintByUserStrResponse) GetBlueprint() string {
 	return ""
 }
 
-type RepoIssueRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Username      string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
-	RepoOwner     string                 `protobuf:"bytes,2,opt,name=repo_owner,json=repoOwner,proto3" json:"repo_owner,omitempty"`
-	RepoName      string                 `protobuf:"bytes,3,opt,name=repo_name,json=repoName,proto3" json:"repo_name,omitempty"`
-	IssueNumber   int32                  `protobuf:"varint,4,opt,name=issue_number,json=issueNumber,proto3" json:"issue_number,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+type RepoPullRequestRequest struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Username          string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
+	RepoOwner         string                 `protobuf:"bytes,2,opt,name=repo_owner,json=repoOwner,proto3" json:"repo_owner,omitempty"`
+	RepoName          string                 `protobuf:"bytes,3,opt,name=repo_name,json=repoName,proto3" json:"repo_name,omitempty"`
+	PullRequestNumber int32                  `protobuf:"varint,4,opt,name=pull_request_number,json=pullRequestNumber,proto3" json:"pull_request_number,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
-func (x *RepoIssueRequest) Reset() {
-	*x = RepoIssueRequest{}
+func (x *RepoPullRequestRequest) Reset() {
+	*x = RepoPullRequestRequest{}
 	mi := &file_pkg_api_identity_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *RepoIssueRequest) String() string {
+func (x *RepoPullRequestRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*RepoIssueRequest) ProtoMessage() {}
+func (*RepoPullRequestRequest) ProtoMessage() {}
 
-func (x *RepoIssueRequest) ProtoReflect() protoreflect.Message {
+func (x *RepoPullRequestRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_pkg_api_identity_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -633,35 +633,35 @@ func (x *RepoIssueRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use RepoIssueRequest.ProtoReflect.Descriptor instead.
-func (*RepoIssueRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use RepoPullRequestRequest.ProtoReflect.Descriptor instead.
+func (*RepoPullRequestRequest) Descriptor() ([]byte, []int) {
 	return file_pkg_api_identity_proto_rawDescGZIP(), []int{12}
 }
 
-func (x *RepoIssueRequest) GetUsername() string {
+func (x *RepoPullRequestRequest) GetUsername() string {
 	if x != nil {
 		return x.Username
 	}
 	return ""
 }
 
-func (x *RepoIssueRequest) GetRepoOwner() string {
+func (x *RepoPullRequestRequest) GetRepoOwner() string {
 	if x != nil {
 		return x.RepoOwner
 	}
 	return ""
 }
 
-func (x *RepoIssueRequest) GetRepoName() string {
+func (x *RepoPullRequestRequest) GetRepoName() string {
 	if x != nil {
 		return x.RepoName
 	}
 	return ""
 }
 
-func (x *RepoIssueRequest) GetIssueNumber() int32 {
+func (x *RepoPullRequestRequest) GetPullRequestNumber() int32 {
 	if x != nil {
-		return x.IssueNumber
+		return x.PullRequestNumber
 	}
 	return 0
 }
@@ -965,13 +965,13 @@ const file_pkg_api_identity_proto_rawDesc = "" +
 	"\x05state\x18\x01 \x01(\tR\x05state\x12\x12\n" +
 	"\x04code\x18\x02 \x01(\tR\x04code\"=\n" +
 	"\x1dGetBlueprintByUserStrResponse\x12\x1c\n" +
-	"\tblueprint\x18\x01 \x01(\tR\tblueprint\"\x8d\x01\n" +
-	"\x10RepoIssueRequest\x12\x1a\n" +
+	"\tblueprint\x18\x01 \x01(\tR\tblueprint\"\xa0\x01\n" +
+	"\x16RepoPullRequestRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12\x1d\n" +
 	"\n" +
 	"repo_owner\x18\x02 \x01(\tR\trepoOwner\x12\x1b\n" +
-	"\trepo_name\x18\x03 \x01(\tR\brepoName\x12!\n" +
-	"\fissue_number\x18\x04 \x01(\x05R\vissueNumber\",\n" +
+	"\trepo_name\x18\x03 \x01(\tR\brepoName\x12.\n" +
+	"\x13pull_request_number\x18\x04 \x01(\x05R\x11pullRequestNumber\",\n" +
 	"\x0fRepoRefResponse\x12\x19\n" +
 	"\brepo_ref\x18\x01 \x01(\tR\arepoRef\"Z\n" +
 	"\x1aGetUserCredentialsResponse\x12<\n" +
@@ -987,7 +987,7 @@ const file_pkg_api_identity_proto_rawDesc = "" +
 	"\x1bDeleteUserCredentialRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\rR\x02id\"8\n" +
 	"\x1cDeleteUserCredentialResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess2\x8d\b\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess2\x95\b\n" +
 	"\x0fIdentityService\x123\n" +
 	"\bFindUser\x12\x19.identity.FindUserRequest\x1a\f.common.User\x129\n" +
 	"\bGetUsers\x12\x19.identity.GetUsersRequest\x1a\x12.identity.UserList\x12M\n" +
@@ -996,8 +996,8 @@ const file_pkg_api_identity_proto_rawDesc = "" +
 	"\x12OnboardUserWebFlow\x12#.identity.OnboardUserWebFlowRequest\x1a\x1a.common.OnboardUserWebFlow\x12I\n" +
 	"\x13CompleteUserWebFlow\x12$.identity.CompleteUserWebFlowRequest\x1a\f.common.User\x12S\n" +
 	"\x11AuthUserPublicKey\x12\".identity.AuthUserPublicKeyRequest\x1a\x1a.identity.AuthUserResponse\x12?\n" +
-	"\x15GetBlueprintByUserStr\x12\x11.identity.UserStr\x1a\x13.identity.Blueprint\x12N\n" +
-	"\x15ResolveRepoIssueToRef\x12\x1a.identity.RepoIssueRequest\x1a\x19.identity.RepoRefResponse\x12N\n" +
+	"\x15GetBlueprintByUserStr\x12\x11.identity.UserStr\x1a\x13.identity.Blueprint\x12V\n" +
+	"\x17ResolvePullRequestToRef\x12 .identity.RepoPullRequestRequest\x1a\x19.identity.RepoRefResponse\x12N\n" +
 	"\x12GetUserCredentials\x12\x12.identity.Username\x1a$.identity.GetUserCredentialsResponse\x12T\n" +
 	"\x11AddUserCredential\x12\x1a.common.ExternalCredential\x1a#.identity.AddUserCredentialResponse\x12Z\n" +
 	"\x14UpdateUserCredential\x12\x1a.common.ExternalCredential\x1a&.identity.UpdateUserCredentialResponse\x12e\n" +
@@ -1029,7 +1029,7 @@ var file_pkg_api_identity_proto_goTypes = []any{
 	(*OnboardUserWebFlowRequest)(nil),      // 9: identity.OnboardUserWebFlowRequest
 	(*CompleteUserWebFlowRequest)(nil),     // 10: identity.CompleteUserWebFlowRequest
 	(*GetBlueprintByUserStrResponse)(nil),  // 11: identity.GetBlueprintByUserStrResponse
-	(*RepoIssueRequest)(nil),               // 12: identity.RepoIssueRequest
+	(*RepoPullRequestRequest)(nil),         // 12: identity.RepoPullRequestRequest
 	(*RepoRefResponse)(nil),                // 13: identity.RepoRefResponse
 	(*GetUserCredentialsResponse)(nil),     // 14: identity.GetUserCredentialsResponse
 	(*AddUserCredentialResponse)(nil),      // 15: identity.AddUserCredentialResponse
@@ -1057,7 +1057,7 @@ var file_pkg_api_identity_proto_depIdxs = []int32{
 	10, // 11: identity.IdentityService.CompleteUserWebFlow:input_type -> identity.CompleteUserWebFlowRequest
 	7,  // 12: identity.IdentityService.AuthUserPublicKey:input_type -> identity.AuthUserPublicKeyRequest
 	1,  // 13: identity.IdentityService.GetBlueprintByUserStr:input_type -> identity.UserStr
-	12, // 14: identity.IdentityService.ResolveRepoIssueToRef:input_type -> identity.RepoIssueRequest
+	12, // 14: identity.IdentityService.ResolvePullRequestToRef:input_type -> identity.RepoPullRequestRequest
 	0,  // 15: identity.IdentityService.GetUserCredentials:input_type -> identity.Username
 	20, // 16: identity.IdentityService.AddUserCredential:input_type -> common.ExternalCredential
 	20, // 17: identity.IdentityService.UpdateUserCredential:input_type -> common.ExternalCredential
@@ -1070,7 +1070,7 @@ var file_pkg_api_identity_proto_depIdxs = []int32{
 	19, // 24: identity.IdentityService.CompleteUserWebFlow:output_type -> common.User
 	8,  // 25: identity.IdentityService.AuthUserPublicKey:output_type -> identity.AuthUserResponse
 	2,  // 26: identity.IdentityService.GetBlueprintByUserStr:output_type -> identity.Blueprint
-	13, // 27: identity.IdentityService.ResolveRepoIssueToRef:output_type -> identity.RepoRefResponse
+	13, // 27: identity.IdentityService.ResolvePullRequestToRef:output_type -> identity.RepoRefResponse
 	14, // 28: identity.IdentityService.GetUserCredentials:output_type -> identity.GetUserCredentialsResponse
 	15, // 29: identity.IdentityService.AddUserCredential:output_type -> identity.AddUserCredentialResponse
 	16, // 30: identity.IdentityService.UpdateUserCredential:output_type -> identity.UpdateUserCredentialResponse

@@ -24,7 +24,7 @@ service IdentityService {
 
   // Repository content
   rpc GetBlueprintByUserStr (UserStr) returns (Blueprint);
-  rpc ResolveRepoIssueToRef (RepoIssueRequest) returns (RepoRefResponse);
+  rpc ResolvePullRequestToRef (RepoPullRequestRequest) returns (RepoRefResponse);
 
   // External Credentials
   rpc GetUserCredentials (Username) returns (GetUserCredentialsResponse);
@@ -91,11 +91,11 @@ message GetBlueprintByUserStrResponse {
   string blueprint = 1;
 }
 
-message RepoIssueRequest {
+message RepoPullRequestRequest {
   string username = 1;
   string repo_owner = 2;
   string repo_name = 3;
-  int32 issue_number = 4;
+  int32 pull_request_number = 4;
 }
 
 message RepoRefResponse {

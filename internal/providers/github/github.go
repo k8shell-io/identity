@@ -359,23 +359,17 @@ func GetRef(owner, repo, ref, token string) (*GitRef, error) {
 	}
 }
 
-// getRepoRefFromIssue uses GitHub GraphQL API to resolve the first linked branch ref for an issue,
-// returning the first branch that matches the repository owner/name.
-func getRepoRefFromIssue(owner, repo string, issueNumber int, token string) (string, error) {
+// getRepoRefFromPullRequest uses GitHub GraphQL API to resolve the head branch ref for a pull request,
+// returning the branch name only if the head repository matches the provided owner/name (i.e., not a fork).
+func getRepoRefFromPullRequest(owner, repo string, pullRequestNumber int, token string) (string, error) {
 	reqBody := map[string]any{
 		"query": `query($owner:String!, $repo:String!, $number:Int!) {
   repository(owner:$owner, name:$repo) {
-    issue(number:$number) {
-      linkedBranches(first: 50) {
-        nodes {
-          ref {
-            name
-            repository {
-              name
-              owner { login }
-            }
-          }
-        }
+    pullRequest(number:$number) {
+      headRefName
+      headRepository {
+        name
+        owner { login }
       }
     }
   }
@@ -383,7 +377,7 @@ func getRepoRefFromIssue(owner, repo string, issueNumber int, token string) (str
 		"variables": map[string]any{
 			"owner":  owner,
 			"repo":   repo,
-			"number": issueNumber,
+			"number": pullRequestNumber,
 		},
 	}
 
@@ -415,21 +409,15 @@ func getRepoRefFromIssue(owner, repo string, issueNumber int, token string) (str
 	var gqlResp struct {
 		Data struct {
 			Repository struct {
-				Issue struct {
-					LinkedBranches struct {
-						Nodes []struct {
-							Ref struct {
-								Name       string `json:"name"`
-								Repository struct {
-									Name  string `json:"name"`
-									Owner struct {
-										Login string `json:"login"`
-									} `json:"owner"`
-								} `json:"repository"`
-							} `json:"ref"`
-						} `json:"nodes"`
-					} `json:"linkedBranches"`
-				} `json:"issue"`
+				PullRequest struct {
+					HeadRefName    string `json:"headRefName"`
+					HeadRepository struct {
+						Name  string `json:"name"`
+						Owner struct {
+							Login string `json:"login"`
+						} `json:"owner"`
+					} `json:"headRepository"`
+				} `json:"pullRequest"`
 			} `json:"repository"`
 		} `json:"data"`
 		Errors []struct {
@@ -440,26 +428,21 @@ func getRepoRefFromIssue(owner, repo string, issueNumber int, token string) (str
 	if err := json.NewDecoder(resp.Body).Decode(&gqlResp); err != nil {
 		return "", fmt.Errorf("decode graphql response: %w", err)
 	}
-
 	if len(gqlResp.Errors) > 0 {
 		return "", fmt.Errorf("graphql error: %s", gqlResp.Errors[0].Message)
 	}
 
-	nodes := gqlResp.Data.Repository.Issue.LinkedBranches.Nodes
-	if len(nodes) == 0 {
-		return "", fmt.Errorf("no linked branches found for issue #%d", issueNumber)
+	pr := gqlResp.Data.Repository.PullRequest
+	if pr.HeadRefName == "" {
+		return "", fmt.Errorf("no head ref found for pull request #%d", pullRequestNumber)
 	}
 
-	for _, n := range nodes {
-		ref := n.Ref
-		if ref.Name == "" {
-			continue
-		}
-		if strings.EqualFold(ref.Repository.Owner.Login, owner) &&
-			strings.EqualFold(ref.Repository.Name, repo) {
-			return ref.Name, nil
-		}
+	// Only accept refs that belong to the same repository (avoid fork head branches).
+	if !strings.EqualFold(pr.HeadRepository.Owner.Login, owner) ||
+		!strings.EqualFold(pr.HeadRepository.Name, repo) {
+		return "", fmt.Errorf("pull request #%d head branch is from a different repository (%s/%s)",
+			pullRequestNumber, pr.HeadRepository.Owner.Login, pr.HeadRepository.Name)
 	}
 
-	return "", fmt.Errorf("no valid linked branch ref name found for issue #%d", issueNumber)
+	return pr.HeadRefName, nil
 }

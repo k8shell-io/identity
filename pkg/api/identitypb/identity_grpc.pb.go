@@ -28,7 +28,7 @@ const (
 	IdentityService_CompleteUserWebFlow_FullMethodName      = "/identity.IdentityService/CompleteUserWebFlow"
 	IdentityService_AuthUserPublicKey_FullMethodName        = "/identity.IdentityService/AuthUserPublicKey"
 	IdentityService_GetBlueprintByUserStr_FullMethodName    = "/identity.IdentityService/GetBlueprintByUserStr"
-	IdentityService_ResolveRepoIssueToRef_FullMethodName    = "/identity.IdentityService/ResolveRepoIssueToRef"
+	IdentityService_ResolvePullRequestToRef_FullMethodName  = "/identity.IdentityService/ResolvePullRequestToRef"
 	IdentityService_GetUserCredentials_FullMethodName       = "/identity.IdentityService/GetUserCredentials"
 	IdentityService_AddUserCredential_FullMethodName        = "/identity.IdentityService/AddUserCredential"
 	IdentityService_UpdateUserCredential_FullMethodName     = "/identity.IdentityService/UpdateUserCredential"
@@ -51,7 +51,7 @@ type IdentityServiceClient interface {
 	AuthUserPublicKey(ctx context.Context, in *AuthUserPublicKeyRequest, opts ...grpc.CallOption) (*AuthUserResponse, error)
 	// Repository content
 	GetBlueprintByUserStr(ctx context.Context, in *UserStr, opts ...grpc.CallOption) (*Blueprint, error)
-	ResolveRepoIssueToRef(ctx context.Context, in *RepoIssueRequest, opts ...grpc.CallOption) (*RepoRefResponse, error)
+	ResolvePullRequestToRef(ctx context.Context, in *RepoPullRequestRequest, opts ...grpc.CallOption) (*RepoRefResponse, error)
 	// External Credentials
 	GetUserCredentials(ctx context.Context, in *Username, opts ...grpc.CallOption) (*GetUserCredentialsResponse, error)
 	AddUserCredential(ctx context.Context, in *commonpb.ExternalCredential, opts ...grpc.CallOption) (*AddUserCredentialResponse, error)
@@ -147,10 +147,10 @@ func (c *identityServiceClient) GetBlueprintByUserStr(ctx context.Context, in *U
 	return out, nil
 }
 
-func (c *identityServiceClient) ResolveRepoIssueToRef(ctx context.Context, in *RepoIssueRequest, opts ...grpc.CallOption) (*RepoRefResponse, error) {
+func (c *identityServiceClient) ResolvePullRequestToRef(ctx context.Context, in *RepoPullRequestRequest, opts ...grpc.CallOption) (*RepoRefResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RepoRefResponse)
-	err := c.cc.Invoke(ctx, IdentityService_ResolveRepoIssueToRef_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, IdentityService_ResolvePullRequestToRef_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +213,7 @@ type IdentityServiceServer interface {
 	AuthUserPublicKey(context.Context, *AuthUserPublicKeyRequest) (*AuthUserResponse, error)
 	// Repository content
 	GetBlueprintByUserStr(context.Context, *UserStr) (*Blueprint, error)
-	ResolveRepoIssueToRef(context.Context, *RepoIssueRequest) (*RepoRefResponse, error)
+	ResolvePullRequestToRef(context.Context, *RepoPullRequestRequest) (*RepoRefResponse, error)
 	// External Credentials
 	GetUserCredentials(context.Context, *Username) (*GetUserCredentialsResponse, error)
 	AddUserCredential(context.Context, *commonpb.ExternalCredential) (*AddUserCredentialResponse, error)
@@ -253,8 +253,8 @@ func (UnimplementedIdentityServiceServer) AuthUserPublicKey(context.Context, *Au
 func (UnimplementedIdentityServiceServer) GetBlueprintByUserStr(context.Context, *UserStr) (*Blueprint, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBlueprintByUserStr not implemented")
 }
-func (UnimplementedIdentityServiceServer) ResolveRepoIssueToRef(context.Context, *RepoIssueRequest) (*RepoRefResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ResolveRepoIssueToRef not implemented")
+func (UnimplementedIdentityServiceServer) ResolvePullRequestToRef(context.Context, *RepoPullRequestRequest) (*RepoRefResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ResolvePullRequestToRef not implemented")
 }
 func (UnimplementedIdentityServiceServer) GetUserCredentials(context.Context, *Username) (*GetUserCredentialsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetUserCredentials not implemented")
@@ -433,20 +433,20 @@ func _IdentityService_GetBlueprintByUserStr_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
-func _IdentityService_ResolveRepoIssueToRef_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(RepoIssueRequest)
+func _IdentityService_ResolvePullRequestToRef_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RepoPullRequestRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(IdentityServiceServer).ResolveRepoIssueToRef(ctx, in)
+		return srv.(IdentityServiceServer).ResolvePullRequestToRef(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: IdentityService_ResolveRepoIssueToRef_FullMethodName,
+		FullMethod: IdentityService_ResolvePullRequestToRef_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(IdentityServiceServer).ResolveRepoIssueToRef(ctx, req.(*RepoIssueRequest))
+		return srv.(IdentityServiceServer).ResolvePullRequestToRef(ctx, req.(*RepoPullRequestRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -563,8 +563,8 @@ var IdentityService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _IdentityService_GetBlueprintByUserStr_Handler,
 		},
 		{
-			MethodName: "ResolveRepoIssueToRef",
-			Handler:    _IdentityService_ResolveRepoIssueToRef_Handler,
+			MethodName: "ResolvePullRequestToRef",
+			Handler:    _IdentityService_ResolvePullRequestToRef_Handler,
 		},
 		{
 			MethodName: "GetUserCredentials",
