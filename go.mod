@@ -5,7 +5,7 @@ go 1.24.5
 require (
 	github.com/bradfitz/gomemcache v0.0.0-20250403215159-8d39553ac7cf
 	github.com/jackc/pgx/v5 v5.7.6
-	github.com/k8shell-io/common v0.12.110
+	github.com/k8shell-io/common v0.12.111
 	github.com/k8shell-io/identity/pkg/api v0.0.0-00010101000000-000000000000
 	github.com/k8shell-io/yaml-cel v0.2.5
 	github.com/nats-io/nats.go v1.47.0
