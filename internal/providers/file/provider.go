@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/k8shell-io/common/pkg/models"
 	"github.com/k8shell-io/identity/internal/common"
-	"github.com/k8shell-io/identity/pkg/models"
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 )
@@ -89,7 +89,12 @@ func (f *FileUserProvider) FindUser(username string) (*models.User, error) {
 	return user, nil
 }
 
-func (p *FileUserProvider) AuthPublicKey(user *models.User, key ssh.PublicKey) (bool, error) {
+func (p *FileUserProvider) AuthPublicKey(username string, key ssh.PublicKey) (bool, error) {
+	user, err := p.FindUser(username)
+	if err != nil {
+		return false, err
+	}
+
 	var authKeys string
 	for _, k := range user.AuthKeys {
 		authKeys += k + "\n"
@@ -110,19 +115,33 @@ func (p *FileUserProvider) AuthPublicKey(user *models.User, key ssh.PublicKey) (
 	return false, nil
 }
 
-func (f *FileUserProvider) OnboardCapability(username string) (*models.OnBoardCapability, error) {
+func (f *FileUserProvider) OnboardCapability(username string) (*models.OnboardCapability, error) {
 	// File user provider does not support onboarding via device code
 	return nil, fmt.Errorf("%w: file user provider does not support onboarding via device flow",
 		models.ErrMethodNotSupported)
 }
 
-func (p *FileUserProvider) OnboardUserDeviceFlow(username string) (*models.OnboardUser, error) {
+func (p *FileUserProvider) OnboardUserDeviceFlow(username string) (*models.OnboardUserDeviceFlow, error) {
 	// File user provider does not support onboarding via device code
 	return nil, fmt.Errorf("%w: file user provider does not support onboarding via device flow",
 		models.ErrMethodNotSupported)
 }
 
-func (f *FileUserProvider) GetUserToken(user *models.User) (*models.UserToken, error) {
+func (f *FileUserProvider) GetUserToken(username string) (*models.UserToken, error) {
 	// File user provider does not support user tokens
 	return nil, fmt.Errorf("%w: file user provider does not support user tokens", models.ErrMethodNotSupported)
+}
+
+func (p *FileUserProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlueprint, error) {
+	return nil, fmt.Errorf("%w: file user provider does not support custom blueprints", models.ErrMethodNotSupported)
+}
+
+func (f *FileUserProvider) OnboardUserWebFlow(redirectUri string) (*models.OnboardUserWebFlow, error) {
+	return nil, fmt.Errorf("%w: file user provider does not support onboarding via web flow",
+		models.ErrMethodNotSupported)
+}
+
+func (f *FileUserProvider) CompleteUserWebFlow(state string, code string) (string, error) {
+	return "", fmt.Errorf("%w: file user provider does not support onboarding via web flow",
+		models.ErrMethodNotSupported)
 }

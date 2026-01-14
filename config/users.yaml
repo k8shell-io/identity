@@ -20,7 +20,10 @@ users:
     email: "alice@nobody"
     locked: false
     channels:
-      [shell, pty, port_forward, sftp, scp, exec, forward_agent, system_exec]
+      ["session", "direct-tcpip", "forwarded-tcpip", "direct-streamlocal", "forwarded-streamlocal", "x11"]
+    #shell, pty, port_forward, sftp, scp, exec, forward_agent, system_exec]
+    sessionRequests: 
+      ["shell", "pty-req", "exec", "auth-agent-req", "env", "window-change"]
     blueprints: [am1, dev, tex, am2, awd, ddw]
     auths: [publickey, password]
     authKeys:
@@ -29,6 +32,7 @@ users:
     # cvutfit95
     password: $2y$10$FJRWdVEBZRlPk8lW3qcEwejjbu18KM27P6l94.vHXbFPt7mH7DET2
     roles: [workspace-user]
+    organization: "default"
 
   - username: nvkptr
     isValid: true
@@ -38,7 +42,7 @@ users:
     email: "nvk.ptr@gmail.com"
     locked: false
     channels:
-      [shell, pty, port_forward, sftp, scp, exec, forward_agent, system_exec]
+      [session, shell, pty, port_forward, sftp, scp, exec, forward_agent, system_exec]
     auths: [publickey]
     authKeys:
       - |
@@ -46,6 +50,7 @@ users:
     blueprints: [dev]
     authProviders: [self]
     roles: [workspace-user, workspace-admin]
+    organization: "default"
 
 
 

@@ -1,16 +1,51 @@
 
+@address=identity.k8shell-prod
+#@address=localhost
+
 ### individual user
-http://localhost:9090/api/v1/users/valenta
+http://{{address}}:9090/api/v1/users/bruckins
 Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
 Content-Type: application/json
 
+### lookup by token
+POST http://{{address}}:9090/api/v1/users/lookup/token
+Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
+Content-Type: application/json
+
+{
+  "token": "1b60c2d2d13f462eef6f59cfe1d6a446845fe62ac325c91a38dc67cd3e5c679f"
+}
+
+
+### Get credentials
+http://{{address}}:9090/api/v1/users/vitvatom/credentials
+Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
+Content-Type: application/json
+
+### Add credentials
+POST http://{{address}}:9090/api/v1/users/vitvatom/credentials
+Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
+Content-Type: application/json
+
+{
+  "service_name": "registry",
+  "service_url": "fitcr.ksi.in.fit.cvut.cz",
+  "external_id": "admin",
+  "external_token": "Harbor94ek1"
+}
+
+### Delete credentials
+DELETE http://{{address}}:9090/api/v1/users/vitvatom/credentials/3
+Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
+
+
 ### all users
-http://localhost:9090/api/v1/users
+http://{{address}}:9090/api/v1/users
 Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
 Content-Type: application/json
 
 ### authenticate user
-POST http://localhost:9090/api/v1/users/vitvatom/authenticate
+POST http://{{address}}:9090/api/v1/users/vitvatom/authenticate
 Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
 Content-Type: application/json
 
@@ -19,7 +54,7 @@ Content-Type: application/json
 }
 
 ### create a session for user
-POST http://localhost:9090/api/v1/users/vitvatom/sessions
+POST http://{{address}}:9090/api/v1/users/vitvatom/sessions
 Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
 
 {
@@ -30,11 +65,17 @@ Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e096351
 }
 
 ### get all sessions for user
-GET http://localhost:9090/api/v1/users/vitvatom/sessions
+GET http://{{address}}:9090/api/v1/users/vitvatom/sessions
 Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
 Content-Type: application/json
 
 ### get last session for user
-GET http://localhost:9090/api/v1/users/vitvatom/sessions?reverse=true&limit=1
+GET http://{{address}}:9090/api/v1/users/vitvatom/sessions?reverse=true&limit=1
+Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
+Content-Type: application/json
+
+### get custom blueprint
+#GET http://localhost:9090/api/v1/blueprints/lookup?userstr=bruckins~repo=k8shell-io/common
+GET http://{{address}}:9090/api/v1/blueprints/lookup?userstr=bruckins~repo%3Dk8shell-io%2Fcommon
 Authorization: Bearer 6f16982b35ac2168f86c7978b7b42967538939b063598346139e0963510c
 Content-Type: application/json

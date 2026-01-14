@@ -1,15 +1,21 @@
 # Identity service configuration
 
 # http server
-http:
-  port: 9090
-  APIKey: !file ${SECRET_FILES}/api_key
+grpc:
+  port: 9020
 
-# memcached
-cache:
+  # JWT required claims for authentication
+  authEnabled: false
+  audience: identity
+  allowed:
+    - serviceAccount: ssh-proxy
+    - serviceAccount: api-server
+
+nats:
   enabled: true
-  address: ${MEMCACHED_HOSTNAME}
-  port: !!int ${MEMCACHED_PORT}
+  url: nats://nats.k8shell-test:4222
+  username: identity
+  password: ${IDENTITY_NATS_PASSWORD}
 
 # DB configuration
 db:
@@ -63,4 +69,7 @@ identityProviders:
     allow:
       - "bruckins"
       - "tomvit"
+
+    defaultK8shellFile:   
+      filename: default-k8shell-file.yaml
 

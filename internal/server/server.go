@@ -7,24 +7,29 @@ package server
 
 import (
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
 
+	"github.com/k8shell-io/common/pkg/gapi"
+	log "github.com/k8shell-io/common/pkg/logger"
+	natsc "github.com/k8shell-io/common/pkg/nats"
 	"github.com/k8shell-io/identity/internal/backend"
-	"github.com/k8shell-io/identity/internal/log"
 	"github.com/k8shell-io/identity/internal/providers/file"
 	"github.com/k8shell-io/identity/internal/providers/github"
 	"github.com/k8shell-io/identity/internal/providers/usermap"
-	"github.com/k8shell-io/identity/pkg/models"
+	"github.com/k8shell-io/identity/pkg/api/identitypb"
+	identModels "github.com/k8shell-io/identity/pkg/models"
 	"github.com/rs/zerolog"
+	"google.golang.org/grpc"
 )
 
 // Server represents the main server structure for the K8Shell Identity service.
 type Server struct {
-	DBConfig   backend.DBConfig
-	HttpConfig HttpConfig
-
 	DB                *backend.DB
-	IdentityProviders []models.IdentityProvider
-	RestApi           *RESTApiService
+	IdentityProviders []identModels.IdentityProvider
+	grpc              *gapi.Server
+	nats              *natsc.NATSClient
 	log               *zerolog.Logger
 }
 
@@ -38,34 +43,45 @@ func NewServer(configFile string) (*Server, error) {
 
 	server.log.Info().Msgf("Loading server configuration from %s", configFile)
 
-	// Load the server configuration
 	config, err := LoadConfig(configFile)
 	if err != nil {
 		return nil, err
 	}
-	server.HttpConfig = config.Http
-	server.DBConfig = config.DB
 
-	server.DB, err = backend.NewDB(server.DBConfig, "")
+	server.DB, err = backend.NewDB(config.DB)
 	if err != nil {
 		return nil, fmt.Errorf("create database pool: %w", err)
 	}
 
-	err = server.LoadProviders(config)
+	server.nats, err = natsc.NewNATSClient(config.Nats)
 	if err != nil {
-		return nil, fmt.Errorf("load identity providers: %w", err)
+		return nil, fmt.Errorf("create NATS client: %w", err)
 	}
 
-	server.RestApi, err = NewRESTAPI(server.HttpConfig, server)
+	if server.nats == nil {
+		server.log.Warn().Msg("NATS client is not configured; caching and messaging features will be disabled")
+	}
+
+	server.grpc, err = gapi.NewServer(&config.GrpcConfig, true)
 	if err != nil {
-		return nil, fmt.Errorf("create REST API service: %w", err)
+		return nil, fmt.Errorf("create gRPC server: %w", err)
+	}
+
+	server.grpc.RegisterService(func(s *grpc.Server) error {
+		identitypb.RegisterIdentityServiceServer(s, NewIdentityService(server))
+		return nil
+	})
+
+	err = server.loadProviders(config)
+	if err != nil {
+		return nil, fmt.Errorf("load identity providers: %w", err)
 	}
 
 	return server, nil
 }
 
 // LoadProviders initializes the identity providers based on the configuration.
-func (s *Server) LoadProviders(config *Config) error {
+func (s *Server) loadProviders(config *Config) error {
 	for _, node := range config.IdentityProviders {
 		var raw map[string]any
 		if err := node.Decode(&raw); err != nil {
@@ -96,7 +112,7 @@ func (s *Server) LoadProviders(config *Config) error {
 			if err := node.Decode(&usermapProvCfg); err != nil {
 				return fmt.Errorf("usermap provider config decode: %w", err)
 			}
-			p, err := usermap.NewUserMapProvider(usermapProvCfg, config.configDir, config.Cache)
+			p, err := usermap.NewUserMapProvider(usermapProvCfg, config.configDir, s.nats)
 			if err != nil {
 				return fmt.Errorf("usermap provider creation: %w", err)
 			}
@@ -107,7 +123,7 @@ func (s *Server) LoadProviders(config *Config) error {
 			if err := node.Decode(&githubProvCfg); err != nil {
 				return fmt.Errorf("github provider config decode: %w", err)
 			}
-			p, err := github.NewGitHubProvider(githubProvCfg, config.Cache, s.DB, config.configDir)
+			p, err := github.NewGitHubProvider(githubProvCfg, s.nats, s.DB, config.configDir)
 			if err != nil {
 				return fmt.Errorf("github provider creation: %w", err)
 			}
@@ -118,4 +134,29 @@ func (s *Server) LoadProviders(config *Config) error {
 		}
 	}
 	return nil
+}
+
+// Start starts the gRPC server and waits for shutdown signals
+func (s *Server) Serve() error {
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	errChan := make(chan error, 1)
+	go func() {
+		s.log.Info().Msg("Starting gRPC server")
+		if err := s.grpc.Start(); err != nil {
+			errChan <- fmt.Errorf("gRPC server error: %v", err)
+		}
+	}()
+
+	select {
+	case sig := <-sigChan:
+		s.log.Info().Msgf("Received signal %v, shutting down gracefully", sig)
+		s.grpc.Stop()
+		s.log.Info().Msg("Server shutdown complete")
+		return nil
+	case err := <-errChan:
+		s.log.Error().Err(err).Msg("Server error occurred")
+		return err
+	}
 }

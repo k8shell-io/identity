@@ -3,6 +3,7 @@ package backend_test
 import (
 	"testing"
 
+	"github.com/k8shell-io/common/pkg/db"
 	"github.com/k8shell-io/identity/internal/backend"
 	"github.com/ory/dockertest/v3"
 	"github.com/ory/dockertest/v3/docker"
@@ -51,7 +52,7 @@ func createDBResource() (*dockertest.Pool, *dockertest.Resource, error) {
 }
 
 func getDB(pool *dockertest.Pool, t *testing.T) (*backend.DB, error) {
-	cfg := backend.DBConfig{
+	cfg := db.DBConfig{
 		Username: DBUSER,
 		Password: DBPASSWORD,
 		Database: DBNAME,
@@ -60,11 +61,10 @@ func getDB(pool *dockertest.Pool, t *testing.T) (*backend.DB, error) {
 	}
 	cfg.SetDefaults()
 
-	var db *backend.DB
-	//pool.MaxWait = 30
+	var d *backend.DB
 	err := pool.Retry(func() error {
 		var err error
-		db, err = backend.NewDB(cfg, "/../..")
+		d, err = backend.NewDB(cfg)
 		if err != nil {
 			t.Log("Failed to create DB instance:", err, "retrying...")
 		}
@@ -74,7 +74,7 @@ func getDB(pool *dockertest.Pool, t *testing.T) (*backend.DB, error) {
 		return nil, err
 	}
 
-	return db, nil
+	return d, nil
 }
 
 func TestNewDB_Success(t *testing.T) {
@@ -91,9 +91,8 @@ func TestNewDB_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Could not create DB: %s", err)
 	}
-	defer db.Close()
-
 	if db == nil {
 		t.Fatal("Expected non-nil DB")
 	}
+	db.Close()
 }

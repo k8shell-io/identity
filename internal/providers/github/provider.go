@@ -1,21 +1,32 @@
 package github
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
 	"time"
 
-	"github.com/bradfitz/gomemcache/memcache"
+	log "github.com/k8shell-io/common/pkg/logger"
+	"github.com/k8shell-io/common/pkg/models"
+	natsc "github.com/k8shell-io/common/pkg/nats"
+	"github.com/k8shell-io/common/pkg/utils"
 	"github.com/k8shell-io/identity/internal/backend"
 	"github.com/k8shell-io/identity/internal/common"
-	"github.com/k8shell-io/identity/internal/log"
-	"github.com/k8shell-io/identity/pkg/models"
 	"github.com/k8shell-io/yaml-cel/pkg/yamlcel"
+	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert/yaml"
 	"golang.org/x/crypto/ssh"
 )
+
+const K8SHELL_FILENAME = ".k8shell"
 
 type GitHubProviderConfig struct {
 	ID           string            `yaml:"id"`
@@ -26,32 +37,77 @@ type GitHubProviderConfig struct {
 	Template     string            `yaml:"template"`
 	ExtraFields  map[string]string `yaml:"extra,omitempty"`
 	Allow        []string          `yaml:"allow,omitempty"`
+
+	DefaultK8shellFile struct {
+		Filename string `yaml:"filename"`
+	} `yaml:"defaultK8shellFile,omitempty"`
 }
 
 type GitHubProvider struct {
-	config     GitHubProviderConfig
-	memcache   *memcache.Client
-	httpClient *http.Client
-	log        *zerolog.Logger
-	db         *backend.DB
-	template   *yamlcel.CELTemplate
+	config                 GitHubProviderConfig
+	baseDir                string
+	cache                  *natsc.JetStreamKV
+	httpClient             *http.Client
+	log                    *zerolog.Logger
+	db                     *backend.DB
+	template               *yamlcel.CELTemplate
+	defaultCustomBlueprint *models.CustomBlueprint
 }
 
 var ErrUnauthorized = errors.New("unauthorized")
+var ErrWebFlowInProgress = errors.New("web flow state is already being processed")
 
-func NewGitHubProvider(cfg GitHubProviderConfig, cacheCfg backend.CacheConfig, db *backend.DB, baseDir string) (*GitHubProvider, error) {
-	memcache := backend.NewCache(cacheCfg)
+func NewGitHubProvider(cfg GitHubProviderConfig, nats *natsc.NATSClient, db *backend.DB,
+	baseDir string) (*GitHubProvider, error) {
 	template, err := yamlcel.NewTemplate(common.NormalizePath(cfg.Template, baseDir))
 	if err != nil {
 		return nil, fmt.Errorf("load user template '%s': %w", cfg.Template, err)
 	}
+
+	if nats == nil {
+		return nil, fmt.Errorf("nats client is required to use GitHub provider")
+	}
+
+	cache, err := nats.NewKV(natsc.BucketOptions{Bucket: "idp-github-cache"})
+	if err != nil {
+		return nil, fmt.Errorf("create cache: %w", err)
+	}
+
+	var cbp *models.CustomBlueprint
+	if cfg.DefaultK8shellFile.Filename != "" {
+		path := common.NormalizePath(cfg.DefaultK8shellFile.Filename, baseDir)
+		_, err := os.Stat(path)
+		if err != nil {
+			return nil, fmt.Errorf("default k8shell file '%s' does not exist: %w", path, err)
+		}
+
+		fileContent, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read default k8shell file '%s': %w", path, err)
+		}
+
+		var k8shellFile models.K8shellFile
+		err = yaml.Unmarshal(fileContent, &k8shellFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse default k8shell file '%s': %w", path, err)
+		}
+
+		var errors []string
+		cbp, errors = models.ValidateK8shellFile(k8shellFile)
+		if len(errors) > 0 {
+			return nil, fmt.Errorf("failed to validate default k8shell file '%s': %v", path, errors)
+		}
+	}
+
 	provider := &GitHubProvider{
-		config:     cfg,
-		memcache:   memcache,
-		httpClient: &http.Client{},
-		log:        log.NewLogger("github"),
-		db:         db,
-		template:   template,
+		config:                 cfg,
+		baseDir:                baseDir,
+		cache:                  cache,
+		httpClient:             &http.Client{},
+		log:                    log.NewLogger("github"),
+		db:                     db,
+		template:               template,
+		defaultCustomBlueprint: cbp,
 	}
 	return provider, nil
 }
@@ -116,12 +172,13 @@ func (p *GitHubProvider) FindUser(username string) (*models.User, error) {
 		return nil, fmt.Errorf("template evaluation failed: %w", err)
 	}
 	user.Source = p.Name()
+	user.Username = strings.ToLower(user.Username) // normalize username to lowercase
 
 	return user, nil
 }
 
-func (p *GitHubProvider) OnboardCapability(username string) (*models.OnBoardCapability, error) {
-	cap := &models.OnBoardCapability{
+func (p *GitHubProvider) OnboardCapability(username string) (*models.OnboardCapability, error) {
+	cap := &models.OnboardCapability{
 		Provider:   p.Name(),
 		Username:   username,
 		CanOnboard: false,
@@ -147,7 +204,7 @@ func (p *GitHubProvider) OnboardCapability(username string) (*models.OnBoardCapa
 	return cap, nil
 }
 
-func (p *GitHubProvider) OnboardUserDeviceFlow(username string) (*models.OnboardUser, error) {
+func (p *GitHubProvider) OnboardUserDeviceFlow(username string) (*models.OnboardUserDeviceFlow, error) {
 	providerInfo, err := p.db.GetUserProviderInfo(username, p.Name())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user provider info for '%s': %w", username, err)
@@ -161,7 +218,7 @@ func (p *GitHubProvider) OnboardUserDeviceFlow(username string) (*models.Onboard
 		if providerInfo.Status == "pending" {
 			expiresIn := int(time.Until(*providerInfo.ExpiresAt).Seconds())
 			if expiresIn > 0 {
-				return &models.OnboardUser{
+				return &models.OnboardUserDeviceFlow{
 					Provider:        p.Name(),
 					Username:        username,
 					UserCode:        providerInfo.UserCode,
@@ -196,7 +253,7 @@ func (p *GitHubProvider) OnboardUserDeviceFlow(username string) (*models.Onboard
 		return nil, fmt.Errorf("failed to get device code: %w", err)
 	}
 
-	onboardUser := &models.OnboardUser{
+	onboardUser := &models.OnboardUserDeviceFlow{
 		Provider:        p.Name(),
 		Username:        username,
 		UserCode:        resp.UserCode,
@@ -205,7 +262,7 @@ func (p *GitHubProvider) OnboardUserDeviceFlow(username string) (*models.Onboard
 	}
 
 	expiresAt := time.Now().Add(time.Duration(resp.ExpiresIn) * time.Second)
-	err = p.db.CreateUserProviderInfo(&backend.ProviderInfo{
+	err = p.db.CreateOrUpdateUserProviderInfo(&models.ProviderInfo{
 		Status:          "pending",
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),
@@ -225,6 +282,7 @@ func (p *GitHubProvider) OnboardUserDeviceFlow(username string) (*models.Onboard
 	return onboardUser, nil
 }
 
+// pollForAccessToken polls GitHub for the access token using the device code flow.
 func (p *GitHubProvider) pollForAccessToken(username, deviceCode string, intervalSec, expiresIn int) {
 	timeout := time.After(time.Duration(expiresIn) * time.Second)
 	tick := time.Tick(time.Duration(intervalSec) * time.Second)
@@ -251,7 +309,7 @@ func (p *GitHubProvider) pollForAccessToken(username, deviceCode string, interva
 
 				// check if the username matches
 				login, ok := userData.(map[string]interface{})["login"].(string)
-				if !ok || login != username {
+				if !ok || !strings.EqualFold(login, username) {
 					p.log.Error().Msgf("username mismatch: expected '%s', got '%v'", username, login)
 					p.db.UpdateUserProviderStatus(username, p.Name(), "error")
 					return
@@ -274,54 +332,198 @@ func (p *GitHubProvider) pollForAccessToken(username, deviceCode string, interva
 	}
 }
 
-func (p *GitHubProvider) AuthPublicKey(user *models.User, key ssh.PublicKey) (bool, error) {
-	providerInfo, err := p.db.GetUserProviderInfo(user.Username, p.Name())
+// OnboardUserWebFlow initiates the OAuth web flow for user onboarding.
+func (p *GitHubProvider) OnboardUserWebFlow(redirectUri string) (*models.OnboardUserWebFlow, error) {
+	if p.cache == nil {
+		return nil, fmt.Errorf("cache is required for web flow onboarding")
+	}
+
+	nonce, err := randomURLSafeString(24)
 	if err != nil {
-		return false, fmt.Errorf("failed to get user provider info for '%s': %w", user.Username, err)
+		return nil, fmt.Errorf("generate state: %w", err)
+	}
+	state := utils.EncodeState(p.Name(), nonce)
+
+	codeVerifier, err := randomURLSafeString(64)
+	if err != nil {
+		return nil, fmt.Errorf("generate code verifier: %w", err)
+	}
+	sum := sha256.Sum256([]byte(codeVerifier))
+	codeChallenge := base64.RawURLEncoding.EncodeToString(sum[:])
+
+	p.log.Debug().Msgf("Generated PKCE code challenge '%s' for state '%s'", codeChallenge, state)
+
+	cacheKey := fmt.Sprintf("gh-webflow-state-%s", state)
+	cachePayload := map[string]any{
+		"provider":        p.Name(),
+		"client_id":       p.config.ClientID,
+		"scopes":          p.config.Scopes,
+		"code_verifier":   codeVerifier,
+		"created_at_unix": time.Now().Unix(),
+	}
+	cacheBytes, err := json.Marshal(cachePayload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal cache payload: %w", err)
+	}
+	if _, err := p.cache.Set(cacheKey, cacheBytes); err != nil {
+		return nil, fmt.Errorf("cache web flow context: %w", err)
+	}
+
+	u, _ := url.Parse("https://github.com/login/oauth/authorize")
+	q := u.Query()
+	q.Set("client_id", p.config.ClientID)
+	q.Set("redirect_uri", redirectUri)
+	if len(p.config.Scopes) > 0 {
+		q.Set("scope", strings.Join(p.config.Scopes, " "))
+	}
+	q.Set("state", state)
+	q.Set("code_challenge", codeChallenge)
+	q.Set("code_challenge_method", "S256")
+	q.Set("allow_signup", "false")
+	u.RawQuery = q.Encode()
+
+	p.log.Debug().Msgf("Generated GitHub OAuth authorize URL %s, state: '%s'", u.String(), state)
+
+	return &models.OnboardUserWebFlow{
+		Provider:         p.Name(),
+		AuthorizationURL: u.String(),
+		State:            state,
+		ExpiresIn:        600,
+	}, nil
+}
+
+// CompleteUserWebFlow completes the OAuth web flow for user onboarding.
+// It exchanges the authorization code for an access token, retrieves user info, and creates the user in the system.
+// It also checks if the user can onboard based on the allow list.
+func (p *GitHubProvider) CompleteUserWebFlow(state string, code string) (string, error) {
+	if p.cache == nil {
+		return "", fmt.Errorf("cache is required for web flow onboarding")
+	}
+
+	if state == "" || code == "" {
+		return "", fmt.Errorf("state and code must be provided")
+	}
+
+	p.log.Debug().Msgf("Completing GitHub web flow for state '%s'", state)
+
+	// Acquire a per-state lock
+	lockKey := fmt.Sprintf("gh-webflow-lock-%s", state)
+	lock, err := p.cache.AcquireLock(lockKey, time.Duration(30)*time.Second)
+	if err != nil {
+		return "", fmt.Errorf("acquire web flow lock: %w", err)
+	}
+	defer func() {
+		_ = lock.Release()
+	}()
+
+	cacheKey := fmt.Sprintf("gh-webflow-state-%s", state)
+	cacheItem, err := p.cache.Get(cacheKey)
+	if err != nil {
+		if err == nats.ErrKeyNotFound {
+			return "", fmt.Errorf("invalid or expired state")
+		}
+		return "", fmt.Errorf("get web flow context from cache: %w", err)
+	}
+	defer func() {
+		if err := p.cache.Delete(cacheKey); err != nil && err != nats.ErrKeyNotFound {
+			p.log.Warn().Err(err).Msgf("failed to invalidate web flow cache for state '%s'", state)
+		}
+	}()
+
+	var cachePayload map[string]any
+	if err := json.Unmarshal(cacheItem.Value(), &cachePayload); err != nil {
+		return "", fmt.Errorf("unmarshal web flow context from cache: %w", err)
+	}
+
+	clientID, ok := cachePayload["client_id"].(string)
+	if !ok {
+		return "", fmt.Errorf("invalid client_id in cached web flow context")
+	}
+
+	codeVerifier, ok := cachePayload["code_verifier"].(string)
+	if !ok {
+		return "", fmt.Errorf("invalid code_verifier in cached web flow context")
+	}
+
+	tokenResp, err := exchangeCodeForAccessToken(p.httpClient, clientID, p.config.ClientSecret, code, codeVerifier)
+	if err != nil {
+		return "", fmt.Errorf("exchange code for access token: %w", err)
+	}
+
+	userData, _, err := MakeRequest(p.httpClient, "GET", GITHUB_USER_URL, tokenResp.AccessToken, true)
+	if err != nil {
+		return "", fmt.Errorf("failed to make request to GitHub API: %w", err)
+	}
+
+	username, ok := userData.(map[string]interface{})["login"].(string)
+	if !ok || username == "" {
+		return "", fmt.Errorf("failed to get username from GitHub user data")
+	}
+
+	if len(p.config.Allow) > 0 && !contains(p.config.Allow, username) {
+		return "", fmt.Errorf("user '%s' is not allowed to onboard", username)
+	}
+
+	err = p.db.CreateOrUpdateUserProviderInfo(&models.ProviderInfo{
+		Status:      "ready",
+		UpdatedAt:   time.Now(),
+		Username:    username,
+		Provider:    p.Name(),
+		AccessToken: tokenResp.AccessToken,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to save user provider info: %w", err)
+	}
+
+	return username, nil
+}
+
+// AuthPublicKey checks if the provided SSH public key is associated with the user's GitHub account.
+func (p *GitHubProvider) AuthPublicKey(username string, key ssh.PublicKey) (bool, error) {
+	providerInfo, err := p.db.GetUserProviderInfo(username, p.Name())
+	if err != nil {
+		return false, fmt.Errorf("failed to get user provider info for '%s': %w", username, err)
 	}
 	if providerInfo == nil || providerInfo.Status != "ready" {
 		return false, fmt.Errorf("%w: user '%s' is not ready with provider %s", models.ErrUserNotOnboarded,
-			user.Username, p.Name())
+			username, p.Name())
 	}
 
 	var keys []string
-	if p.memcache != nil {
-		CacheKeys := fmt.Sprintf("github:%s:keys", user.Username)
-		cacheItem, err := p.memcache.Get(CacheKeys)
+	if p.cache != nil {
+		CacheKeys := fmt.Sprintf("github:%s:keys", username)
+		cacheItem, err := p.cache.Get(CacheKeys)
 		if err == nil && cacheItem != nil {
-			keys = strings.Split(strings.TrimSpace(string(cacheItem.Value)), "\n")
+			keys = strings.Split(strings.TrimSpace(string(cacheItem.Value())), "\n")
 		}
-		if err != nil && err != memcache.ErrCacheMiss {
-			p.log.Warn().Err(err).Msgf("failed to get cached public keys for user '%s'", user.Username)
+		if err != nil && err != nats.ErrKeyNotFound {
+			p.log.Warn().Err(err).Msgf("failed to get cached public keys for user '%s'", username)
 		}
 	}
 
 	if len(keys) == 0 {
-		keys, err = getPublicKeys(p.httpClient, user.Username, providerInfo.AccessToken)
+		keys, err = getPublicKeys(p.httpClient, username, providerInfo.AccessToken)
 		if err != nil {
 			if errors.Is(err, ErrUnauthorized) {
-				p.db.UpdateUserProviderStatus(user.Username, p.Name(), "invalid")
-				p.db.InvalidateUser(user.Username)
+				p.db.UpdateUserProviderStatus(username, p.Name(), "invalid")
+				p.db.InvalidateUser(username)
 			}
-			return false, fmt.Errorf("failed to get public keys for user '%s': %w", user.Username, err)
+			return false, fmt.Errorf("failed to get public keys for user '%s': %w", username, err)
 		}
 
-		if p.memcache != nil && len(keys) > 0 {
+		if p.cache != nil && len(keys) > 0 {
 			// Cache the public keys for 10 seconds
-			CacheKeys := fmt.Sprintf("github:%s:keys", user.Username)
-			if err := p.memcache.Set(&memcache.Item{
-				Key:        CacheKeys,
-				Value:      []byte(strings.Join(keys, "\n")),
-				Expiration: 10,
-			}); err != nil {
-				p.log.Warn().Err(err).Msgf("failed to cache public keys for user '%s'", user.Username)
+			CacheKeys := fmt.Sprintf("github-%s-keys", username)
+			if _, err := p.cache.Set(CacheKeys,
+				[]byte(strings.Join(keys, "\n"))); err != nil {
+				p.log.Warn().Err(err).Msgf("failed to cache public keys for user '%s'", username)
 			}
 		}
 	}
 
 	parsedKeys, _, err := common.ParseKeyList(keys)
 	if err != nil {
-		return false, fmt.Errorf("failed to parse public keys for user '%s': %w", user.Username, err)
+		return false, fmt.Errorf("failed to parse public keys for user '%s': %w", username, err)
 	}
 
 	provided := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
@@ -333,25 +535,83 @@ func (p *GitHubProvider) AuthPublicKey(user *models.User, key ssh.PublicKey) (bo
 	return false, nil
 }
 
-func (p *GitHubProvider) GetUserToken(user *models.User) (*models.UserToken, error) {
-	providerInfo, err := p.db.GetUserProviderInfo(user.Username, p.Name())
+// GetUserToken retrieves the access token for the specified user.
+func (p *GitHubProvider) GetUserToken(username string) (*models.UserToken, error) {
+	providerInfo, err := p.db.GetUserProviderInfo(username, p.Name())
 	if err != nil {
-		return nil, fmt.Errorf("failed to get user provider info for '%s': %w", user.Username, err)
+		return nil, fmt.Errorf("failed to get user provider info for '%s': %w", username, err)
 	}
 
 	if providerInfo == nil || providerInfo.Status != "ready" {
 		return nil, fmt.Errorf("%w: user '%s' is not ready with provider %s", models.ErrUserNotOnboarded,
-			user.Username, p.Name())
+			username, p.Name())
 	}
 
 	return &models.UserToken{
 		Provider: p.Name(),
 		Address:  "github.com",
-		Username: user.Username,
+		Username: username,
 		Token:    providerInfo.AccessToken,
 	}, nil
 }
 
+// GetCustomBlueprint retrieves the custom blueprint for the specified user string.
+func (p *GitHubProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlueprint, error) {
+	if !userStr.HasCustomBlueprint {
+		return nil, fmt.Errorf("user string does not use a custom blueprint")
+	}
+
+	useDefault := func(cause error, msg string) (*models.CustomBlueprint, error) {
+		p.log.Warn().Err(cause).Msgf("%s; falling back to default custom blueprint", msg)
+		if p.defaultCustomBlueprint == nil {
+			return nil, fmt.Errorf("%s; no default custom blueprint configured: %w", msg, cause)
+		}
+		bp, err := deepCopyBlueprint(p.defaultCustomBlueprint)
+		if err != nil {
+			return nil, fmt.Errorf("failed to copy default custom blueprint: %w", err)
+		}
+		bp.Name = userStr.Blueprint
+		bp.Metadata.Name = userStr.Blueprint
+		bp.Metadata.RepoName = userStr.RepoName
+		bp.Metadata.RepoOwner = userStr.RepoOwner
+		bp.Metadata.RepoAddress = GITHUB_ADDRESS
+		return bp, nil
+	}
+
+	token, err := p.GetUserToken(userStr.Username)
+	if err != nil {
+		return useDefault(err, fmt.Sprintf("get user token for %q failed", userStr.Username))
+	}
+
+	fileContent, err := GetFile(userStr.RepoOwner, userStr.RepoName, token.Token, K8SHELL_FILENAME, userStr.RepoRef)
+	if err != nil {
+		return useDefault(err, fmt.Sprintf("fetch %s from %s/%s failed", K8SHELL_FILENAME,
+			userStr.RepoOwner, userStr.RepoName))
+	}
+
+	var k8shellFile models.K8shellFile
+	if err := yaml.Unmarshal(fileContent, &k8shellFile); err != nil {
+		return useDefault(err, fmt.Sprintf("parse %s in %s/%s failed", K8SHELL_FILENAME,
+			userStr.RepoOwner, userStr.RepoName))
+	}
+
+	bp, valErrs := models.ValidateK8shellFile(k8shellFile)
+	if len(valErrs) > 0 {
+		return useDefault(fmt.Errorf("%v", valErrs), fmt.Sprintf("validate %s in %s/%s failed",
+			K8SHELL_FILENAME, userStr.RepoOwner, userStr.RepoName))
+	}
+
+	bp.Name = userStr.Blueprint
+	bp.Metadata.Name = userStr.Blueprint
+	bp.Metadata.RepoName = userStr.RepoName
+	bp.Metadata.RepoOwner = userStr.RepoOwner
+	bp.Metadata.RepoAddress = GITHUB_ADDRESS
+	return bp, nil
+}
+
+// *** helpers ***
+
+// contains checks if a slice contains a specific value.
 func contains(slice []string, value string) bool {
 	for _, v := range slice {
 		if v == value {
@@ -359,4 +619,33 @@ func contains(slice []string, value string) bool {
 		}
 	}
 	return false
+}
+
+// deepCopyBlueprint creates a deep copy of a CustomBlueprint.
+func deepCopyBlueprint(src *models.CustomBlueprint) (*models.CustomBlueprint, error) {
+	if src == nil {
+		return nil, nil
+	}
+
+	data, err := json.Marshal(src)
+	if err != nil {
+		return nil, err
+	}
+
+	var dst models.CustomBlueprint
+	err = json.Unmarshal(data, &dst)
+	if err != nil {
+		return nil, err
+	}
+
+	return &dst, nil
+}
+
+// randomURLSafeString returns a base64url string generated from n random bytes.
+func randomURLSafeString(n int) (string, error) {
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(buf), nil
 }

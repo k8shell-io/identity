@@ -11,14 +11,7 @@
             "request": "launch",
             "mode": "auto",
             "program": "main.go", // Path to your Go file or main package
-            "env": {
-                "SECRET_FILES": "/opt/shared/identity/secrets",
-                "POSTGRES_DATABASE": "postgres",
-                "POSTGRES_HOSTNAME": "127.0.0.1",
-                "POSTGRES_PORT": "5432",
-                "MEMCACHED_HOSTNAME": "127.0.0.1",
-                "MEMCACHED_PORT": "11211",
-            },
+            "envFile": "${workspaceFolder}/.env",
             "args": [
                 "--logtext",
                 "--config",
@@ -26,6 +19,23 @@
             ],
             "showLog": true,
             //"stopOnEntry": true
+        },
+        {
+            "name": "Attach to running identity",
+            "type": "go",
+            "request": "attach",
+            "mode": "local",
+            "processId": 0,
+            "showLog": true
+        },
+        {
+            "name": "Connect to Delve server",
+            "type": "go",
+            "request": "attach",
+            "mode": "remote",
+            "remotePath": "${workspaceFolder}",
+            "port": 2345,
+            "host": "127.0.0.1"
         }
     ]
 }

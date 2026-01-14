@@ -1,0 +1,106 @@
+syntax = "proto3";
+
+package identity;
+
+option go_package = "github.com/k8shell-io/identity/pkg/api/identitypb;identitypb";
+
+import "common/pkg/gapi/common.proto";
+
+// *** Identity service
+
+service IdentityService {
+  rpc FindUser (FindUserRequest) returns (common.User);
+  rpc GetUsers (GetUsersRequest) returns (UserList);
+  rpc AuthUserPublicKey (AuthUserPublicKeyRequest) returns (AuthUserResponse);
+  rpc GetUserOnboardCapability (Username) returns (common.UserOnboardCapability);
+  rpc OnboardUserDeviceFlow (Username) returns (common.OnboardUserDeviceFlow);
+  rpc OnboardUserWebFlow (OnboardUserWebFlowRequest) returns (common.OnboardUserWebFlow);
+  rpc CompleteUserWebFlow (CompleteUserWebFlowRequest) returns (common.User);
+
+  rpc GetBlueprintByUserStr (UserStr) returns (Blueprint);
+
+  rpc GetUserCredentials (Username) returns (GetUserCredentialsResponse);
+  rpc AddUserCredential (common.ExternalCredential) returns (AddUserCredentialResponse);
+  rpc UpdateUserCredential (common.ExternalCredential) returns (UpdateUserCredentialResponse);
+  rpc DeleteUserCredential (DeleteUserCredentialRequest) returns (DeleteUserCredentialResponse);
+}
+ 
+// *** Messages ***   
+
+message Username { 
+  string username = 1;  
+}
+
+message UserStr {  
+  string userstr = 1;
+}
+
+message Blueprint {
+  string blueprint_json = 1;
+}
+
+message UserList {
+  repeated common.User users = 1;
+}
+
+message FindUserRequest {
+  string username = 1;
+  string token = 2;
+}
+
+message GetUsersRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+}
+
+message GetUsersResponse {
+  repeated common.User users = 1;
+}
+
+message AuthUserPublicKeyRequest {
+  string username = 1;
+  string public_key = 2;
+}
+
+message AuthUserResponse {
+  bool valid = 1;
+  common.User user = 2;
+}
+
+message OnboardUserWebFlowRequest {
+  string provider = 1;
+  string redirect_uri = 2;
+}
+
+message CompleteUserWebFlowRequest {
+  string state = 1;
+  string code = 2;
+}
+
+// Blueprint related messages
+
+message GetBlueprintByUserStrResponse {
+  string blueprint = 1;
+}
+
+// External Credential messages
+
+message GetUserCredentialsResponse {
+  repeated common.ExternalCredential credentials = 1;
+}
+
+message AddUserCredentialResponse {
+  common.ExternalCredential credential = 1;
+}
+
+message UpdateUserCredentialResponse {
+  common.ExternalCredential credential = 1;
+}
+
+message DeleteUserCredentialRequest {
+  uint32 id = 1;
+}
+
+message DeleteUserCredentialResponse {
+  bool success = 1;
+}

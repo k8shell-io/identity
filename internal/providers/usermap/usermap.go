@@ -8,13 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bradfitz/gomemcache/memcache"
-	"github.com/k8shell-io/identity/internal/backend"
-	"github.com/k8shell-io/identity/internal/log"
+	log "github.com/k8shell-io/common/pkg/logger"
+	natsc "github.com/k8shell-io/common/pkg/nats"
 	"github.com/rs/zerolog"
 )
 
-const tokenCacheKey = "usermap_token"
+const tokenCacheKey = "usermap-token"
 
 // PeopleModel represents the structure of a user returned by Usermap backend.
 type PeopleModel struct {
@@ -35,7 +34,7 @@ type PeopleModel struct {
 
 type UsermapAPI struct {
 	config     UserMapProviderConfig
-	memcache   *memcache.Client
+	cache      *natsc.JetStreamKV
 	httpClient *http.Client
 	log        *zerolog.Logger
 
@@ -54,21 +53,19 @@ type TokenResponse struct {
 	ExpiresAt   int64  `json:"expires_at"`
 }
 
-func NewUsermapAPI(cfg UserMapProviderConfig, cacheCfg backend.CacheConfig, httpTimeout int) *UsermapAPI {
-	memcache := backend.NewCache(cacheCfg)
-
+func NewUsermapAPI(cfg UserMapProviderConfig, cache *natsc.JetStreamKV, httpTimeout int) *UsermapAPI {
 	u := &UsermapAPI{
 		log:        log.NewLogger("usermap"),
 		config:     cfg,
-		memcache:   memcache,
+		cache:      cache,
 		httpClient: &http.Client{Timeout: time.Duration(httpTimeout) * time.Millisecond},
 	}
 	return u
 }
 
 func (u *UsermapAPI) invalidateToken() {
-	if u.memcache != nil {
-		u.memcache.Delete(tokenCacheKey)
+	if u.cache != nil {
+		u.cache.Delete(tokenCacheKey)
 	}
 	u.accessToken = ""
 	u.tokenType = ""
@@ -77,11 +74,11 @@ func (u *UsermapAPI) invalidateToken() {
 }
 
 func (u *UsermapAPI) ensureToken() error {
-	if u.memcache != nil {
-		item, err := u.memcache.Get(tokenCacheKey)
+	if u.cache != nil {
+		item, err := u.cache.Get(tokenCacheKey)
 		if err == nil {
 			var tokenResp TokenResponse
-			if err := json.Unmarshal(item.Value, &tokenResp); err == nil {
+			if err := json.Unmarshal(item.Value(), &tokenResp); err == nil {
 				if time.Now().Unix() < tokenResp.ExpiresAt {
 					u.setTokenFromResponse(&tokenResp)
 					u.log.Debug().Msgf("Using cached token, expires at %d", tokenResp.ExpiresAt)
@@ -117,13 +114,9 @@ func (u *UsermapAPI) ensureToken() error {
 	u.setTokenFromResponse(&tokenResp)
 	u.log.Debug().Msgf("New token acquired, expires at %d", tokenResp.ExpiresAt)
 
-	if u.memcache != nil {
+	if u.cache != nil {
 		b, _ := json.Marshal(tokenResp)
-		u.memcache.Set(&memcache.Item{
-			Key:        tokenCacheKey,
-			Value:      b,
-			Expiration: int32(tokenResp.ExpiresIn),
-		})
+		u.cache.Set(tokenCacheKey, b)
 	}
 	return nil
 }
@@ -136,14 +129,14 @@ func (u *UsermapAPI) setTokenFromResponse(tr *TokenResponse) {
 }
 
 func (u *UsermapAPI) GetPeopleResource(username string) (*PeopleModel, error) {
-	cacheKey := fmt.Sprintf("usermap_people_%s", username)
+	cacheKey := fmt.Sprintf("usermap-people-%s", username)
 
-	if u.memcache != nil {
-		item, err := u.memcache.Get(cacheKey)
+	if u.cache != nil {
+		item, err := u.cache.Get(cacheKey)
 		if err == nil {
 			u.log.Debug().Msgf("User '%s' found in cache", username)
 			var cached PeopleModel
-			if err := json.Unmarshal(item.Value, &cached); err == nil {
+			if err := json.Unmarshal(item.Value(), &cached); err == nil {
 				return &cached, nil
 			}
 		}
@@ -181,14 +174,18 @@ func (u *UsermapAPI) GetPeopleResource(username string) (*PeopleModel, error) {
 		return nil, fmt.Errorf("invalid JSON response: %w", err)
 	}
 
-	if u.memcache != nil && u.config.CacheTimeout > 0 {
-		b, _ := json.Marshal(user)
-		_ = u.memcache.Set(&memcache.Item{
-			Key:        cacheKey,
-			Value:      b,
-			Expiration: int32(u.config.CacheTimeout),
-		})
-		u.log.Debug().Msgf("User '%s' cached for %d seconds", username, u.config.CacheTimeout)
+	if u.cache != nil && u.config.CacheTimeout > 0 {
+		b, err := json.Marshal(user)
+		if err != nil {
+			u.log.Warn().Msgf("Failed to marshal user '%s' for caching: %v", username, err)
+			return &user, nil
+		}
+		_, err = u.cache.Set(cacheKey, b)
+		if err != nil {
+			u.log.Warn().Msgf("Failed to cache user '%s': %v", username, err)
+		} else {
+			u.log.Debug().Msgf("User '%s' cached for %d seconds", username, u.config.CacheTimeout)
+		}
 	}
 
 	return &user, nil

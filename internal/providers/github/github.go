@@ -1,6 +1,7 @@
 package github
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,13 +13,16 @@ import (
 )
 
 const (
-	IDENTITY_USERAGENT     = "k8shell-identity/1.0"
-	GITHUB_PUBLIC_USER_URL = "https://api.github.com/users/%s"
-	GITHUB_USER_URL        = "https://api.github.com/user"
-	GITHUB_KEYS_URL        = "https://api.github.com/users/%s/keys"
-	GITHUB_EMAILS_URL      = "https://api.github.com/user/emails"
-	GITHUB_DEVICECODE_URL  = "https://github.com/login/device/code"
-	GITHUB_ACCESSTOKEN_URL = "https://github.com/login/oauth/access_token"
+	GITHUB_ADDRESS          = "https://github.com"
+	IDENTITY_USERAGENT      = "k8shell-identity/1.0"
+	GITHUB_PUBLIC_USER_URL  = "https://api.github.com/users/%s"
+	GITHUB_USER_URL         = "https://api.github.com/user"
+	GITHUB_KEYS_URL         = "https://api.github.com/users/%s/keys"
+	GITHUB_EMAILS_URL       = "https://api.github.com/user/emails"
+	GITHUB_DEVICECODE_URL   = "https://github.com/login/device/code"
+	GITHUB_ACCESSTOKEN_URL  = "https://github.com/login/oauth/access_token"
+	GITHUB_FILE_CONTENT_URL = "https://api.github.com/repos/%s/%s/contents/%s"
+	GITHUB_REPO_URL         = "https://api.github.com/repos/%s/%s"
 )
 
 type DeviceCodeResponse struct {
@@ -36,7 +40,30 @@ type AccessTokenResponse struct {
 	Error       string `json:"error,omitempty"`
 }
 
-func MakeRequest(client *http.Client, method string, url string, accessToken string, errNotOk bool) (any, int, error) {
+// GitHubRepo represents the GitHub repository response
+type GitHubRepo struct {
+	ID       int    `json:"id"`
+	Name     string `json:"name"`
+	FullName string `json:"full_name"`
+	Owner    struct {
+		Login string `json:"login"`
+	} `json:"owner"`
+	Private     bool   `json:"private"`
+	HTMLURL     string `json:"html_url"`
+	Description string `json:"description"`
+}
+
+// FileContent represents the GitHub file content response
+type FileContent struct {
+	Content  string `json:"content"`
+	Encoding string `json:"encoding"`
+	Size     int    `json:"size"`
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+}
+
+func MakeRequest(client *http.Client, method string, url string, accessToken string,
+	errNotOk bool) (any, int, error) {
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -140,6 +167,43 @@ func getAccessToken(client *http.Client, clientId, deviceCode string) (*AccessTo
 	return &result, nil
 }
 
+func exchangeCodeForAccessToken(client *http.Client, clientID, clientSecret, code,
+	codeVerifier string) (*AccessTokenResponse, error) {
+	data := url.Values{}
+	data.Set("client_id", clientID)
+	data.Set("client_secret", clientSecret)
+	data.Set("code", code)
+	data.Set("code_verifier", codeVerifier)
+
+	req, err := http.NewRequest("POST", GITHUB_ACCESSTOKEN_URL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("create access token request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("perform access token request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("access token request returned status %d", resp.StatusCode)
+	}
+
+	var tokenResp AccessTokenResponse
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return nil, fmt.Errorf("decode access token response: %w", err)
+	}
+
+	if tokenResp.Error != "" {
+		return nil, fmt.Errorf("access token error: %s", tokenResp.Error)
+	}
+
+	return &tokenResp, nil
+}
+
 func getPublicKeys(client *http.Client, username string, accessToken string) ([]string, error) {
 	keysURL := fmt.Sprintf(GITHUB_KEYS_URL, username)
 	keysResource, _, err := MakeRequest(client, "GET", keysURL, accessToken, true)
@@ -163,4 +227,86 @@ func getPublicKeys(client *http.Client, username string, accessToken string) ([]
 	}
 
 	return keys, nil
+}
+
+// githubGetRepo fetches repository information from GitHub API
+func GetRepo(owner, repo, token string) (*GitHubRepo, error) {
+	url := fmt.Sprintf(GITHUB_REPO_URL, owner, repo)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("token %s", token))
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var repoData GitHubRepo
+		if err := json.NewDecoder(resp.Body).Decode(&repoData); err != nil {
+			return nil, fmt.Errorf("failed to decode response: %w", err)
+		}
+		return &repoData, nil
+	case http.StatusNotFound:
+		return nil, fmt.Errorf("repository '%s/%s' not found", owner, repo)
+	default:
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("GitHub API error: %d %s", resp.StatusCode, string(body))
+	}
+}
+
+// GetFile fetches file content from GitHub repository
+func GetFile(owner, repo, token, file string, ref string) ([]byte, error) {
+	baseURL := fmt.Sprintf(GITHUB_FILE_CONTENT_URL, owner, repo, file)
+
+	if ref != "" {
+		baseURL += fmt.Sprintf("?ref=%s", url.QueryEscape(ref))
+	}
+
+	req, err := http.NewRequest("GET", baseURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("token %s", token))
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var fileContent FileContent
+		if err := json.NewDecoder(resp.Body).Decode(&fileContent); err != nil {
+			return nil, fmt.Errorf("failed to decode response: %w", err)
+		}
+
+		contentBytes, err := base64.StdEncoding.DecodeString(fileContent.Content)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode base64 content: %w", err)
+		}
+
+		return contentBytes, nil
+	case http.StatusNotFound:
+		return nil, fmt.Errorf("repository %s/%s does not exist or %s file not found", owner, repo, file)
+	case http.StatusForbidden:
+		return nil, fmt.Errorf("access denied to the repository %s/%s", owner, repo)
+	case http.StatusBadRequest:
+		return nil, fmt.Errorf("cannot access repository %s/%s or %s file", owner, repo, file)
+	default:
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("GitHub API error.\ncode=%d, response=%s", resp.StatusCode, string(body))
+	}
 }

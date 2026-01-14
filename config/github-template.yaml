@@ -10,8 +10,9 @@ user:
       ? emails.filter(e, e.primary == true)[0].email
       : "unknown@nowhere.com"
 
-  channels: [shell, pty, port_forward, sftp, scp, exec, forward_agent, system_exec]
+  channels: [session, shell, pty, port_forward, sftp, scp, exec, forward_agent, system_exec]
   auths: [publickey]
   blueprints: ["*"]
   roles: ["workspace-user"]
   isValid: true
+  organization: "github"

@@ -3,3 +3,6 @@ docker/identity/files
 vendor
 dist/
 __debug*
+wiki
+scripts
+.proto_deps

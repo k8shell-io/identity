@@ -5,9 +5,11 @@ package server
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
-	"github.com/k8shell-io/identity/pkg/models"
+	"github.com/k8shell-io/common/pkg/models"
+	"github.com/k8shell-io/common/pkg/utils"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -26,6 +28,7 @@ func (s *Server) refreshUser(username string, user *models.User) (*models.User, 
 				continue
 			}
 			if foundUser != nil {
+				s.normalizeUser(foundUser)
 				expiresAt := time.Now().Add(time.Duration(provider.UserMaxAge()) * time.Second)
 				foundUser.ExpiresAt = expiresAt
 				if user != nil {
@@ -49,6 +52,9 @@ func (s *Server) refreshUser(username string, user *models.User) (*models.User, 
 			if err != nil {
 				return nil, fmt.Errorf("failed to update user '%s' in database: %w", username, err)
 			}
+			foundUser.AccessToken = user.AccessToken
+			foundUser.Locked = user.Locked
+			foundUser.FailedLogins = user.FailedLogins
 			user = foundUser
 		} else if foundUser == nil && user != nil {
 			// If user was not found in identity provider but it exists in the DB, mark as invalid
@@ -119,7 +125,7 @@ func (s *Server) AuthenticateUser(username string, publicKey string) (bool, erro
 	// authenticate the user with the public key using the identity providers
 	for _, provider := range s.IdentityProviders {
 		if provider.Name() == user.Source {
-			auth, err := provider.AuthPublicKey(user, parsedKey)
+			auth, err := provider.AuthPublicKey(user.Username, parsedKey)
 			if err != nil {
 				return false, fmt.Errorf("error occurred while authenticating user '%s' with provider '%s': %w", username, provider.Name(), err)
 			}
@@ -132,7 +138,7 @@ func (s *Server) AuthenticateUser(username string, publicKey string) (bool, erro
 
 // OnboardUser attempts to onboard a user using the device flow method from the available identity providers.
 // It returns the onboarding information if successful, or an error if no suitable provider is found.
-func (s *Server) OnboardUserDeviceFlow(username string) (*models.OnboardUser, error) {
+func (s *Server) OnboardUserDeviceFlow(username string) (*models.OnboardUserDeviceFlow, error) {
 	for _, provider := range s.IdentityProviders {
 		onboardUser, err := provider.OnboardUserDeviceFlow(username)
 		if err != nil && !errors.Is(err, models.ErrMethodNotSupported) {
@@ -146,7 +152,50 @@ func (s *Server) OnboardUserDeviceFlow(username string) (*models.OnboardUser, er
 	return nil, fmt.Errorf("no suitable identity provider found for onboarding user '%s'", username)
 }
 
-func (s *Server) OnboardCapability(username string) (*models.OnBoardCapability, error) {
+// OnboardUserWebFlow attempts to onboard a user using the web flow method from the specified identity provider.
+// It returns the onboarding information if successful, or an error if no suitable provider is found.
+func (s *Server) OnboardUserWebFlow(providerName string, redirectUri string) (*models.OnboardUserWebFlow, error) {
+	for _, provider := range s.IdentityProviders {
+		if provider.Name() == providerName {
+			authInfo, err := provider.OnboardUserWebFlow(redirectUri)
+			if err != nil {
+				return nil, fmt.Errorf("error occurred while onboarding user via web flow with provider '%s': %w",
+					provider.Name(), err)
+			}
+			return authInfo, nil
+		}
+	}
+	return nil, fmt.Errorf("no suitable identity provider found for onboarding via web flow with provider '%s'", providerName)
+}
+
+func (s *Server) CompleteUserWebFlow(state, code string) (*models.User, error) {
+	provider, _, err := utils.DecodeState(state)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode web flow state: %w", err)
+	}
+
+	for _, p := range s.IdentityProviders {
+		if p.Name() == provider {
+			username, err := p.CompleteUserWebFlow(state, code)
+			if err != nil {
+				return nil, fmt.Errorf("error occurred while completing web flow for provider '%s': %w",
+					provider, err)
+			}
+
+			user, err := s.GetUser(username)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get user '%s' after completing web flow: %w", username, err)
+			}
+
+			return user, nil
+		}
+	}
+	return nil, fmt.Errorf("no suitable identity provider found for completing web flow with provider '%s'", provider)
+}
+
+// OnboardCapability checks the onboarding capability for a user across all identity providers.
+// It returns the capability information if found, or an error if no suitable provider is found.
+func (s *Server) OnboardCapability(username string) (*models.OnboardCapability, error) {
 	for _, provider := range s.IdentityProviders {
 		cap, err := provider.OnboardCapability(username)
 		if err != nil && !errors.Is(err, models.ErrMethodNotSupported) && !errors.Is(err, models.ErrUserNotAllowedOnboard) {
@@ -160,24 +209,73 @@ func (s *Server) OnboardCapability(username string) (*models.OnBoardCapability, 
 	return nil, fmt.Errorf("no suitable identity provider found for checking onboarding capability of user '%s'", username)
 }
 
-// GetUserToken retrieves a user token for the specified username.
-func (s *Server) GetUserToken(username string) (*models.UserToken, error) {
+// GetUserExtCredentials retrieves user credentials for the specified username.
+// The credentials include token from the identity provider associated with the user and user's external credentials.
+func (s *Server) GetUserExtCredentials(username string) ([]*models.ExternalCredential, error) {
 	user, err := s.GetUser(username)
 	if err != nil {
 		return nil, fmt.Errorf("error occurred when getting user '%s': %w", username, err)
 	}
 
+	var credentials []*models.ExternalCredential
 	for _, provider := range s.IdentityProviders {
 		if provider.Name() == user.Source {
-			token, err := provider.GetUserToken(user)
-			if err != nil {
+			token, err := provider.GetUserToken(user.Username)
+			if err != nil && !errors.Is(err, models.ErrMethodNotSupported) {
 				return nil, fmt.Errorf("error occurred while getting user token for '%s' with provider '%s': %w",
 					username, provider.Name(), err)
 			}
-			return token, nil
+			if token != nil {
+				credentials = append(credentials, &models.ExternalCredential{
+					ServiceName:   provider.Name(),
+					Username:      user.Username,
+					ExternalID:    token.Username,
+					ExternalToken: token.Token,
+					ServiceURL:    token.Address,
+				})
+			}
 		}
 	}
 
-	return nil, fmt.Errorf("no suitable identity provider found for user '%s': %w", username, 
-		models.ErrUserTokenNotSupported)  
+	externalCreds, err := s.DB.GetExternalCredentials(username)
+	if err != nil {
+		return nil, fmt.Errorf("error occurred while getting external credentials for user '%s': %w", username, err)
+	}
+	credentials = append(credentials, externalCreds...)
+
+	return credentials, nil
+}
+
+func (s *Server) GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlueprint, error) {
+	user, err := s.GetUser(userStr.Username)
+	if err != nil {
+		return nil, fmt.Errorf("error occurred when getting user '%s': %w", userStr.Username, err)
+	}
+
+	for _, provider := range s.IdentityProviders {
+		if provider.Name() == user.Source {
+			blueprint, err := provider.GetCustomBlueprint(userStr)
+			if err != nil {
+				return nil, fmt.Errorf("error occurred while getting custom blueprint for '%s' with provider '%s': %w",
+					userStr.Username, provider.Name(), err)
+			}
+			return blueprint, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no suitable identity provider found for user '%s'", userStr.Username)
+}
+
+// normalizeUser ensures that the user's attributes conform to expected formats and defaults.
+func (s *Server) normalizeUser(user *models.User) {
+	if user == nil {
+		return
+	}
+	user.Username = strings.ToLower(user.Username)
+	if user.UID == 0 {
+		user.UID = 100000
+	}
+	if user.GID == 0 {
+		user.GID = 100000
+	}
 }

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/k8shell-io/identity/pkg/models"
+	"github.com/k8shell-io/common/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -38,13 +38,14 @@ func TestUserCRUDLifecycle(t *testing.T) {
 			Password:     "password" + idstr,
 			Locked:       false,
 			FailedLogins: 0,
-			Auths:        []models.AuthMethod{"auth1"},
+			Auths:        []string{"auth1"},
 			AuthKeys:     []string{"key1"},
-			Channels:     []models.Channel{"channel1"},
+			Channels:     []string{"channel1"},
 			Envs:         []string{"env1"},
-			Roles:        []models.Role{"user"},
+			Roles:        []string{"user"},
 			Blueprints:   []string{"blueprint1"},
 			Source:       "test",
+			Organization: "default",
 		}
 		if i == 0 {
 			firstUser = user
@@ -80,6 +81,7 @@ func TestUserCRUDLifecycle(t *testing.T) {
 	assert.Equal(t, firstUser.Locked, foundUser.Locked)
 	assert.Equal(t, firstUser.FailedLogins, foundUser.FailedLogins)
 	assert.WithinDuration(t, firstUser.ExpiresAt, foundUser.ExpiresAt, time.Millisecond)
+	assert.Equal(t, firstUser.Organization, foundUser.Organization)
 
 	// Update the user
 	firstUser.IsValid = false
@@ -92,13 +94,14 @@ func TestUserCRUDLifecycle(t *testing.T) {
 	firstUser.Password = "updated_password"
 	firstUser.Locked = true
 	firstUser.FailedLogins = 1
-	firstUser.Auths = []models.AuthMethod{"auth2"}
+	firstUser.Auths = []string{"auth2"}
 	firstUser.AuthKeys = []string{"key2"}
-	firstUser.Channels = []models.Channel{"channel2"}
+	firstUser.Channels = []string{"channel2"}
 	firstUser.Envs = []string{"env2"}
-	firstUser.Roles = []models.Role{"admin"}
+	firstUser.Roles = []string{"admin"}
 	firstUser.Blueprints = []string{"blueprint2"}
 	firstUser.Source = "test_updated"
+	firstUser.Organization = "ctu"
 	err = db.UpdateUser(firstUser)
 	require.NoError(t, err)
 
@@ -123,6 +126,7 @@ func TestUserCRUDLifecycle(t *testing.T) {
 	assert.Equal(t, firstUser.Locked, updatedUser.Locked)
 	assert.Equal(t, firstUser.FailedLogins, updatedUser.FailedLogins)
 	assert.WithinDuration(t, firstUser.ExpiresAt, updatedUser.ExpiresAt, time.Millisecond)
+	assert.Equal(t, firstUser.Organization, updatedUser.Organization)
 
 	// Delete the user
 	err = db.DeleteUser(foundUser.Username)

@@ -1,20 +1,17 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"os"
-	"os/signal"
-	"syscall"
 
-	"github.com/k8shell-io/identity/internal/log"
+	log "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/identity/internal/server"
 )
 
 var (
-	IDENTITY_VERSION = "0.0.0"
-	IDENTITY_COMMIT  = "0000000"
+	VERSION = "0.0.0"
+	COMMIT  = "0000000"
 )
 
 // Options represents the command line options
@@ -59,7 +56,7 @@ func getOptions(version string, commit_id string) (*Options, error) {
 }
 
 func main() {
-	opts, err := getOptions(IDENTITY_VERSION, IDENTITY_COMMIT)
+	opts, err := getOptions(VERSION, COMMIT)
 	if err != nil {
 		fmt.Printf("Error parsing options: %v\n", err)
 		os.Exit(1)
@@ -74,8 +71,5 @@ func main() {
 		return
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
-	server.RestApi.Serve(ctx)
+	server.Serve()
 }

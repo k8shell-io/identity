@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/k8shell-io/identity/internal/backend"
+	"github.com/k8shell-io/common/pkg/models"
+	natsc "github.com/k8shell-io/common/pkg/nats"
 	"github.com/k8shell-io/identity/internal/common"
-	"github.com/k8shell-io/identity/pkg/models"
 	"github.com/k8shell-io/yaml-cel/pkg/yamlcel"
 	"golang.org/x/crypto/ssh"
 )
@@ -35,15 +35,23 @@ type UserMapProvider struct {
 	template   *yamlcel.CELTemplate
 }
 
-func NewUserMapProvider(cfg UserMapProviderConfig, baseDir string, cacheCfg backend.CacheConfig) (*UserMapProvider, error) {
+func NewUserMapProvider(cfg UserMapProviderConfig, baseDir string, nats *natsc.NATSClient) (*UserMapProvider, error) {
 	template, err := yamlcel.NewTemplate(common.NormalizePath(cfg.Template, baseDir))
 	if err != nil {
 		return nil, fmt.Errorf("load user template '%s': %w", cfg.Template, err)
 	}
 
+	var cache *natsc.JetStreamKV
+	if nats != nil {
+		cache, err = nats.NewKV(natsc.BucketOptions{Bucket: "idp-usermap-cache"})
+		if err != nil {
+			return nil, fmt.Errorf("create kv cache: %w", err)
+		}
+	}
+
 	provider := &UserMapProvider{
 		config:     cfg,
-		UsermapAPI: NewUsermapAPI(cfg, cacheCfg, cfg.Timeout),
+		UsermapAPI: NewUsermapAPI(cfg, cache, cfg.Timeout),
 		template:   template,
 	}
 
@@ -90,7 +98,7 @@ func (p *UserMapProvider) FindUser(username string) (*models.User, error) {
 	return userObj, nil
 }
 
-func (p *UserMapProvider) OnboardCapability(username string) (*models.OnBoardCapability, error) {
+func (p *UserMapProvider) OnboardCapability(username string) (*models.OnboardCapability, error) {
 	// Usermap provider does not support onboarding via device code
 	return nil, fmt.Errorf("%w: usermap provider does not support onboarding via device flow",
 		models.ErrMethodNotSupported)
@@ -124,10 +132,10 @@ func (p *UserMapProvider) keysFromURL(username string) ([]string, []string, erro
 	return common.ParseKeys(string(body))
 }
 
-func (p *UserMapProvider) AuthPublicKey(user *models.User, key ssh.PublicKey) (bool, error) {
-	keys, _, err := p.keysFromURL(user.Username)
+func (p *UserMapProvider) AuthPublicKey(username string, key ssh.PublicKey) (bool, error) {
+	keys, _, err := p.keysFromURL(username)
 	if err != nil {
-		return false, fmt.Errorf("failed to fetch keys for user %s: %w", user.Username, err)
+		return false, fmt.Errorf("failed to fetch keys for user %s: %w", username, err)
 	}
 
 	provided := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
@@ -140,13 +148,27 @@ func (p *UserMapProvider) AuthPublicKey(user *models.User, key ssh.PublicKey) (b
 	return false, nil
 }
 
-func (p *UserMapProvider) OnboardUserDeviceFlow(username string) (*models.OnboardUser, error) {
+func (p *UserMapProvider) OnboardUserDeviceFlow(username string) (*models.OnboardUserDeviceFlow, error) {
 	// Usermap provider does not support onboarding via device code
 	return nil, fmt.Errorf("%w: usermap provider does not support onboarding via device flow",
 		models.ErrMethodNotSupported)
 }
 
-func (p *UserMapProvider) GetUserToken(user *models.User) (*models.UserToken, error) {
+func (p *UserMapProvider) GetUserToken(username string) (*models.UserToken, error) {
 	// Usermap provider does not support user tokens
 	return nil, fmt.Errorf("%w: usermap provider does not support user tokens", models.ErrMethodNotSupported)
+}
+
+func (p *UserMapProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlueprint, error) {
+	return nil, fmt.Errorf("%w: usermap provider does not support custom blueprints", models.ErrMethodNotSupported)
+}
+
+func (p *UserMapProvider) OnboardUserWebFlow(redirectUri string) (*models.OnboardUserWebFlow, error) {
+	return nil, fmt.Errorf("%w: usermap provider does not support onboarding via web flow",
+		models.ErrMethodNotSupported)
+}
+
+func (p *UserMapProvider) CompleteUserWebFlow(state string, code string) (string, error) {
+	return "", fmt.Errorf("%w: usermap provider does not support onboarding via web flow",
+		models.ErrMethodNotSupported)
 }
