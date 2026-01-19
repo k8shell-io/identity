@@ -29,7 +29,8 @@ db:
 identityProviders:
   # simple file-based identity provider
   - id: file
-    filename: users.yaml
+    files: 
+      - users.yaml
 
   # usermap identity provider
   - id: usermap
