@@ -32,7 +32,7 @@ func NewIdentityService(server *Server) *IdentityService {
 func (s *IdentityService) GetUsers(ctx context.Context, req *identitypb.GetUsersRequest) (*identitypb.UserList, error) {
 	users, err := s.server.DB.ListUsers(int(req.Limit), int(req.Offset))
 	if err != nil {
-		return nil, fmt.Errorf("failed to get users: %w", err)
+		return nil, status.Errorf(codes.Internal, "failed to list users: %v", err)
 	}
 
 	pbUsers := make([]*commonpb.User, len(users))
@@ -70,7 +70,7 @@ func (s *IdentityService) FindUser(ctx context.Context, req *identitypb.FindUser
 			return nil, status.Error(codes.NotFound, "user not found by token")
 		}
 		s.log.Error().Err(err).Msg("failed to get user by token")
-		return nil, status.Error(codes.Internal, "failed to get user by token")
+		return nil, status.Errorf(codes.Internal, "failed to get user by token: %v", err)
 	}
 	if user == nil {
 		return nil, status.Error(codes.NotFound, "user not found for the provided token")
@@ -82,7 +82,7 @@ func (s *IdentityService) AuthUserPublicKey(ctx context.Context,
 	req *identitypb.AuthUserPublicKeyRequest) (*identitypb.AuthUserResponse, error) {
 	valid, err := s.server.AuthenticateUser(req.Username, req.PublicKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to auth public key: %w", err)
+		return nil, status.Errorf(codes.Internal, "failed to auth public key: %v", err)
 	}
 	response := &identitypb.AuthUserResponse{Valid: valid}
 	return response, nil
@@ -92,7 +92,7 @@ func (s *IdentityService) GetUserOnboardCapability(ctx context.Context,
 	req *identitypb.Username) (*commonpb.UserOnboardCapability, error) {
 	cap, err := s.server.OnboardCapability(req.Username)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get onboard capability: %w", err)
+		return nil, status.Errorf(codes.Internal, "failed to get onboard capability: %v", err)
 	}
 	return gapi.UserOnboardCapabilityToProto(cap), nil
 }
@@ -101,7 +101,7 @@ func (s *IdentityService) OnboardUserDeviceFlow(ctx context.Context,
 	req *identitypb.Username) (*commonpb.OnboardUserDeviceFlow, error) {
 	onboardUser, err := s.server.OnboardUserDeviceFlow(req.Username)
 	if err != nil {
-		return nil, fmt.Errorf("failed to onboard user: %w", err)
+		return nil, status.Errorf(codes.Internal, "failed to onboard user: %v", err)
 	}
 
 	return gapi.OnboardUserDeviceFlowToProto(onboardUser), nil
@@ -111,7 +111,7 @@ func (s *IdentityService) OnboardUserWebFlow(ctx context.Context,
 	req *identitypb.OnboardUserWebFlowRequest) (*commonpb.OnboardUserWebFlow, error) {
 	onboardUser, err := s.server.OnboardUserWebFlow(req.Provider, req.RedirectUri)
 	if err != nil {
-		return nil, fmt.Errorf("failed to onboard user via web flow: %w", err)
+		return nil, status.Errorf(codes.Internal, "failed to onboard user via web flow: %v", err)
 	}
 
 	return gapi.OnboardUserWebFlowToProto(onboardUser), nil
@@ -121,30 +121,42 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 	req *identitypb.CompleteUserWebFlowRequest) (*commonpb.User, error) {
 	user, err := s.server.CompleteUserWebFlow(req.State, req.Code)
 	if err != nil {
-		return nil, fmt.Errorf("failed to complete user web flow: %w", err)
+		return nil, status.Errorf(codes.Internal, "failed to complete user web flow: %v", err)
 	}
 
 	return gapi.UserToProto(user), nil
 }
 
 // Blueprint methods
-func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context, req *identitypb.UserStr) (*identitypb.Blueprint, error) {
-	userStr, err := models.NewUserStr(req.Userstr)
+func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context,
+	req *identitypb.UserStr) (*identitypb.Blueprint, error) {
+	userStr, err := models.NewUserStr(req.Userstr, false)
 	if err != nil {
-		return nil, fmt.Errorf("invalid user string: %w", err)
+		return nil, status.Errorf(codes.InvalidArgument, "invalid user string: %v", err)
 	}
 
 	blueprint, err := s.server.GetCustomBlueprint(userStr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get blueprint: %w", err)
+		return nil, status.Errorf(codes.InvalidArgument, "failed to get blueprint: %v", err)
 	}
 
 	jsonData, err := json.Marshal(blueprint)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal blueprint to JSON: %w", err)
+		return nil, status.Errorf(codes.Internal, "failed to marshal blueprint to JSON: %v", err)
 	}
 
 	return &identitypb.Blueprint{BlueprintJson: string(jsonData)}, nil
+}
+
+// ResolvePullRequestToRef resolves a repository pull request to its corresponding reference.
+func (s *IdentityService) ResolvePullRequestToRef(ctx context.Context,
+	req *identitypb.RepoPullRequestRequest) (*identitypb.RepoRefResponse, error) {
+	repoRef, err := s.server.ResolveRepoPullRequestToRef(req.Username, req.RepoOwner, req.RepoName,
+		int(req.PullRequestNumber))
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to resolve pull request to ref: %v", err)
+	}
+	return &identitypb.RepoRefResponse{RepoRef: repoRef}, nil
 }
 
 // External credentials methods
@@ -169,7 +181,7 @@ func (s *IdentityService) AddUserCredential(ctx context.Context,
 
 	err := s.server.DB.AddExternalCredential(credential)
 	if err != nil {
-		return nil, fmt.Errorf("failed to add user credential: %w", err)
+		return nil, status.Errorf(codes.Internal, "failed to add user credential: %v", err)
 	}
 
 	return &identitypb.AddUserCredentialResponse{Credential: req}, nil
@@ -180,7 +192,7 @@ func (s *IdentityService) UpdateUserCredential(ctx context.Context, req *commonp
 
 	err := s.server.DB.UpdateExternalCredential(credential)
 	if err != nil {
-		return nil, fmt.Errorf("failed to update user credential: %w", err)
+		return nil, status.Errorf(codes.Internal, "failed to update user credential: %v", err)
 	}
 
 	return &identitypb.UpdateUserCredentialResponse{Credential: req}, nil
@@ -190,7 +202,7 @@ func (s *IdentityService) DeleteUserCredential(ctx context.Context,
 	req *identitypb.DeleteUserCredentialRequest) (*identitypb.DeleteUserCredentialResponse, error) {
 	err := s.server.DB.DeleteExternalCredential(req.Id)
 	if err != nil {
-		return nil, fmt.Errorf("failed to delete user credential: %w", err)
+		return nil, status.Errorf(codes.Internal, "failed to delete user credential: %v", err)
 	}
 
 	return &identitypb.DeleteUserCredentialResponse{Success: true}, nil

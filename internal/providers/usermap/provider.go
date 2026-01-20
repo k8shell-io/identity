@@ -172,3 +172,9 @@ func (p *UserMapProvider) CompleteUserWebFlow(state string, code string) (string
 	return "", fmt.Errorf("%w: usermap provider does not support onboarding via web flow",
 		models.ErrMethodNotSupported)
 }
+
+func (f *UserMapProvider) ResolvePullRequestRef(username string, repoOwner, repoName string,
+	pullRequestNumber int) (string, error) {
+	return "", fmt.Errorf("%w: usermap provider does not support resolving pull requests to refs",
+		models.ErrMethodNotSupported)
+}

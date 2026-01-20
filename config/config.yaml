@@ -3,6 +3,9 @@
 # http server
 grpc:
   port: 9020
+  enableTLS: true
+  certFile: /opt/shared/identity/tls/tls.crt
+  keyFile: /opt/shared/identity/tls/tls.key
 
   # JWT required claims for authentication
   authEnabled: false
@@ -15,7 +18,7 @@ nats:
   enabled: true
   url: nats://nats.k8shell-test:4222
   username: identity
-  password: ${IDENTITY_NATS_PASSWORD}
+  password: !file ${SECRET_FILES}/token_identity
 
 # DB configuration
 db:

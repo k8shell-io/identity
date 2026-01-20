@@ -145,3 +145,9 @@ func (f *FileUserProvider) CompleteUserWebFlow(state string, code string) (strin
 	return "", fmt.Errorf("%w: file user provider does not support onboarding via web flow",
 		models.ErrMethodNotSupported)
 }
+
+func (f *FileUserProvider) ResolvePullRequestRef(username string, repoOwner, repoName string,
+	pullRequestNumber int) (string, error) {
+	return "", fmt.Errorf("%w: file user provider does not support resolving pull requests to refs",
+		models.ErrMethodNotSupported)
+}
