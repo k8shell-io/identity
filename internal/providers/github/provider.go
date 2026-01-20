@@ -27,6 +27,7 @@ import (
 )
 
 const K8SHELL_FILENAME = ".k8shell"
+const githubGraphQLEndpoint = "https://api.github.com/graphql"
 
 type GitHubProviderConfig struct {
 	ID           string            `yaml:"id"`
@@ -109,6 +110,8 @@ func NewGitHubProvider(cfg GitHubProviderConfig, nats *natsc.NATSClient, db *bac
 		template:               template,
 		defaultCustomBlueprint: cbp,
 	}
+
+	models.SetRefResolver(provider)
 	return provider, nil
 }
 
@@ -535,6 +538,24 @@ func (p *GitHubProvider) AuthPublicKey(username string, key ssh.PublicKey) (bool
 	return false, nil
 }
 
+// ResolvePullRequestRef resolves a GitHub pull request number to a repository reference (branch or commit SHA).
+func (p *GitHubProvider) ResolvePullRequestRef(username string, repoOwner, repoName string,
+	pullRequestNumber int) (string, error) {
+	providerInfo, err := p.db.GetUserProviderInfo(username, p.Name())
+	if err != nil {
+		return "", fmt.Errorf("failed to get user provider info for '%s': %w", username, err)
+	}
+	if providerInfo == nil || providerInfo.Status != "ready" {
+		return "", fmt.Errorf("%w: user '%s' is not ready with provider %s", models.ErrUserNotOnboarded,
+			username, p.Name())
+	}
+	ref, err := getRepoRefFromPullRequest(repoOwner, repoName, pullRequestNumber, providerInfo.AccessToken)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve pull request #%d to ref: %w", pullRequestNumber, err)
+	}
+	return ref, nil
+}
+
 // GetUserToken retrieves the access token for the specified user.
 func (p *GitHubProvider) GetUserToken(username string) (*models.UserToken, error) {
 	providerInfo, err := p.db.GetUserProviderInfo(username, p.Name())
@@ -557,11 +578,11 @@ func (p *GitHubProvider) GetUserToken(username string) (*models.UserToken, error
 
 // GetCustomBlueprint retrieves the custom blueprint for the specified user string.
 func (p *GitHubProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlueprint, error) {
-	if !userStr.HasCustomBlueprint {
+	if userStr.BlueprintKind != models.BlueprintKindCustom {
 		return nil, fmt.Errorf("user string does not use a custom blueprint")
 	}
 
-	useDefault := func(cause error, msg string) (*models.CustomBlueprint, error) {
+	useDefault := func(repoRef string, cause error, msg string) (*models.CustomBlueprint, error) {
 		p.log.Warn().Err(cause).Msgf("%s; falling back to default custom blueprint", msg)
 		if p.defaultCustomBlueprint == nil {
 			return nil, fmt.Errorf("%s; no default custom blueprint configured: %w", msg, cause)
@@ -574,37 +595,52 @@ func (p *GitHubProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.Cu
 		bp.Metadata.Name = userStr.Blueprint
 		bp.Metadata.RepoName = userStr.RepoName
 		bp.Metadata.RepoOwner = userStr.RepoOwner
+		bp.Metadata.RepoRef = repoRef
 		bp.Metadata.RepoAddress = GITHUB_ADDRESS
 		return bp, nil
 	}
 
 	token, err := p.GetUserToken(userStr.Username)
 	if err != nil {
-		return useDefault(err, fmt.Sprintf("get user token for %q failed", userStr.Username))
+		return useDefault(userStr.RepoRef, err, fmt.Sprintf("get user token for %q failed", userStr.Username))
 	}
 
-	fileContent, err := GetFile(userStr.RepoOwner, userStr.RepoName, token.Token, K8SHELL_FILENAME, userStr.RepoRef)
+	canUserStr, err := userStr.Canonicalize()
 	if err != nil {
-		return useDefault(err, fmt.Sprintf("fetch %s from %s/%s failed", K8SHELL_FILENAME,
-			userStr.RepoOwner, userStr.RepoName))
+		return nil, fmt.Errorf("canonicalize user string: %w", err)
+	}
+
+	fileContent, err := GetFile(canUserStr.Identity.RepoOwner, canUserStr.Identity.RepoName, token.Token,
+		K8SHELL_FILENAME, canUserStr.Identity.RepoRef)
+	if err != nil {
+		_, err := GetRef(canUserStr.Identity.RepoOwner, canUserStr.Identity.RepoName, canUserStr.Identity.RepoRef,
+			token.Token)
+		if err != nil {
+			return nil, fmt.Errorf("repository %s/%s does not exist or is not accessible: %w",
+				canUserStr.Identity.RepoOwner, canUserStr.Identity.RepoName, err)
+		}
+		return useDefault(canUserStr.Identity.RepoRef, err, fmt.Sprintf("fetch %s from %s/%s failed",
+			K8SHELL_FILENAME, canUserStr.Identity.RepoOwner, canUserStr.Identity.RepoName))
 	}
 
 	var k8shellFile models.K8shellFile
 	if err := yaml.Unmarshal(fileContent, &k8shellFile); err != nil {
-		return useDefault(err, fmt.Sprintf("parse %s in %s/%s failed", K8SHELL_FILENAME,
-			userStr.RepoOwner, userStr.RepoName))
+		return useDefault(canUserStr.Identity.RepoRef, err, fmt.Sprintf("parse %s in %s/%s failed",
+			K8SHELL_FILENAME, canUserStr.Identity.RepoOwner, canUserStr.Identity.RepoName))
 	}
 
 	bp, valErrs := models.ValidateK8shellFile(k8shellFile)
 	if len(valErrs) > 0 {
-		return useDefault(fmt.Errorf("%v", valErrs), fmt.Sprintf("validate %s in %s/%s failed",
-			K8SHELL_FILENAME, userStr.RepoOwner, userStr.RepoName))
+		return useDefault(canUserStr.Identity.RepoRef, fmt.Errorf("%v", valErrs),
+			fmt.Sprintf("validate %s in %s/%s failed", K8SHELL_FILENAME, canUserStr.Identity.RepoOwner,
+				canUserStr.Identity.RepoName))
 	}
 
-	bp.Name = userStr.Blueprint
-	bp.Metadata.Name = userStr.Blueprint
-	bp.Metadata.RepoName = userStr.RepoName
-	bp.Metadata.RepoOwner = userStr.RepoOwner
+	bp.Name = canUserStr.Identity.Blueprint
+	bp.Metadata.Name = canUserStr.Identity.Blueprint
+	bp.Metadata.RepoName = canUserStr.Identity.RepoName
+	bp.Metadata.RepoOwner = canUserStr.Identity.RepoOwner
+	bp.Metadata.RepoRef = canUserStr.Identity.RepoRef
 	bp.Metadata.RepoAddress = GITHUB_ADDRESS
 	return bp, nil
 }

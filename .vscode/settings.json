@@ -11,5 +11,8 @@
             "--go-grpc_out=.",
             "--go-grpc_opt=module=github.com/k8shell-io/identity"
         ]
-    }
+    },
+    // Used by the Go test runner / codelens "Run Test"
+    "go.testEnvFile": "${workspaceFolder}/.github-integration.env",
+    "go.testTags": "integration"
 }

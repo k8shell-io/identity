@@ -1,6 +1,7 @@
 package github
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -23,6 +24,7 @@ const (
 	GITHUB_ACCESSTOKEN_URL  = "https://github.com/login/oauth/access_token"
 	GITHUB_FILE_CONTENT_URL = "https://api.github.com/repos/%s/%s/contents/%s"
 	GITHUB_REPO_URL         = "https://api.github.com/repos/%s/%s"
+	GITHUB_REF_URL          = "https://api.github.com/repos/%s/%s/git/ref/%s"
 )
 
 type DeviceCodeResponse struct {
@@ -60,6 +62,18 @@ type FileContent struct {
 	Size     int    `json:"size"`
 	Name     string `json:"name"`
 	Path     string `json:"path"`
+}
+
+// GitRef represents the GitHub Git reference response
+type GitRef struct {
+	Ref    string `json:"ref"`
+	NodeID string `json:"node_id"`
+	URL    string `json:"url"`
+	Object struct {
+		SHA  string `json:"sha"`
+		Type string `json:"type"`
+		URL  string `json:"url"`
+	} `json:"object"`
 }
 
 func MakeRequest(client *http.Client, method string, url string, accessToken string,
@@ -309,4 +323,126 @@ func GetFile(owner, repo, token, file string, ref string) ([]byte, error) {
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("GitHub API error.\ncode=%d, response=%s", resp.StatusCode, string(body))
 	}
+}
+
+// GetRef fetches a Git ref (e.g. heads/main, tags/v1.0.0) from GitHub.
+func GetRef(owner, repo, ref, token string) (*GitRef, error) {
+	url := fmt.Sprintf(GITHUB_REF_URL, owner, repo, ref)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("token %s", token))
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var refData GitRef
+		if err := json.NewDecoder(resp.Body).Decode(&refData); err != nil {
+			return nil, fmt.Errorf("failed to decode response: %w", err)
+		}
+		return &refData, nil
+	case http.StatusNotFound:
+		return nil, fmt.Errorf("ref '%s' not found in repository '%s/%s'", ref, owner, repo)
+	default:
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("GitHub API error: %d %s", resp.StatusCode, string(body))
+	}
+}
+
+// getRepoRefFromPullRequest uses GitHub GraphQL API to resolve the head branch ref for a pull request,
+// returning the branch name only if the head repository matches the provided owner/name (i.e., not a fork).
+func getRepoRefFromPullRequest(owner, repo string, pullRequestNumber int, token string) (string, error) {
+	reqBody := map[string]any{
+		"query": `query($owner:String!, $repo:String!, $number:Int!) {
+  repository(owner:$owner, name:$repo) {
+    pullRequest(number:$number) {
+      headRefName
+      headRepository {
+        name
+        owner { login }
+      }
+    }
+  }
+}`,
+		"variables": map[string]any{
+			"owner":  owner,
+			"repo":   repo,
+			"number": pullRequestNumber,
+		},
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("marshal graphql request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", githubGraphQLEndpoint, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return "", fmt.Errorf("create graphql request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", IDENTITY_USERAGENT)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("execute graphql request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("graphql request failed: status %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	var gqlResp struct {
+		Data struct {
+			Repository struct {
+				PullRequest struct {
+					HeadRefName    string `json:"headRefName"`
+					HeadRepository struct {
+						Name  string `json:"name"`
+						Owner struct {
+							Login string `json:"login"`
+						} `json:"owner"`
+					} `json:"headRepository"`
+				} `json:"pullRequest"`
+			} `json:"repository"`
+		} `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&gqlResp); err != nil {
+		return "", fmt.Errorf("decode graphql response: %w", err)
+	}
+	if len(gqlResp.Errors) > 0 {
+		return "", fmt.Errorf("graphql error: %s", gqlResp.Errors[0].Message)
+	}
+
+	pr := gqlResp.Data.Repository.PullRequest
+	if pr.HeadRefName == "" {
+		return "", fmt.Errorf("no head ref found for pull request #%d", pullRequestNumber)
+	}
+
+	// Only accept refs that belong to the same repository (avoid fork head branches).
+	if !strings.EqualFold(pr.HeadRepository.Owner.Login, owner) ||
+		!strings.EqualFold(pr.HeadRepository.Name, repo) {
+		return "", fmt.Errorf("pull request #%d head branch is from a different repository (%s/%s)",
+			pullRequestNumber, pr.HeadRepository.Owner.Login, pr.HeadRepository.Name)
+	}
+
+	return pr.HeadRefName, nil
 }

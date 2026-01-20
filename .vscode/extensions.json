@@ -2,6 +2,6 @@
   "recommendations": [
     "golang.go",
     "humao.rest-client",
-    "zxh404.vscode-proto3"
+    "drblury.protobuf-vsc"
   ]
 }

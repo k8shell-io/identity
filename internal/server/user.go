@@ -24,7 +24,7 @@ func (s *Server) refreshUser(username string, user *models.User) (*models.User, 
 		for _, provider := range s.IdentityProviders {
 			foundUser, err = provider.FindUser(username)
 			if err != nil {
-				s.log.Warn().Msgf("Error occurred while looking up user '%s' via provider '%s': %v", username, provider.Name(), err)
+				s.log.Warn().Msgf("Failed to look up user '%s' via provider '%s': %v", username, provider.Name(), err)
 				continue
 			}
 			if foundUser != nil {
@@ -127,7 +127,7 @@ func (s *Server) AuthenticateUser(username string, publicKey string) (bool, erro
 		if provider.Name() == user.Source {
 			auth, err := provider.AuthPublicKey(user.Username, parsedKey)
 			if err != nil {
-				return false, fmt.Errorf("error occurred while authenticating user '%s' with provider '%s': %w", username, provider.Name(), err)
+				return false, fmt.Errorf("failed to authenticate user '%s' with provider '%s': %w", username, provider.Name(), err)
 			}
 			return auth, nil
 		}
@@ -142,7 +142,7 @@ func (s *Server) OnboardUserDeviceFlow(username string) (*models.OnboardUserDevi
 	for _, provider := range s.IdentityProviders {
 		onboardUser, err := provider.OnboardUserDeviceFlow(username)
 		if err != nil && !errors.Is(err, models.ErrMethodNotSupported) {
-			return nil, fmt.Errorf("error occurred while onboarding user '%s' with provider '%s': %w",
+			return nil, fmt.Errorf("failed to onboard user '%s' with provider '%s': %w",
 				username, provider.Name(), err)
 		}
 		if onboardUser != nil {
@@ -159,7 +159,7 @@ func (s *Server) OnboardUserWebFlow(providerName string, redirectUri string) (*m
 		if provider.Name() == providerName {
 			authInfo, err := provider.OnboardUserWebFlow(redirectUri)
 			if err != nil {
-				return nil, fmt.Errorf("error occurred while onboarding user via web flow with provider '%s': %w",
+				return nil, fmt.Errorf("failed to onboard user via web flow with provider '%s': %w",
 					provider.Name(), err)
 			}
 			return authInfo, nil
@@ -178,7 +178,7 @@ func (s *Server) CompleteUserWebFlow(state, code string) (*models.User, error) {
 		if p.Name() == provider {
 			username, err := p.CompleteUserWebFlow(state, code)
 			if err != nil {
-				return nil, fmt.Errorf("error occurred while completing web flow for provider '%s': %w",
+				return nil, fmt.Errorf("failed to complete user web flow for provider '%s': %w",
 					provider, err)
 			}
 
@@ -199,7 +199,7 @@ func (s *Server) OnboardCapability(username string) (*models.OnboardCapability, 
 	for _, provider := range s.IdentityProviders {
 		cap, err := provider.OnboardCapability(username)
 		if err != nil && !errors.Is(err, models.ErrMethodNotSupported) && !errors.Is(err, models.ErrUserNotAllowedOnboard) {
-			return nil, fmt.Errorf("error occurred while checking onboarding capability for user '%s' with provider '%s': %w",
+			return nil, fmt.Errorf("failed to check onboarding capability for user '%s' with provider '%s': %w",
 				username, provider.Name(), err)
 		}
 		if cap != nil {
@@ -222,7 +222,7 @@ func (s *Server) GetUserExtCredentials(username string) ([]*models.ExternalCrede
 		if provider.Name() == user.Source {
 			token, err := provider.GetUserToken(user.Username)
 			if err != nil && !errors.Is(err, models.ErrMethodNotSupported) {
-				return nil, fmt.Errorf("error occurred while getting user token for '%s' with provider '%s': %w",
+				return nil, fmt.Errorf("failed to get user token for '%s' with provider '%s': %w",
 					username, provider.Name(), err)
 			}
 			if token != nil {
@@ -239,7 +239,7 @@ func (s *Server) GetUserExtCredentials(username string) ([]*models.ExternalCrede
 
 	externalCreds, err := s.DB.GetExternalCredentials(username)
 	if err != nil {
-		return nil, fmt.Errorf("error occurred while getting external credentials for user '%s': %w", username, err)
+		return nil, fmt.Errorf("failed to get external credentials for user '%s': %w", username, err)
 	}
 	credentials = append(credentials, externalCreds...)
 
@@ -256,7 +256,7 @@ func (s *Server) GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlue
 		if provider.Name() == user.Source {
 			blueprint, err := provider.GetCustomBlueprint(userStr)
 			if err != nil {
-				return nil, fmt.Errorf("error occurred while getting custom blueprint for '%s' with provider '%s': %w",
+				return nil, fmt.Errorf("failed to get custom blueprint for '%s' with provider '%s': %w",
 					userStr.Username, provider.Name(), err)
 			}
 			return blueprint, nil
@@ -264,6 +264,27 @@ func (s *Server) GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlue
 	}
 
 	return nil, fmt.Errorf("no suitable identity provider found for user '%s'", userStr.Username)
+}
+
+func (s *Server) ResolveRepoPullRequestToRef(username string, repoOwner, repoName string,
+	pullRequestNumber int) (string, error) {
+	user, err := s.GetUser(username)
+	if err != nil {
+		return "", fmt.Errorf("failed to get user user '%s': %w", username, err)
+	}
+
+	for _, provider := range s.IdentityProviders {
+		if provider.Name() == user.Source {
+			repoRef, err := provider.ResolvePullRequestRef(username, repoOwner, repoName, pullRequestNumber)
+			if err != nil {
+				return "", fmt.Errorf("failed to resolve repo pull request to ref for '%s' with provider '%s': %w",
+					username, provider.Name(), err)
+			}
+			return repoRef, nil
+		}
+	}
+
+	return "", fmt.Errorf("no suitable identity provider found for user '%s'", username)
 }
 
 // normalizeUser ensures that the user's attributes conform to expected formats and defaults.

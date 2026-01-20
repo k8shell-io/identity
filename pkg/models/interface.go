@@ -17,4 +17,5 @@ type IdentityProvider interface {
 	AuthPublicKey(username string, key ssh.PublicKey) (bool, error)
 	GetUserToken(username string) (*models.UserToken, error)
 	GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlueprint, error)
+	ResolvePullRequestRef(username string, repoOwner, repoName string, pullRequestNumber int) (string, error)
 }

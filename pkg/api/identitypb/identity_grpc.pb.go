@@ -22,12 +22,13 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	IdentityService_FindUser_FullMethodName                 = "/identity.IdentityService/FindUser"
 	IdentityService_GetUsers_FullMethodName                 = "/identity.IdentityService/GetUsers"
-	IdentityService_AuthUserPublicKey_FullMethodName        = "/identity.IdentityService/AuthUserPublicKey"
 	IdentityService_GetUserOnboardCapability_FullMethodName = "/identity.IdentityService/GetUserOnboardCapability"
 	IdentityService_OnboardUserDeviceFlow_FullMethodName    = "/identity.IdentityService/OnboardUserDeviceFlow"
 	IdentityService_OnboardUserWebFlow_FullMethodName       = "/identity.IdentityService/OnboardUserWebFlow"
 	IdentityService_CompleteUserWebFlow_FullMethodName      = "/identity.IdentityService/CompleteUserWebFlow"
+	IdentityService_AuthUserPublicKey_FullMethodName        = "/identity.IdentityService/AuthUserPublicKey"
 	IdentityService_GetBlueprintByUserStr_FullMethodName    = "/identity.IdentityService/GetBlueprintByUserStr"
+	IdentityService_ResolvePullRequestToRef_FullMethodName  = "/identity.IdentityService/ResolvePullRequestToRef"
 	IdentityService_GetUserCredentials_FullMethodName       = "/identity.IdentityService/GetUserCredentials"
 	IdentityService_AddUserCredential_FullMethodName        = "/identity.IdentityService/AddUserCredential"
 	IdentityService_UpdateUserCredential_FullMethodName     = "/identity.IdentityService/UpdateUserCredential"
@@ -38,14 +39,20 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type IdentityServiceClient interface {
+	// User Management
 	FindUser(ctx context.Context, in *FindUserRequest, opts ...grpc.CallOption) (*commonpb.User, error)
 	GetUsers(ctx context.Context, in *GetUsersRequest, opts ...grpc.CallOption) (*UserList, error)
-	AuthUserPublicKey(ctx context.Context, in *AuthUserPublicKeyRequest, opts ...grpc.CallOption) (*AuthUserResponse, error)
+	// OAuth2 Onboarding
 	GetUserOnboardCapability(ctx context.Context, in *Username, opts ...grpc.CallOption) (*commonpb.UserOnboardCapability, error)
 	OnboardUserDeviceFlow(ctx context.Context, in *Username, opts ...grpc.CallOption) (*commonpb.OnboardUserDeviceFlow, error)
 	OnboardUserWebFlow(ctx context.Context, in *OnboardUserWebFlowRequest, opts ...grpc.CallOption) (*commonpb.OnboardUserWebFlow, error)
 	CompleteUserWebFlow(ctx context.Context, in *CompleteUserWebFlowRequest, opts ...grpc.CallOption) (*commonpb.User, error)
+	// Authentication
+	AuthUserPublicKey(ctx context.Context, in *AuthUserPublicKeyRequest, opts ...grpc.CallOption) (*AuthUserResponse, error)
+	// Repository content
 	GetBlueprintByUserStr(ctx context.Context, in *UserStr, opts ...grpc.CallOption) (*Blueprint, error)
+	ResolvePullRequestToRef(ctx context.Context, in *RepoPullRequestRequest, opts ...grpc.CallOption) (*RepoRefResponse, error)
+	// External Credentials
 	GetUserCredentials(ctx context.Context, in *Username, opts ...grpc.CallOption) (*GetUserCredentialsResponse, error)
 	AddUserCredential(ctx context.Context, in *commonpb.ExternalCredential, opts ...grpc.CallOption) (*AddUserCredentialResponse, error)
 	UpdateUserCredential(ctx context.Context, in *commonpb.ExternalCredential, opts ...grpc.CallOption) (*UpdateUserCredentialResponse, error)
@@ -74,16 +81,6 @@ func (c *identityServiceClient) GetUsers(ctx context.Context, in *GetUsersReques
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(UserList)
 	err := c.cc.Invoke(ctx, IdentityService_GetUsers_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *identityServiceClient) AuthUserPublicKey(ctx context.Context, in *AuthUserPublicKeyRequest, opts ...grpc.CallOption) (*AuthUserResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(AuthUserResponse)
-	err := c.cc.Invoke(ctx, IdentityService_AuthUserPublicKey_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -130,10 +127,30 @@ func (c *identityServiceClient) CompleteUserWebFlow(ctx context.Context, in *Com
 	return out, nil
 }
 
+func (c *identityServiceClient) AuthUserPublicKey(ctx context.Context, in *AuthUserPublicKeyRequest, opts ...grpc.CallOption) (*AuthUserResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AuthUserResponse)
+	err := c.cc.Invoke(ctx, IdentityService_AuthUserPublicKey_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *identityServiceClient) GetBlueprintByUserStr(ctx context.Context, in *UserStr, opts ...grpc.CallOption) (*Blueprint, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Blueprint)
 	err := c.cc.Invoke(ctx, IdentityService_GetBlueprintByUserStr_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *identityServiceClient) ResolvePullRequestToRef(ctx context.Context, in *RepoPullRequestRequest, opts ...grpc.CallOption) (*RepoRefResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RepoRefResponse)
+	err := c.cc.Invoke(ctx, IdentityService_ResolvePullRequestToRef_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -184,14 +201,20 @@ func (c *identityServiceClient) DeleteUserCredential(ctx context.Context, in *De
 // All implementations must embed UnimplementedIdentityServiceServer
 // for forward compatibility.
 type IdentityServiceServer interface {
+	// User Management
 	FindUser(context.Context, *FindUserRequest) (*commonpb.User, error)
 	GetUsers(context.Context, *GetUsersRequest) (*UserList, error)
-	AuthUserPublicKey(context.Context, *AuthUserPublicKeyRequest) (*AuthUserResponse, error)
+	// OAuth2 Onboarding
 	GetUserOnboardCapability(context.Context, *Username) (*commonpb.UserOnboardCapability, error)
 	OnboardUserDeviceFlow(context.Context, *Username) (*commonpb.OnboardUserDeviceFlow, error)
 	OnboardUserWebFlow(context.Context, *OnboardUserWebFlowRequest) (*commonpb.OnboardUserWebFlow, error)
 	CompleteUserWebFlow(context.Context, *CompleteUserWebFlowRequest) (*commonpb.User, error)
+	// Authentication
+	AuthUserPublicKey(context.Context, *AuthUserPublicKeyRequest) (*AuthUserResponse, error)
+	// Repository content
 	GetBlueprintByUserStr(context.Context, *UserStr) (*Blueprint, error)
+	ResolvePullRequestToRef(context.Context, *RepoPullRequestRequest) (*RepoRefResponse, error)
+	// External Credentials
 	GetUserCredentials(context.Context, *Username) (*GetUserCredentialsResponse, error)
 	AddUserCredential(context.Context, *commonpb.ExternalCredential) (*AddUserCredentialResponse, error)
 	UpdateUserCredential(context.Context, *commonpb.ExternalCredential) (*UpdateUserCredentialResponse, error)
@@ -212,9 +235,6 @@ func (UnimplementedIdentityServiceServer) FindUser(context.Context, *FindUserReq
 func (UnimplementedIdentityServiceServer) GetUsers(context.Context, *GetUsersRequest) (*UserList, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetUsers not implemented")
 }
-func (UnimplementedIdentityServiceServer) AuthUserPublicKey(context.Context, *AuthUserPublicKeyRequest) (*AuthUserResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method AuthUserPublicKey not implemented")
-}
 func (UnimplementedIdentityServiceServer) GetUserOnboardCapability(context.Context, *Username) (*commonpb.UserOnboardCapability, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetUserOnboardCapability not implemented")
 }
@@ -227,8 +247,14 @@ func (UnimplementedIdentityServiceServer) OnboardUserWebFlow(context.Context, *O
 func (UnimplementedIdentityServiceServer) CompleteUserWebFlow(context.Context, *CompleteUserWebFlowRequest) (*commonpb.User, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CompleteUserWebFlow not implemented")
 }
+func (UnimplementedIdentityServiceServer) AuthUserPublicKey(context.Context, *AuthUserPublicKeyRequest) (*AuthUserResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AuthUserPublicKey not implemented")
+}
 func (UnimplementedIdentityServiceServer) GetBlueprintByUserStr(context.Context, *UserStr) (*Blueprint, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBlueprintByUserStr not implemented")
+}
+func (UnimplementedIdentityServiceServer) ResolvePullRequestToRef(context.Context, *RepoPullRequestRequest) (*RepoRefResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ResolvePullRequestToRef not implemented")
 }
 func (UnimplementedIdentityServiceServer) GetUserCredentials(context.Context, *Username) (*GetUserCredentialsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetUserCredentials not implemented")
@@ -295,24 +321,6 @@ func _IdentityService_GetUsers_Handler(srv interface{}, ctx context.Context, dec
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(IdentityServiceServer).GetUsers(ctx, req.(*GetUsersRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _IdentityService_AuthUserPublicKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(AuthUserPublicKeyRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(IdentityServiceServer).AuthUserPublicKey(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: IdentityService_AuthUserPublicKey_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(IdentityServiceServer).AuthUserPublicKey(ctx, req.(*AuthUserPublicKeyRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -389,6 +397,24 @@ func _IdentityService_CompleteUserWebFlow_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _IdentityService_AuthUserPublicKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AuthUserPublicKeyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IdentityServiceServer).AuthUserPublicKey(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IdentityService_AuthUserPublicKey_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IdentityServiceServer).AuthUserPublicKey(ctx, req.(*AuthUserPublicKeyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _IdentityService_GetBlueprintByUserStr_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(UserStr)
 	if err := dec(in); err != nil {
@@ -403,6 +429,24 @@ func _IdentityService_GetBlueprintByUserStr_Handler(srv interface{}, ctx context
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(IdentityServiceServer).GetBlueprintByUserStr(ctx, req.(*UserStr))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IdentityService_ResolvePullRequestToRef_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RepoPullRequestRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IdentityServiceServer).ResolvePullRequestToRef(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IdentityService_ResolvePullRequestToRef_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IdentityServiceServer).ResolvePullRequestToRef(ctx, req.(*RepoPullRequestRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -495,10 +539,6 @@ var IdentityService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _IdentityService_GetUsers_Handler,
 		},
 		{
-			MethodName: "AuthUserPublicKey",
-			Handler:    _IdentityService_AuthUserPublicKey_Handler,
-		},
-		{
 			MethodName: "GetUserOnboardCapability",
 			Handler:    _IdentityService_GetUserOnboardCapability_Handler,
 		},
@@ -515,8 +555,16 @@ var IdentityService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _IdentityService_CompleteUserWebFlow_Handler,
 		},
 		{
+			MethodName: "AuthUserPublicKey",
+			Handler:    _IdentityService_AuthUserPublicKey_Handler,
+		},
+		{
 			MethodName: "GetBlueprintByUserStr",
 			Handler:    _IdentityService_GetBlueprintByUserStr_Handler,
+		},
+		{
+			MethodName: "ResolvePullRequestToRef",
+			Handler:    _IdentityService_ResolvePullRequestToRef_Handler,
 		},
 		{
 			MethodName: "GetUserCredentials",
