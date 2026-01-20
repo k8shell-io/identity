@@ -7,19 +7,22 @@ import (
 	"strings"
 	"sync"
 
+	logger "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/common/pkg/models"
 	"github.com/k8shell-io/identity/internal/common"
+	"github.com/rs/zerolog"
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 )
 
 type FileUserProviderConfig struct {
-	ID       string `yaml:"id"`
-	Filename string `yaml:"filename"`
+	ID    string   `yaml:"id"`
+	Files []string `yaml:"files"`
 }
 
 type FileUserProvider struct {
 	config FileUserProviderConfig
+	log    *zerolog.Logger
 	users  map[string]*models.User
 	mutex  sync.RWMutex
 }
@@ -33,6 +36,7 @@ func NewFileUserProvider(cfg FileUserProviderConfig, baseDir string) (*FileUserP
 		config: cfg,
 		users:  make(map[string]*models.User),
 		mutex:  sync.RWMutex{},
+		log:    logger.NewLogger("file-provider"),
 	}
 	err := provider.load(baseDir)
 	if err != nil {
@@ -46,24 +50,29 @@ func (f *FileUserProvider) load(baseDir string) error {
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
 
-	filename := f.config.Filename
-	if !filepath.IsAbs(filename) {
-		filename = filepath.Join(baseDir, filename)
-	}
+	for _, filename := range f.config.Files {
+		if !filepath.IsAbs(filename) {
+			filename = filepath.Join(baseDir, filename)
+		}
 
-	var userFile UserFile
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return fmt.Errorf("read user file '%s': %w", filename, err)
-	}
+		var userFile UserFile
+		data, err := os.ReadFile(filename)
+		if err != nil {
+			return fmt.Errorf("read user file '%s': %w", filename, err)
+		}
 
-	if err := yaml.Unmarshal(data, &userFile); err != nil {
-		return fmt.Errorf("unmarshal user file '%s': %w", filename, err)
-	}
+		if err := yaml.Unmarshal(data, &userFile); err != nil {
+			return fmt.Errorf("unmarshal user file '%s': %w", filename, err)
+		}
 
-	for i := range userFile.Users {
-		u := &userFile.Users[i]
-		f.users[u.Username] = u
+		for i := range userFile.Users {
+			u := &userFile.Users[i]
+			if f.users[u.Username] != nil {
+				f.log.Warn().Msgf("duplicate user '%s' found in file '%s', ignoring duplicate", u.Username, filename)
+			} else {
+				f.users[u.Username] = u
+			}
+		}
 	}
 
 	return nil
