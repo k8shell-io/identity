@@ -10,6 +10,7 @@ import (
 	commonpb "github.com/k8shell-io/common/pkg/gapi/commonpb"
 	"github.com/k8shell-io/common/pkg/models"
 	"github.com/k8shell-io/identity/pkg/api/identitypb"
+	"github.com/k8shell-io/identity/pkg/api/typespb"
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -29,7 +30,7 @@ func NewIdentityService(server *Server) *IdentityService {
 }
 
 // GetUsers retrieves a list of users with pagination support.
-func (s *IdentityService) GetUsers(ctx context.Context, req *identitypb.GetUsersRequest) (*identitypb.UserList, error) {
+func (s *IdentityService) GetUsers(ctx context.Context, req *typespb.GetUsersRequest) (*typespb.UserList, error) {
 	users, err := s.server.DB.ListUsers(int(req.Limit), int(req.Offset))
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to list users: %v", err)
@@ -40,11 +41,11 @@ func (s *IdentityService) GetUsers(ctx context.Context, req *identitypb.GetUsers
 		pbUsers[i] = gapi.UserToProto(user)
 	}
 
-	return &identitypb.UserList{Users: pbUsers}, nil
+	return &typespb.UserList{Users: pbUsers}, nil
 }
 
 // FindUser looks up a user by username or access token.
-func (s *IdentityService) FindUser(ctx context.Context, req *identitypb.FindUserRequest) (*commonpb.User, error) {
+func (s *IdentityService) FindUser(ctx context.Context, req *typespb.FindUserRequest) (*commonpb.User, error) {
 	if req.Username != "" && req.Token != "" {
 		return nil, status.Error(codes.InvalidArgument, "only one of username or token can be provided")
 	}
@@ -79,17 +80,17 @@ func (s *IdentityService) FindUser(ctx context.Context, req *identitypb.FindUser
 }
 
 func (s *IdentityService) AuthUserPublicKey(ctx context.Context,
-	req *identitypb.AuthUserPublicKeyRequest) (*identitypb.AuthUserResponse, error) {
+	req *typespb.AuthUserPublicKeyRequest) (*typespb.AuthUserResponse, error) {
 	valid, err := s.server.AuthenticateUser(req.Username, req.PublicKey)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to auth public key: %v", err)
 	}
-	response := &identitypb.AuthUserResponse{Valid: valid}
+	response := &typespb.AuthUserResponse{Valid: valid}
 	return response, nil
 }
 
 func (s *IdentityService) GetUserOnboardCapability(ctx context.Context,
-	req *identitypb.Username) (*commonpb.UserOnboardCapability, error) {
+	req *typespb.Username) (*commonpb.UserOnboardCapability, error) {
 	cap, err := s.server.OnboardCapability(req.Username)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to get onboard capability: %v", err)
@@ -98,7 +99,7 @@ func (s *IdentityService) GetUserOnboardCapability(ctx context.Context,
 }
 
 func (s *IdentityService) OnboardUserDeviceFlow(ctx context.Context,
-	req *identitypb.Username) (*commonpb.OnboardUserDeviceFlow, error) {
+	req *typespb.Username) (*commonpb.OnboardUserDeviceFlow, error) {
 	onboardUser, err := s.server.OnboardUserDeviceFlow(req.Username)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to onboard user: %v", err)
@@ -108,7 +109,7 @@ func (s *IdentityService) OnboardUserDeviceFlow(ctx context.Context,
 }
 
 func (s *IdentityService) OnboardUserWebFlow(ctx context.Context,
-	req *identitypb.OnboardUserWebFlowRequest) (*commonpb.OnboardUserWebFlow, error) {
+	req *typespb.OnboardUserWebFlowRequest) (*commonpb.OnboardUserWebFlow, error) {
 	onboardUser, err := s.server.OnboardUserWebFlow(req.Provider, req.RedirectUri)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to onboard user via web flow: %v", err)
@@ -118,7 +119,7 @@ func (s *IdentityService) OnboardUserWebFlow(ctx context.Context,
 }
 
 func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
-	req *identitypb.CompleteUserWebFlowRequest) (*commonpb.User, error) {
+	req *typespb.CompleteUserWebFlowRequest) (*commonpb.User, error) {
 	user, err := s.server.CompleteUserWebFlow(req.State, req.Code)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to complete user web flow: %v", err)
@@ -129,7 +130,7 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 
 // Blueprint methods
 func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context,
-	req *identitypb.UserStr) (*identitypb.Blueprint, error) {
+	req *typespb.UserStr) (*typespb.Blueprint, error) {
 	userStr, err := models.NewUserStr(req.Userstr, false)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid user string: %v", err)
@@ -145,23 +146,23 @@ func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context,
 		return nil, status.Errorf(codes.Internal, "failed to marshal blueprint to JSON: %v", err)
 	}
 
-	return &identitypb.Blueprint{BlueprintJson: string(jsonData)}, nil
+	return &typespb.Blueprint{BlueprintJson: string(jsonData)}, nil
 }
 
 // ResolvePullRequestToRef resolves a repository pull request to its corresponding reference.
 func (s *IdentityService) ResolvePullRequestToRef(ctx context.Context,
-	req *identitypb.RepoPullRequestRequest) (*identitypb.RepoRefResponse, error) {
+	req *typespb.RepoPullRequestRequest) (*typespb.RepoRefResponse, error) {
 	repoRef, err := s.server.ResolveRepoPullRequestToRef(req.Username, req.RepoOwner, req.RepoName,
 		int(req.PullRequestNumber))
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to resolve pull request to ref: %v", err)
 	}
-	return &identitypb.RepoRefResponse{RepoRef: repoRef}, nil
+	return &typespb.RepoRefResponse{RepoRef: repoRef}, nil
 }
 
 // External credentials methods
 func (s *IdentityService) GetUserCredentials(ctx context.Context,
-	req *identitypb.Username) (*identitypb.GetUserCredentialsResponse, error) {
+	req *typespb.Username) (*identitypb.GetUserCredentialsResponse, error) {
 
 	credentials, err := s.server.GetUserExtCredentials(req.Username)
 	if err != nil {

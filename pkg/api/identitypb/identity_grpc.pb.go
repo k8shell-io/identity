@@ -9,6 +9,7 @@ package identitypb
 import (
 	context "context"
 	commonpb "github.com/k8shell-io/common/pkg/gapi/commonpb"
+	typespb "github.com/k8shell-io/identity/pkg/api/typespb"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -40,20 +41,20 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type IdentityServiceClient interface {
 	// User Management
-	FindUser(ctx context.Context, in *FindUserRequest, opts ...grpc.CallOption) (*commonpb.User, error)
-	GetUsers(ctx context.Context, in *GetUsersRequest, opts ...grpc.CallOption) (*UserList, error)
+	FindUser(ctx context.Context, in *typespb.FindUserRequest, opts ...grpc.CallOption) (*commonpb.User, error)
+	GetUsers(ctx context.Context, in *typespb.GetUsersRequest, opts ...grpc.CallOption) (*typespb.UserList, error)
 	// OAuth2 Onboarding
-	GetUserOnboardCapability(ctx context.Context, in *Username, opts ...grpc.CallOption) (*commonpb.UserOnboardCapability, error)
-	OnboardUserDeviceFlow(ctx context.Context, in *Username, opts ...grpc.CallOption) (*commonpb.OnboardUserDeviceFlow, error)
-	OnboardUserWebFlow(ctx context.Context, in *OnboardUserWebFlowRequest, opts ...grpc.CallOption) (*commonpb.OnboardUserWebFlow, error)
-	CompleteUserWebFlow(ctx context.Context, in *CompleteUserWebFlowRequest, opts ...grpc.CallOption) (*commonpb.User, error)
+	GetUserOnboardCapability(ctx context.Context, in *typespb.Username, opts ...grpc.CallOption) (*commonpb.UserOnboardCapability, error)
+	OnboardUserDeviceFlow(ctx context.Context, in *typespb.Username, opts ...grpc.CallOption) (*commonpb.OnboardUserDeviceFlow, error)
+	OnboardUserWebFlow(ctx context.Context, in *typespb.OnboardUserWebFlowRequest, opts ...grpc.CallOption) (*commonpb.OnboardUserWebFlow, error)
+	CompleteUserWebFlow(ctx context.Context, in *typespb.CompleteUserWebFlowRequest, opts ...grpc.CallOption) (*commonpb.User, error)
 	// Authentication
-	AuthUserPublicKey(ctx context.Context, in *AuthUserPublicKeyRequest, opts ...grpc.CallOption) (*AuthUserResponse, error)
+	AuthUserPublicKey(ctx context.Context, in *typespb.AuthUserPublicKeyRequest, opts ...grpc.CallOption) (*typespb.AuthUserResponse, error)
 	// Repository content
-	GetBlueprintByUserStr(ctx context.Context, in *UserStr, opts ...grpc.CallOption) (*Blueprint, error)
-	ResolvePullRequestToRef(ctx context.Context, in *RepoPullRequestRequest, opts ...grpc.CallOption) (*RepoRefResponse, error)
+	GetBlueprintByUserStr(ctx context.Context, in *typespb.UserStr, opts ...grpc.CallOption) (*typespb.Blueprint, error)
+	ResolvePullRequestToRef(ctx context.Context, in *typespb.RepoPullRequestRequest, opts ...grpc.CallOption) (*typespb.RepoRefResponse, error)
 	// External Credentials
-	GetUserCredentials(ctx context.Context, in *Username, opts ...grpc.CallOption) (*GetUserCredentialsResponse, error)
+	GetUserCredentials(ctx context.Context, in *typespb.Username, opts ...grpc.CallOption) (*GetUserCredentialsResponse, error)
 	AddUserCredential(ctx context.Context, in *commonpb.ExternalCredential, opts ...grpc.CallOption) (*AddUserCredentialResponse, error)
 	UpdateUserCredential(ctx context.Context, in *commonpb.ExternalCredential, opts ...grpc.CallOption) (*UpdateUserCredentialResponse, error)
 	DeleteUserCredential(ctx context.Context, in *DeleteUserCredentialRequest, opts ...grpc.CallOption) (*DeleteUserCredentialResponse, error)
@@ -67,7 +68,7 @@ func NewIdentityServiceClient(cc grpc.ClientConnInterface) IdentityServiceClient
 	return &identityServiceClient{cc}
 }
 
-func (c *identityServiceClient) FindUser(ctx context.Context, in *FindUserRequest, opts ...grpc.CallOption) (*commonpb.User, error) {
+func (c *identityServiceClient) FindUser(ctx context.Context, in *typespb.FindUserRequest, opts ...grpc.CallOption) (*commonpb.User, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(commonpb.User)
 	err := c.cc.Invoke(ctx, IdentityService_FindUser_FullMethodName, in, out, cOpts...)
@@ -77,9 +78,9 @@ func (c *identityServiceClient) FindUser(ctx context.Context, in *FindUserReques
 	return out, nil
 }
 
-func (c *identityServiceClient) GetUsers(ctx context.Context, in *GetUsersRequest, opts ...grpc.CallOption) (*UserList, error) {
+func (c *identityServiceClient) GetUsers(ctx context.Context, in *typespb.GetUsersRequest, opts ...grpc.CallOption) (*typespb.UserList, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(UserList)
+	out := new(typespb.UserList)
 	err := c.cc.Invoke(ctx, IdentityService_GetUsers_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -87,7 +88,7 @@ func (c *identityServiceClient) GetUsers(ctx context.Context, in *GetUsersReques
 	return out, nil
 }
 
-func (c *identityServiceClient) GetUserOnboardCapability(ctx context.Context, in *Username, opts ...grpc.CallOption) (*commonpb.UserOnboardCapability, error) {
+func (c *identityServiceClient) GetUserOnboardCapability(ctx context.Context, in *typespb.Username, opts ...grpc.CallOption) (*commonpb.UserOnboardCapability, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(commonpb.UserOnboardCapability)
 	err := c.cc.Invoke(ctx, IdentityService_GetUserOnboardCapability_FullMethodName, in, out, cOpts...)
@@ -97,7 +98,7 @@ func (c *identityServiceClient) GetUserOnboardCapability(ctx context.Context, in
 	return out, nil
 }
 
-func (c *identityServiceClient) OnboardUserDeviceFlow(ctx context.Context, in *Username, opts ...grpc.CallOption) (*commonpb.OnboardUserDeviceFlow, error) {
+func (c *identityServiceClient) OnboardUserDeviceFlow(ctx context.Context, in *typespb.Username, opts ...grpc.CallOption) (*commonpb.OnboardUserDeviceFlow, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(commonpb.OnboardUserDeviceFlow)
 	err := c.cc.Invoke(ctx, IdentityService_OnboardUserDeviceFlow_FullMethodName, in, out, cOpts...)
@@ -107,7 +108,7 @@ func (c *identityServiceClient) OnboardUserDeviceFlow(ctx context.Context, in *U
 	return out, nil
 }
 
-func (c *identityServiceClient) OnboardUserWebFlow(ctx context.Context, in *OnboardUserWebFlowRequest, opts ...grpc.CallOption) (*commonpb.OnboardUserWebFlow, error) {
+func (c *identityServiceClient) OnboardUserWebFlow(ctx context.Context, in *typespb.OnboardUserWebFlowRequest, opts ...grpc.CallOption) (*commonpb.OnboardUserWebFlow, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(commonpb.OnboardUserWebFlow)
 	err := c.cc.Invoke(ctx, IdentityService_OnboardUserWebFlow_FullMethodName, in, out, cOpts...)
@@ -117,7 +118,7 @@ func (c *identityServiceClient) OnboardUserWebFlow(ctx context.Context, in *Onbo
 	return out, nil
 }
 
-func (c *identityServiceClient) CompleteUserWebFlow(ctx context.Context, in *CompleteUserWebFlowRequest, opts ...grpc.CallOption) (*commonpb.User, error) {
+func (c *identityServiceClient) CompleteUserWebFlow(ctx context.Context, in *typespb.CompleteUserWebFlowRequest, opts ...grpc.CallOption) (*commonpb.User, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(commonpb.User)
 	err := c.cc.Invoke(ctx, IdentityService_CompleteUserWebFlow_FullMethodName, in, out, cOpts...)
@@ -127,9 +128,9 @@ func (c *identityServiceClient) CompleteUserWebFlow(ctx context.Context, in *Com
 	return out, nil
 }
 
-func (c *identityServiceClient) AuthUserPublicKey(ctx context.Context, in *AuthUserPublicKeyRequest, opts ...grpc.CallOption) (*AuthUserResponse, error) {
+func (c *identityServiceClient) AuthUserPublicKey(ctx context.Context, in *typespb.AuthUserPublicKeyRequest, opts ...grpc.CallOption) (*typespb.AuthUserResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(AuthUserResponse)
+	out := new(typespb.AuthUserResponse)
 	err := c.cc.Invoke(ctx, IdentityService_AuthUserPublicKey_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -137,9 +138,9 @@ func (c *identityServiceClient) AuthUserPublicKey(ctx context.Context, in *AuthU
 	return out, nil
 }
 
-func (c *identityServiceClient) GetBlueprintByUserStr(ctx context.Context, in *UserStr, opts ...grpc.CallOption) (*Blueprint, error) {
+func (c *identityServiceClient) GetBlueprintByUserStr(ctx context.Context, in *typespb.UserStr, opts ...grpc.CallOption) (*typespb.Blueprint, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(Blueprint)
+	out := new(typespb.Blueprint)
 	err := c.cc.Invoke(ctx, IdentityService_GetBlueprintByUserStr_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -147,9 +148,9 @@ func (c *identityServiceClient) GetBlueprintByUserStr(ctx context.Context, in *U
 	return out, nil
 }
 
-func (c *identityServiceClient) ResolvePullRequestToRef(ctx context.Context, in *RepoPullRequestRequest, opts ...grpc.CallOption) (*RepoRefResponse, error) {
+func (c *identityServiceClient) ResolvePullRequestToRef(ctx context.Context, in *typespb.RepoPullRequestRequest, opts ...grpc.CallOption) (*typespb.RepoRefResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(RepoRefResponse)
+	out := new(typespb.RepoRefResponse)
 	err := c.cc.Invoke(ctx, IdentityService_ResolvePullRequestToRef_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -157,7 +158,7 @@ func (c *identityServiceClient) ResolvePullRequestToRef(ctx context.Context, in 
 	return out, nil
 }
 
-func (c *identityServiceClient) GetUserCredentials(ctx context.Context, in *Username, opts ...grpc.CallOption) (*GetUserCredentialsResponse, error) {
+func (c *identityServiceClient) GetUserCredentials(ctx context.Context, in *typespb.Username, opts ...grpc.CallOption) (*GetUserCredentialsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetUserCredentialsResponse)
 	err := c.cc.Invoke(ctx, IdentityService_GetUserCredentials_FullMethodName, in, out, cOpts...)
@@ -202,20 +203,20 @@ func (c *identityServiceClient) DeleteUserCredential(ctx context.Context, in *De
 // for forward compatibility.
 type IdentityServiceServer interface {
 	// User Management
-	FindUser(context.Context, *FindUserRequest) (*commonpb.User, error)
-	GetUsers(context.Context, *GetUsersRequest) (*UserList, error)
+	FindUser(context.Context, *typespb.FindUserRequest) (*commonpb.User, error)
+	GetUsers(context.Context, *typespb.GetUsersRequest) (*typespb.UserList, error)
 	// OAuth2 Onboarding
-	GetUserOnboardCapability(context.Context, *Username) (*commonpb.UserOnboardCapability, error)
-	OnboardUserDeviceFlow(context.Context, *Username) (*commonpb.OnboardUserDeviceFlow, error)
-	OnboardUserWebFlow(context.Context, *OnboardUserWebFlowRequest) (*commonpb.OnboardUserWebFlow, error)
-	CompleteUserWebFlow(context.Context, *CompleteUserWebFlowRequest) (*commonpb.User, error)
+	GetUserOnboardCapability(context.Context, *typespb.Username) (*commonpb.UserOnboardCapability, error)
+	OnboardUserDeviceFlow(context.Context, *typespb.Username) (*commonpb.OnboardUserDeviceFlow, error)
+	OnboardUserWebFlow(context.Context, *typespb.OnboardUserWebFlowRequest) (*commonpb.OnboardUserWebFlow, error)
+	CompleteUserWebFlow(context.Context, *typespb.CompleteUserWebFlowRequest) (*commonpb.User, error)
 	// Authentication
-	AuthUserPublicKey(context.Context, *AuthUserPublicKeyRequest) (*AuthUserResponse, error)
+	AuthUserPublicKey(context.Context, *typespb.AuthUserPublicKeyRequest) (*typespb.AuthUserResponse, error)
 	// Repository content
-	GetBlueprintByUserStr(context.Context, *UserStr) (*Blueprint, error)
-	ResolvePullRequestToRef(context.Context, *RepoPullRequestRequest) (*RepoRefResponse, error)
+	GetBlueprintByUserStr(context.Context, *typespb.UserStr) (*typespb.Blueprint, error)
+	ResolvePullRequestToRef(context.Context, *typespb.RepoPullRequestRequest) (*typespb.RepoRefResponse, error)
 	// External Credentials
-	GetUserCredentials(context.Context, *Username) (*GetUserCredentialsResponse, error)
+	GetUserCredentials(context.Context, *typespb.Username) (*GetUserCredentialsResponse, error)
 	AddUserCredential(context.Context, *commonpb.ExternalCredential) (*AddUserCredentialResponse, error)
 	UpdateUserCredential(context.Context, *commonpb.ExternalCredential) (*UpdateUserCredentialResponse, error)
 	DeleteUserCredential(context.Context, *DeleteUserCredentialRequest) (*DeleteUserCredentialResponse, error)
@@ -229,34 +230,34 @@ type IdentityServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedIdentityServiceServer struct{}
 
-func (UnimplementedIdentityServiceServer) FindUser(context.Context, *FindUserRequest) (*commonpb.User, error) {
+func (UnimplementedIdentityServiceServer) FindUser(context.Context, *typespb.FindUserRequest) (*commonpb.User, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FindUser not implemented")
 }
-func (UnimplementedIdentityServiceServer) GetUsers(context.Context, *GetUsersRequest) (*UserList, error) {
+func (UnimplementedIdentityServiceServer) GetUsers(context.Context, *typespb.GetUsersRequest) (*typespb.UserList, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetUsers not implemented")
 }
-func (UnimplementedIdentityServiceServer) GetUserOnboardCapability(context.Context, *Username) (*commonpb.UserOnboardCapability, error) {
+func (UnimplementedIdentityServiceServer) GetUserOnboardCapability(context.Context, *typespb.Username) (*commonpb.UserOnboardCapability, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetUserOnboardCapability not implemented")
 }
-func (UnimplementedIdentityServiceServer) OnboardUserDeviceFlow(context.Context, *Username) (*commonpb.OnboardUserDeviceFlow, error) {
+func (UnimplementedIdentityServiceServer) OnboardUserDeviceFlow(context.Context, *typespb.Username) (*commonpb.OnboardUserDeviceFlow, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method OnboardUserDeviceFlow not implemented")
 }
-func (UnimplementedIdentityServiceServer) OnboardUserWebFlow(context.Context, *OnboardUserWebFlowRequest) (*commonpb.OnboardUserWebFlow, error) {
+func (UnimplementedIdentityServiceServer) OnboardUserWebFlow(context.Context, *typespb.OnboardUserWebFlowRequest) (*commonpb.OnboardUserWebFlow, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method OnboardUserWebFlow not implemented")
 }
-func (UnimplementedIdentityServiceServer) CompleteUserWebFlow(context.Context, *CompleteUserWebFlowRequest) (*commonpb.User, error) {
+func (UnimplementedIdentityServiceServer) CompleteUserWebFlow(context.Context, *typespb.CompleteUserWebFlowRequest) (*commonpb.User, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CompleteUserWebFlow not implemented")
 }
-func (UnimplementedIdentityServiceServer) AuthUserPublicKey(context.Context, *AuthUserPublicKeyRequest) (*AuthUserResponse, error) {
+func (UnimplementedIdentityServiceServer) AuthUserPublicKey(context.Context, *typespb.AuthUserPublicKeyRequest) (*typespb.AuthUserResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AuthUserPublicKey not implemented")
 }
-func (UnimplementedIdentityServiceServer) GetBlueprintByUserStr(context.Context, *UserStr) (*Blueprint, error) {
+func (UnimplementedIdentityServiceServer) GetBlueprintByUserStr(context.Context, *typespb.UserStr) (*typespb.Blueprint, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBlueprintByUserStr not implemented")
 }
-func (UnimplementedIdentityServiceServer) ResolvePullRequestToRef(context.Context, *RepoPullRequestRequest) (*RepoRefResponse, error) {
+func (UnimplementedIdentityServiceServer) ResolvePullRequestToRef(context.Context, *typespb.RepoPullRequestRequest) (*typespb.RepoRefResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ResolvePullRequestToRef not implemented")
 }
-func (UnimplementedIdentityServiceServer) GetUserCredentials(context.Context, *Username) (*GetUserCredentialsResponse, error) {
+func (UnimplementedIdentityServiceServer) GetUserCredentials(context.Context, *typespb.Username) (*GetUserCredentialsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetUserCredentials not implemented")
 }
 func (UnimplementedIdentityServiceServer) AddUserCredential(context.Context, *commonpb.ExternalCredential) (*AddUserCredentialResponse, error) {
@@ -290,7 +291,7 @@ func RegisterIdentityServiceServer(s grpc.ServiceRegistrar, srv IdentityServiceS
 }
 
 func _IdentityService_FindUser_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(FindUserRequest)
+	in := new(typespb.FindUserRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -302,13 +303,13 @@ func _IdentityService_FindUser_Handler(srv interface{}, ctx context.Context, dec
 		FullMethod: IdentityService_FindUser_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(IdentityServiceServer).FindUser(ctx, req.(*FindUserRequest))
+		return srv.(IdentityServiceServer).FindUser(ctx, req.(*typespb.FindUserRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _IdentityService_GetUsers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetUsersRequest)
+	in := new(typespb.GetUsersRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -320,13 +321,13 @@ func _IdentityService_GetUsers_Handler(srv interface{}, ctx context.Context, dec
 		FullMethod: IdentityService_GetUsers_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(IdentityServiceServer).GetUsers(ctx, req.(*GetUsersRequest))
+		return srv.(IdentityServiceServer).GetUsers(ctx, req.(*typespb.GetUsersRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _IdentityService_GetUserOnboardCapability_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(Username)
+	in := new(typespb.Username)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -338,13 +339,13 @@ func _IdentityService_GetUserOnboardCapability_Handler(srv interface{}, ctx cont
 		FullMethod: IdentityService_GetUserOnboardCapability_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(IdentityServiceServer).GetUserOnboardCapability(ctx, req.(*Username))
+		return srv.(IdentityServiceServer).GetUserOnboardCapability(ctx, req.(*typespb.Username))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _IdentityService_OnboardUserDeviceFlow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(Username)
+	in := new(typespb.Username)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -356,13 +357,13 @@ func _IdentityService_OnboardUserDeviceFlow_Handler(srv interface{}, ctx context
 		FullMethod: IdentityService_OnboardUserDeviceFlow_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(IdentityServiceServer).OnboardUserDeviceFlow(ctx, req.(*Username))
+		return srv.(IdentityServiceServer).OnboardUserDeviceFlow(ctx, req.(*typespb.Username))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _IdentityService_OnboardUserWebFlow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(OnboardUserWebFlowRequest)
+	in := new(typespb.OnboardUserWebFlowRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -374,13 +375,13 @@ func _IdentityService_OnboardUserWebFlow_Handler(srv interface{}, ctx context.Co
 		FullMethod: IdentityService_OnboardUserWebFlow_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(IdentityServiceServer).OnboardUserWebFlow(ctx, req.(*OnboardUserWebFlowRequest))
+		return srv.(IdentityServiceServer).OnboardUserWebFlow(ctx, req.(*typespb.OnboardUserWebFlowRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _IdentityService_CompleteUserWebFlow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CompleteUserWebFlowRequest)
+	in := new(typespb.CompleteUserWebFlowRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -392,13 +393,13 @@ func _IdentityService_CompleteUserWebFlow_Handler(srv interface{}, ctx context.C
 		FullMethod: IdentityService_CompleteUserWebFlow_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(IdentityServiceServer).CompleteUserWebFlow(ctx, req.(*CompleteUserWebFlowRequest))
+		return srv.(IdentityServiceServer).CompleteUserWebFlow(ctx, req.(*typespb.CompleteUserWebFlowRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _IdentityService_AuthUserPublicKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(AuthUserPublicKeyRequest)
+	in := new(typespb.AuthUserPublicKeyRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -410,13 +411,13 @@ func _IdentityService_AuthUserPublicKey_Handler(srv interface{}, ctx context.Con
 		FullMethod: IdentityService_AuthUserPublicKey_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(IdentityServiceServer).AuthUserPublicKey(ctx, req.(*AuthUserPublicKeyRequest))
+		return srv.(IdentityServiceServer).AuthUserPublicKey(ctx, req.(*typespb.AuthUserPublicKeyRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _IdentityService_GetBlueprintByUserStr_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(UserStr)
+	in := new(typespb.UserStr)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -428,13 +429,13 @@ func _IdentityService_GetBlueprintByUserStr_Handler(srv interface{}, ctx context
 		FullMethod: IdentityService_GetBlueprintByUserStr_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(IdentityServiceServer).GetBlueprintByUserStr(ctx, req.(*UserStr))
+		return srv.(IdentityServiceServer).GetBlueprintByUserStr(ctx, req.(*typespb.UserStr))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _IdentityService_ResolvePullRequestToRef_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(RepoPullRequestRequest)
+	in := new(typespb.RepoPullRequestRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -446,13 +447,13 @@ func _IdentityService_ResolvePullRequestToRef_Handler(srv interface{}, ctx conte
 		FullMethod: IdentityService_ResolvePullRequestToRef_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(IdentityServiceServer).ResolvePullRequestToRef(ctx, req.(*RepoPullRequestRequest))
+		return srv.(IdentityServiceServer).ResolvePullRequestToRef(ctx, req.(*typespb.RepoPullRequestRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _IdentityService_GetUserCredentials_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(Username)
+	in := new(typespb.Username)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -464,7 +465,7 @@ func _IdentityService_GetUserCredentials_Handler(srv interface{}, ctx context.Co
 		FullMethod: IdentityService_GetUserCredentials_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(IdentityServiceServer).GetUserCredentials(ctx, req.(*Username))
+		return srv.(IdentityServiceServer).GetUserCredentials(ctx, req.(*typespb.Username))
 	}
 	return interceptor(ctx, in, info, handler)
 }

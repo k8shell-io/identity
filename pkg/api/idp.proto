@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package idp;
+
+option go_package = "github.com/k8shell-io/identity/pkg/api/idppb;idppb";
+
+import "common/pkg/gapi/common.proto";
+import "pkg/api/types.proto";
+ 
+service IdentityProviderService {
+  rpc ProviderInfo(ProviderInfoRequest) returns (ProviderInfoResponse);
+
+  rpc FindUser(types.FindUserRequest) returns (common.User);
+  rpc OnboardCapability(types.Username) returns (common.UserOnboardCapability);
+
+  rpc OnboardUserDeviceFlow(types.Username) returns (common.OnboardUserDeviceFlow);
+  rpc OnboardUserWebFlow(types.OnboardUserWebFlowRequest) returns (common.OnboardUserWebFlow);
+  rpc CompleteUserWebFlow(types.CompleteUserWebFlowRequest) returns (common.User);
+  rpc AuthUserPublicKey(types.AuthUserPublicKeyRequest) returns (types.AuthUserResponse);
+
+  rpc GetUserToken(types.Username) returns (UserToken);
+  rpc GetBlueprintByUserStr(types.UserStr) returns (types.Blueprint);
+  rpc ResolvePullRequestToRef(types.RepoPullRequestRequest) returns (types.RepoRefResponse);
+}
+
+message ProviderInfoRequest {}
+message ProviderInfoResponse {
+  string name = 1;              
+  repeated string capabilities = 2; 
+}
+
+message UserToken {
+  string token = 1;
+}

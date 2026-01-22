@@ -5,102 +5,35 @@ package identity;
 option go_package = "github.com/k8shell-io/identity/pkg/api/identitypb;identitypb";
 
 import "common/pkg/gapi/common.proto";
-
-// *** Identity service
+import "pkg/api/types.proto";
+ 
+// *** Identity service 
 
 service IdentityService {
   // User Management
-  rpc FindUser (FindUserRequest) returns (common.User);
-  rpc GetUsers (GetUsersRequest) returns (UserList);
+  rpc FindUser (types.FindUserRequest) returns (common.User);
+  rpc GetUsers (types.GetUsersRequest) returns (types.UserList);
 
   // OAuth2 Onboarding 
-  rpc GetUserOnboardCapability (Username) returns (common.UserOnboardCapability);
-  rpc OnboardUserDeviceFlow (Username) returns (common.OnboardUserDeviceFlow);
-  rpc OnboardUserWebFlow (OnboardUserWebFlowRequest) returns (common.OnboardUserWebFlow);
-  rpc CompleteUserWebFlow (CompleteUserWebFlowRequest) returns (common.User);
+  rpc GetUserOnboardCapability (types.Username) returns (common.UserOnboardCapability);
+  rpc OnboardUserDeviceFlow (types.Username) returns (common.OnboardUserDeviceFlow);
+  rpc OnboardUserWebFlow (types.OnboardUserWebFlowRequest) returns (common.OnboardUserWebFlow);
+  rpc CompleteUserWebFlow (types.CompleteUserWebFlowRequest) returns (common.User);
   
   // Authentication
-  rpc AuthUserPublicKey (AuthUserPublicKeyRequest) returns (AuthUserResponse);
+  rpc AuthUserPublicKey (types.AuthUserPublicKeyRequest) returns (types.AuthUserResponse);
 
   // Repository content
-  rpc GetBlueprintByUserStr (UserStr) returns (Blueprint);
-  rpc ResolvePullRequestToRef (RepoPullRequestRequest) returns (RepoRefResponse);
-
+  rpc GetBlueprintByUserStr (types.UserStr) returns (types.Blueprint);
+  rpc ResolvePullRequestToRef (types.RepoPullRequestRequest) returns (types.RepoRefResponse);
   // External Credentials
-  rpc GetUserCredentials (Username) returns (GetUserCredentialsResponse);
+  rpc GetUserCredentials (types.Username) returns (GetUserCredentialsResponse);
   rpc AddUserCredential (common.ExternalCredential) returns (AddUserCredentialResponse);
   rpc UpdateUserCredential (common.ExternalCredential) returns (UpdateUserCredentialResponse);
   rpc DeleteUserCredential (DeleteUserCredentialRequest) returns (DeleteUserCredentialResponse);
 }
  
 // *** Messages ***   
-
-message Username { 
-  string username = 1;  
-}
-
-message UserStr {  
-  string userstr = 1;
-}
-
-message Blueprint {
-  string blueprint_json = 1;
-}
-
-message UserList {
-  repeated common.User users = 1;
-}
-
-message FindUserRequest {
-  string username = 1;
-  string token = 2;
-}
-
-message GetUsersRequest {
-  int32 limit = 1;
-  int32 offset = 2;
-}
-
-message GetUsersResponse {
-  repeated common.User users = 1;
-}
-
-message AuthUserPublicKeyRequest {
-  string username = 1;
-  string public_key = 2;
-}
-
-message AuthUserResponse {
-  bool valid = 1;
-  common.User user = 2;
-}
-
-message OnboardUserWebFlowRequest {
-  string provider = 1;
-  string redirect_uri = 2;
-}
-
-message CompleteUserWebFlowRequest {
-  string state = 1;
-  string code = 2;
-}
-
-// Blueprint related messages
-
-message GetBlueprintByUserStrResponse {
-  string blueprint = 1;
-}
-
-message RepoPullRequestRequest {
-  string username = 1;
-  string repo_owner = 2;
-  string repo_name = 3;
-  int32 pull_request_number = 4;
-}
-
-message RepoRefResponse {
-  string repo_ref = 1;
-}
 
 // External Credential messages
 

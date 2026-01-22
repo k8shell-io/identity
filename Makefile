@@ -32,8 +32,18 @@ proto-setup:
 
 protoc:
 	@echo "Generating Go code from proto files..."
+	rm -rf pkg/api/typespb
+	protoc -I . -I .proto_deps \
+	  --go_out=. --go_opt=module=github.com/k8shell-io/identity \
+	  --go-grpc_out=. --go-grpc_opt=module=github.com/k8shell-io/identity \
+	  pkg/api/types.proto
 	rm -rf pkg/api/identitypb
 	protoc -I . -I .proto_deps \
 	  --go_out=. --go_opt=module=github.com/k8shell-io/identity \
 	  --go-grpc_out=. --go-grpc_opt=module=github.com/k8shell-io/identity \
 	  pkg/api/identity.proto
+	rm -rf pkg/api/idppb
+	protoc -I . -I .proto_deps \
+	  --go_out=. --go_opt=module=github.com/k8shell-io/identity \
+	  --go-grpc_out=. --go-grpc_opt=module=github.com/k8shell-io/identity \
+	  pkg/api/idp.proto
