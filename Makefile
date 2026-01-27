@@ -1,7 +1,7 @@
 # Variables
 GOOS_LIST := linux 
 GOARCH_LIST := amd64 arm64
-REPO=fitcr.ksi.in.fit.cvut.cz
+REPO=registry.k8shell.io
 
 # Default target
 all: build
@@ -12,7 +12,7 @@ init:
 	go mod tidy
 
 image:
-	@echo "Identity docker image"
+	@echo "Idp usermap docker image"
 	@rm -fr docker/identity/files
 	@mkdir -p docker/identity/files
 	@echo "Downloading vendor modules..."

@@ -1,4 +1,4 @@
-FROM fitcr.ksi.in.fit.cvut.cz/docker/library/golang:1.24.5 AS build
+FROM registry.k8shell.io/docker/library/golang:1.24.5 AS build
 
 ARG VERSION
 ARG COMMIT_ID
@@ -14,7 +14,7 @@ ENV GOFLAGS="-mod=vendor"
 RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.VERSION=$VERSION -X main.COMMIT=$COMMIT_ID" \
     -o /go/bin/identity main.go
 
-FROM fitcr.ksi.in.fit.cvut.cz/docker/library/alpine:3.21.3
+FROM registry.k8shell.io/docker/library/alpine:3.21.3
 
 RUN mkdir /app
 COPY --from=build /go/bin/identity /app/identity
