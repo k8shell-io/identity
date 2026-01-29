@@ -11,20 +11,15 @@ init:
 	@echo "Initializing Go module..."
 	go mod tidy
 
-vendor:  ##@ Vendor Go modules
-         ##@ Downloads and vendors all Go module dependencies into the vendor/ directory
-		 ##@ Used in CI/CD workflow before preparing Docker context
-	@echo "Vendoring Go modules..."
-	@go mod vendor
-	@echo "Vendoring complete!"
-
 prepare-docker: ##@ Prepare Docker build context
                 ##@ Copies vendored dependencies and source files to docker/identity/files/
                 ##@ Used in CI/CD workflow before building container image
+prepare-docker:
 	@echo "Preparing Docker build context..."
 	@rm -rf docker/identity/files
 	@mkdir -p docker/identity/files
-	@cp -r vendor docker/identity/files/
+	@echo "Vendoring Go modules..."
+	@go mod vendor -o docker/identity/files
 	@cp -r go.mod go.sum internal pkg db docker/identity/files/
 	@echo "Docker context prepared!"
 
@@ -32,7 +27,7 @@ image:  ##@ Build Docker image
         ##@ Builds identity container image with version tagging
         ##@ Accepts VERSION, COMMIT_ID, IMAGE_TAG from environment or auto-detects from git
         ##@ Can be used locally or in CI/CD workflow
-image: vendor prepare-docker
+image: prepare-docker
 	@echo "Building identity docker image..."
 	@if ! command -v git >/dev/null 2>&1; then echo "Git not found. Please install Git."; exit 1; fi
 	@VERSION=$${VERSION:-$$(git describe --tags --match 'v*' | sed 's/-g.*//')} && \
