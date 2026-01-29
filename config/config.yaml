@@ -29,13 +29,13 @@ db:
   port: !!int ${POSTGRES_PORT}
 
 # identity providers
-identityProviders:
-  fileProvider:
-    files:
-      - users.yaml
+localProviders:
+  enabled: true
+  files:
+    - users.yaml
   
-  remoteProviders:
-    - address: idp-usermap.k8shell-test:9030
-      tokenFilePath: /opt/shared/auth/identity/idp-token
-      caCertPath: /opt/shared/auth/ca.crt
-      serverName: idp-usermap.k8shell-test.svc  
+remoteProviders:
+  - address: idp-usermap.k8shell-test:9030
+    tokenFilePath: /opt/shared/auth/identity/idp-token
+    caCertPath: /opt/shared/auth/ca.crt
+    serverName: idp-usermap.k8shell-test.svc  

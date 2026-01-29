@@ -20,6 +20,7 @@ import (
 	"github.com/k8shell-io/common/pkg/models"
 	natsc "github.com/k8shell-io/common/pkg/nats"
 	"github.com/k8shell-io/identity/internal/backend"
+	"github.com/k8shell-io/identity/internal/providers/file"
 	"github.com/k8shell-io/identity/pkg/api"
 	"github.com/k8shell-io/identity/pkg/api/identitypb"
 	"github.com/k8shell-io/identity/pkg/api/typespb"
@@ -85,7 +86,17 @@ func NewServer(configFile string) (*Server, error) {
 
 // LoadProviders initializes the identity providers based on the configuration.
 func (s *Server) loadProviders(config *Config) error {
-	for _, idpCfg := range config.IdentityProviders {
+	s.IdentityProviders = make(map[string]*api.IdpClient)
+
+	if config.LocalProviders.Enabled {
+		fileProviders, err := file.NewFileUserProvider(config.LocalProviders, config.configDir)
+		if err != nil {
+			return fmt.Errorf("create file user provider: %w", err)
+		}
+		s.IdentityProviders[file.FILE_PROVIDER_NAME] = &fileProviders.IdpClient
+	}
+
+	for _, idpCfg := range config.RemoteProviders {
 		client, err := api.NewIdpClient(idpCfg)
 		if err != nil {
 			return fmt.Errorf("create identity provider client '%s': %w", idpCfg.Address, err)

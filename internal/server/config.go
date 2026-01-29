@@ -15,11 +15,11 @@ import (
 
 // Config represents the server configuration structure.
 type Config struct {
-	GrpcConfig        gapi.ServerConfig           `yaml:"grpc"`
-	Nats              natsc.NATSClientConfig      `yaml:"nats"`
-	DB                db.DBConfig                 `yaml:"db"`
-	FileProvider      file.FileUserProviderConfig `yaml:"fileProvider"`
-	IdentityProviders []gapi.ClientConfig         `yaml:"identityProviders"`
+	GrpcConfig      gapi.ServerConfig           `yaml:"grpc"`
+	Nats            natsc.NATSClientConfig      `yaml:"nats"`
+	DB              db.DBConfig                 `yaml:"db"`
+	LocalProviders  file.FileUserProviderConfig `yaml:"localProviders"`
+	RemoteProviders []gapi.ClientConfig         `yaml:"remoteProviders"`
 
 	// ConfigDir is the directory where the configuration file is located.
 	configDir string
