@@ -19,7 +19,7 @@ prepare-docker:
 	@rm -rf docker/identity/files
 	@mkdir -p docker/identity/files
 	@echo "Vendoring Go modules..."
-	@go mod vendor -o docker/identity/files
+	@go mod vendor -o docker/identity/files/vendor
 	@cp -r go.mod go.sum internal pkg db docker/identity/files/
 	@echo "Docker context prepared!"
 

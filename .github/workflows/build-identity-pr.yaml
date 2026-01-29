@@ -59,7 +59,7 @@ jobs:
           COMMIT_ID=$(echo "${{ github.event.pull_request.head.sha }}" | cut -c1-7)
           PR_NUMBER=${{ github.event.pull_request.number }}
           IMAGE_TAG="pr-${PR_NUMBER}-${COMMIT_ID}"
-          VERSION="pr-${PR_NUMBER}-${COMMIT_ID}"
+          VERSION="pr-${PR_NUMBER}"
 
           echo "COMMIT_ID=$COMMIT_ID" >> $GITHUB_ENV
           echo "VERSION=$VERSION" >> $GITHUB_ENV
