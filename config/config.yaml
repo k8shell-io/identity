@@ -30,50 +30,12 @@ db:
 
 # identity providers
 identityProviders:
-  # simple file-based identity provider
-  - id: file
-    files: 
+  fileProvider:
+    files:
       - users.yaml
-
-  # usermap identity provider
-  - id: usermap
-    grantType: client_credentials
-    clientId: !file ${SECRET_FILES}/usermap_client_id
-    clientSecret: !file ${SECRET_FILES}/usermap_client_secret
-    tokenUrl: "https://auth.fit.cvut.cz/oauth/token"
-    peopleUrl: "https://kosapi.fit.cvut.cz/usermap/v1/people"
-    gitlabUrl: "https://gitlab.fit.cvut.cz"
-
-    # time in secons the user data will be cached in memcache
-    # to disable cache, set to 0
-    cacheTimeout: 5000
-    
-    # time in seconds after which the user data will be refreshed from usermap 
-    userMaxAge: 43200 # 12 hours
-
-    # user template to map usermap peoplemodel to k8shell user
-    template: usermap-template.yaml
-
-    # extra fields for template evaluation
-    extra:
-      env: prod
-
-  # github identity provider
-  - id: "github"
-    clientId: !file ${SECRET_FILES}/k8shell_client_id
-    clientSecret: !file ${SECRET_FILES}/k8shell_client_secret
-    scopes:
-      - "read:user"
-      - "user:email"
-      - "read:public_key"
-      - "repo"
-    template: github-template.yaml
-    extra:
-      env: prod
-    allow:
-      - "bruckins"
-      - "tomvit"
-
-    defaultK8shellFile:   
-      filename: default-k8shell-file.yaml
-
+  
+  remoteProviders:
+    - address: idp-usermap.k8shell-test:9030
+      tokenFilePath: /opt/shared/auth/identity/idp-token
+      caCertPath: /opt/shared/auth/ca.crt
+      serverName: idp-usermap.k8shell-test.svc  

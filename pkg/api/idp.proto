@@ -27,6 +27,8 @@ message ProviderInfoRequest {}
 message ProviderInfoResponse {
   string name = 1;              
   repeated string capabilities = 2; 
+  uint32 userMaxAge = 3;
+  string address = 4;
 }
 
 message UserToken {

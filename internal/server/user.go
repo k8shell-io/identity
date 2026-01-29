@@ -3,13 +3,17 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
 	"github.com/k8shell-io/common/pkg/utils"
+	"github.com/k8shell-io/identity/pkg/api"
+	"github.com/k8shell-io/identity/pkg/api/typespb"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -22,14 +26,21 @@ func (s *Server) refreshUser(username string, user *models.User) (*models.User, 
 	if user == nil || time.Now().After(user.ExpiresAt) || !user.IsValid {
 		var foundUser *models.User
 		for _, provider := range s.IdentityProviders {
-			foundUser, err = provider.FindUser(username)
-			if err != nil {
-				s.log.Warn().Msgf("Failed to look up user '%s' via provider '%s': %v", username, provider.Name(), err)
+			if user != nil && provider.Name != user.Source {
 				continue
 			}
+			userpb, err := provider.FindUser(context.Background(), &typespb.FindUserRequest{
+				Username: username,
+			})
+			if err != nil {
+				s.log.Warn().Msgf("Failed to look up user '%s' via provider '%s': %v", username, provider.Name, err)
+				continue
+			}
+			foundUser = gapi.ProtoToUser(userpb)
+
 			if foundUser != nil {
 				s.normalizeUser(foundUser)
-				expiresAt := time.Now().Add(time.Duration(provider.UserMaxAge()) * time.Second)
+				expiresAt := time.Now().Add(time.Duration(provider.UserMaxAge) * time.Second)
 				foundUser.ExpiresAt = expiresAt
 				if user != nil {
 					user.ExpiresAt = expiresAt
@@ -124,11 +135,16 @@ func (s *Server) AuthenticateUser(username string, publicKey string) (bool, erro
 
 	// authenticate the user with the public key using the identity providers
 	for _, provider := range s.IdentityProviders {
-		if provider.Name() == user.Source {
-			auth, err := provider.AuthPublicKey(user.Username, parsedKey)
+		if provider.Name == user.Source {
+			authpb, err := provider.AuthUserPublicKey(context.Background(), &typespb.AuthUserPublicKeyRequest{
+				Username:  username,
+				PublicKey: string(ssh.MarshalAuthorizedKey(parsedKey)),
+			})
 			if err != nil {
-				return false, fmt.Errorf("failed to authenticate user '%s' with provider '%s': %w", username, provider.Name(), err)
+				return false, fmt.Errorf("failed to authenticate user '%s' with provider '%s': %w",
+					username, provider.Name, err)
 			}
+			auth := authpb.GetValid()
 			return auth, nil
 		}
 	}
@@ -140,11 +156,14 @@ func (s *Server) AuthenticateUser(username string, publicKey string) (bool, erro
 // It returns the onboarding information if successful, or an error if no suitable provider is found.
 func (s *Server) OnboardUserDeviceFlow(username string) (*models.OnboardUserDeviceFlow, error) {
 	for _, provider := range s.IdentityProviders {
-		onboardUser, err := provider.OnboardUserDeviceFlow(username)
+		onboardUserpb, err := provider.OnboardUserDeviceFlow(context.Background(), &typespb.Username{
+			Username: username,
+		})
 		if err != nil && !errors.Is(err, models.ErrMethodNotSupported) {
 			return nil, fmt.Errorf("failed to onboard user '%s' with provider '%s': %w",
-				username, provider.Name(), err)
+				username, provider.Name, err)
 		}
+		onboardUser := gapi.ProtoToOnboardUserDeviceFlow(onboardUserpb)
 		if onboardUser != nil {
 			return onboardUser, nil
 		}
@@ -156,16 +175,20 @@ func (s *Server) OnboardUserDeviceFlow(username string) (*models.OnboardUserDevi
 // It returns the onboarding information if successful, or an error if no suitable provider is found.
 func (s *Server) OnboardUserWebFlow(providerName string, redirectUri string) (*models.OnboardUserWebFlow, error) {
 	for _, provider := range s.IdentityProviders {
-		if provider.Name() == providerName {
-			authInfo, err := provider.OnboardUserWebFlow(redirectUri)
+		if provider.Name == providerName {
+			authInfo, err := provider.OnboardUserWebFlow(context.Background(), &typespb.OnboardUserWebFlowRequest{
+				Provider:    providerName,
+				RedirectUri: redirectUri,
+			})
 			if err != nil {
 				return nil, fmt.Errorf("failed to onboard user via web flow with provider '%s': %w",
-					provider.Name(), err)
+					provider.Name, err)
 			}
-			return authInfo, nil
+			return gapi.ProtoToOnboardUserWebFlow(authInfo), nil
 		}
 	}
-	return nil, fmt.Errorf("no suitable identity provider found for onboarding via web flow with provider '%s'", providerName)
+	return nil, fmt.Errorf("no suitable identity provider found for onboarding via web flow with provider '%s'",
+		providerName)
 }
 
 func (s *Server) CompleteUserWebFlow(state, code string) (*models.User, error) {
@@ -175,16 +198,20 @@ func (s *Server) CompleteUserWebFlow(state, code string) (*models.User, error) {
 	}
 
 	for _, p := range s.IdentityProviders {
-		if p.Name() == provider {
-			username, err := p.CompleteUserWebFlow(state, code)
+		if p.Name == provider {
+			username, err := p.CompleteUserWebFlow(context.Background(), &typespb.CompleteUserWebFlowRequest{
+				State: state,
+				Code:  code,
+			})
 			if err != nil {
 				return nil, fmt.Errorf("failed to complete user web flow for provider '%s': %w",
 					provider, err)
 			}
 
-			user, err := s.GetUser(username)
+			user, err := s.GetUser(username.GetUsername())
 			if err != nil {
-				return nil, fmt.Errorf("failed to get user '%s' after completing web flow: %w", username, err)
+				return nil, fmt.Errorf("failed to get user '%s' after completing web flow: %w",
+					username.GetUsername(), err)
 			}
 
 			return user, nil
@@ -197,16 +224,20 @@ func (s *Server) CompleteUserWebFlow(state, code string) (*models.User, error) {
 // It returns the capability information if found, or an error if no suitable provider is found.
 func (s *Server) OnboardCapability(username string) (*models.OnboardCapability, error) {
 	for _, provider := range s.IdentityProviders {
-		cap, err := provider.OnboardCapability(username)
-		if err != nil && !errors.Is(err, models.ErrMethodNotSupported) && !errors.Is(err, models.ErrUserNotAllowedOnboard) {
+		cap, err := provider.OnboardCapability(context.Background(), &typespb.Username{
+			Username: username,
+		})
+		if err != nil && !errors.Is(err, models.ErrMethodNotSupported) &&
+			!errors.Is(err, models.ErrUserNotAllowedOnboard) {
 			return nil, fmt.Errorf("failed to check onboarding capability for user '%s' with provider '%s': %w",
-				username, provider.Name(), err)
+				username, provider.Name, err)
 		}
 		if cap != nil {
-			return cap, nil
+			return gapi.ProtoToUserOnboardCapability(cap), nil
 		}
 	}
-	return nil, fmt.Errorf("no suitable identity provider found for checking onboarding capability of user '%s'", username)
+	return nil, fmt.Errorf("no suitable identity provider found for checking onboarding capability of user '%s'",
+		username)
 }
 
 // GetUserExtCredentials retrieves user credentials for the specified username.
@@ -219,19 +250,21 @@ func (s *Server) GetUserExtCredentials(username string) ([]*models.ExternalCrede
 
 	var credentials []*models.ExternalCredential
 	for _, provider := range s.IdentityProviders {
-		if provider.Name() == user.Source {
-			token, err := provider.GetUserToken(user.Username)
+		if provider.Name == user.Source {
+			token, err := provider.GetUserToken(context.Background(), &typespb.Username{
+				Username: user.Username,
+			})
 			if err != nil && !errors.Is(err, models.ErrMethodNotSupported) {
 				return nil, fmt.Errorf("failed to get user token for '%s' with provider '%s': %w",
-					username, provider.Name(), err)
+					username, provider.Name, err)
 			}
 			if token != nil {
 				credentials = append(credentials, &models.ExternalCredential{
-					ServiceName:   provider.Name(),
+					ServiceName:   provider.Name,
 					Username:      user.Username,
-					ExternalID:    token.Username,
+					ExternalID:    user.Username,
 					ExternalToken: token.Token,
-					ServiceURL:    token.Address,
+					ServiceURL:    provider.Address,
 				})
 			}
 		}
@@ -253,13 +286,16 @@ func (s *Server) GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlue
 	}
 
 	for _, provider := range s.IdentityProviders {
-		if provider.Name() == user.Source {
-			blueprint, err := provider.GetCustomBlueprint(userStr)
+		if provider.Name == user.Source {
+			blueprintpb, err := provider.GetBlueprintByUserStr(context.Background(), &typespb.UserStr{
+				Userstr: userStr.Raw,
+			})
 			if err != nil {
 				return nil, fmt.Errorf("failed to get custom blueprint for '%s' with provider '%s': %w",
-					userStr.Username, provider.Name(), err)
+					userStr.Username, provider.Name, err)
 			}
-			return blueprint, nil
+			custombp, err := api.BlueprintProtoToCustomBlueprint(blueprintpb)
+			return custombp, err
 		}
 	}
 
@@ -274,13 +310,18 @@ func (s *Server) ResolveRepoPullRequestToRef(username string, repoOwner, repoNam
 	}
 
 	for _, provider := range s.IdentityProviders {
-		if provider.Name() == user.Source {
-			repoRef, err := provider.ResolvePullRequestRef(username, repoOwner, repoName, pullRequestNumber)
+		if provider.Name == user.Source {
+			repoRef, err := provider.ResolvePullRequestToRef(context.Background(), &typespb.RepoPullRequestRequest{
+				Username:          username,
+				RepoOwner:         repoOwner,
+				RepoName:          repoName,
+				PullRequestNumber: int32(pullRequestNumber),
+			})
 			if err != nil {
 				return "", fmt.Errorf("failed to resolve repo pull request to ref for '%s' with provider '%s': %w",
-					username, provider.Name(), err)
+					username, provider.Name, err)
 			}
-			return repoRef, nil
+			return repoRef.GetRepoRef(), nil
 		}
 	}
 

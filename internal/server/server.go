@@ -15,11 +15,8 @@ import (
 	log "github.com/k8shell-io/common/pkg/logger"
 	natsc "github.com/k8shell-io/common/pkg/nats"
 	"github.com/k8shell-io/identity/internal/backend"
-	"github.com/k8shell-io/identity/internal/providers/file"
-	"github.com/k8shell-io/identity/internal/providers/github"
-	"github.com/k8shell-io/identity/internal/providers/usermap"
+	"github.com/k8shell-io/identity/pkg/api"
 	"github.com/k8shell-io/identity/pkg/api/identitypb"
-	identModels "github.com/k8shell-io/identity/pkg/models"
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
 )
@@ -27,7 +24,7 @@ import (
 // Server represents the main server structure for the K8Shell Identity service.
 type Server struct {
 	DB                *backend.DB
-	IdentityProviders []identModels.IdentityProvider
+	IdentityProviders map[string]*api.IdpClient
 	grpc              *gapi.Server
 	nats              *natsc.NATSClient
 	log               *zerolog.Logger
@@ -82,57 +79,21 @@ func NewServer(configFile string) (*Server, error) {
 
 // LoadProviders initializes the identity providers based on the configuration.
 func (s *Server) loadProviders(config *Config) error {
-	for _, node := range config.IdentityProviders {
-		var raw map[string]any
-		if err := node.Decode(&raw); err != nil {
-			return fmt.Errorf("decode raw provider map: %w", err)
+	for _, idpCfg := range config.IdentityProviders {
+		client, err := api.NewIdpClient(idpCfg)
+		if err != nil {
+			return fmt.Errorf("create identity provider client '%s': %w", idpCfg.Address, err)
 		}
 
-		id, ok := raw["id"].(string)
-		if !ok {
-			return fmt.Errorf("missing or invalid provider 'id' field")
+		if s.IdentityProviders == nil {
+			s.IdentityProviders = make(map[string]*api.IdpClient)
 		}
-
-		s.log.Debug().Msgf("Loading identity provider %s", id)
-
-		switch id {
-		case "file":
-			var fileProvCfg file.FileUserProviderConfig
-			if err := node.Decode(&fileProvCfg); err != nil {
-				return fmt.Errorf("file provider config decode: %w", err)
-			}
-			p, err := file.NewFileUserProvider(fileProvCfg, config.configDir)
-			if err != nil {
-				return fmt.Errorf("file provider creation: %w", err)
-			}
-			s.IdentityProviders = append(s.IdentityProviders, p)
-
-		case "usermap":
-			var usermapProvCfg usermap.UserMapProviderConfig
-			if err := node.Decode(&usermapProvCfg); err != nil {
-				return fmt.Errorf("usermap provider config decode: %w", err)
-			}
-			p, err := usermap.NewUserMapProvider(usermapProvCfg, config.configDir, s.nats)
-			if err != nil {
-				return fmt.Errorf("usermap provider creation: %w", err)
-			}
-			s.IdentityProviders = append(s.IdentityProviders, p)
-
-		case "github":
-			var githubProvCfg github.GitHubProviderConfig
-			if err := node.Decode(&githubProvCfg); err != nil {
-				return fmt.Errorf("github provider config decode: %w", err)
-			}
-			p, err := github.NewGitHubProvider(githubProvCfg, s.nats, s.DB, config.configDir)
-			if err != nil {
-				return fmt.Errorf("github provider creation: %w", err)
-			}
-			s.IdentityProviders = append(s.IdentityProviders, p)
-
-		default:
-			return fmt.Errorf("unknown identity provider id: %s", id)
+		if s.IdentityProviders[client.Name] != nil {
+			return fmt.Errorf("duplicate identity provider name '%s' from address '%s'", client.Name, idpCfg.Address)
 		}
+		s.IdentityProviders[client.Name] = client
 	}
+
 	return nil
 }
 
