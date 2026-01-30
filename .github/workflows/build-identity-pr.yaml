@@ -105,3 +105,4 @@ jobs:
           echo '```bash' >> $GITHUB_STEP_SUMMARY
           echo "docker pull registry.k8shell.io/${{ env.REPO_NAME }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+          
