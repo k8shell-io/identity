@@ -109,6 +109,7 @@ func (s *Server) loadProviders(config *Config) error {
 			return fmt.Errorf("duplicate identity provider name '%s' from address '%s'", client.Name, idpCfg.Address)
 		}
 		s.IdentityProviders[client.Name] = client
+		s.log.Info().Msgf("Loaded identity provider '%s' from address '%s'", client.Name, idpCfg.Address)
 	}
 
 	return nil
