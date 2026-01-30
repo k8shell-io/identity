@@ -33,9 +33,8 @@ image: prepare-docker
 	@VERSION=$${VERSION:-$$(git describe --tags --match 'v*' | sed 's/-g.*//')} && \
 	COMMIT_ID=$${COMMIT_ID:-$$(git rev-parse --short HEAD)} && \
 	IMAGE_TAG=$${IMAGE_TAG:-$$VERSION} && \
-	echo -n "k8shell-test/identity:$$IMAGE_TAG" > docker/identity/BUILD && \
 	cd docker/identity && docker build --build-arg VERSION=$$VERSION \
-		--build-arg COMMIT_ID=$$COMMIT_ID -t $(REPO)/$$(cat ./BUILD) .
+		--build-arg COMMIT_ID=$$COMMIT_ID -t $(REPO)/$$(cat ./BUILD):$$IMAGE_TAG .
 
 COMMON_DIR := $(shell go list -m -f '{{.Dir}}' github.com/k8shell-io/common)
 
