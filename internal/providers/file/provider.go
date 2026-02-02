@@ -13,7 +13,6 @@ import (
 	logger "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/common/pkg/models"
 	"github.com/k8shell-io/identity/internal/common"
-	"github.com/k8shell-io/identity/pkg/api"
 	"github.com/k8shell-io/identity/pkg/api/idppb"
 	"github.com/k8shell-io/identity/pkg/api/typespb"
 	"github.com/rs/zerolog"
@@ -32,11 +31,14 @@ type FileUserProviderConfig struct {
 }
 
 type FileUserProvider struct {
-	config FileUserProviderConfig
-	log    *zerolog.Logger
-	users  map[string]*models.User
-	mutex  sync.RWMutex
-	api.IdpClient
+	config       FileUserProviderConfig
+	log          *zerolog.Logger
+	users        map[string]*models.User
+	mutex        sync.RWMutex
+	name         string
+	capabilities []string
+	userMaxAge   uint32
+	address      string
 }
 
 type UserFile struct {
@@ -45,25 +47,30 @@ type UserFile struct {
 
 func NewFileUserProvider(cfg FileUserProviderConfig, baseDir string) (*FileUserProvider, error) {
 	provider := &FileUserProvider{
-		config: cfg,
-		users:  make(map[string]*models.User),
-		mutex:  sync.RWMutex{},
-		log:    logger.NewLogger("file-provider"),
+		config:       cfg,
+		users:        make(map[string]*models.User),
+		mutex:        sync.RWMutex{},
+		log:          logger.NewLogger("file-provider"),
+		name:         FILE_PROVIDER_NAME,
+		capabilities: []string{"find_user", "auth_public_key"},
+		userMaxAge:   0,
+		address:      "",
 	}
 	err := provider.load(baseDir)
 	if err != nil {
 		return nil, err
 	}
 
-	provider.IdpClient = api.IdpClient{
-		Name:                          FILE_PROVIDER_NAME,
-		Capabilities:                  []string{"find_user", "auth_public_key"},
-		UserMaxAge:                    0,
-		Address:                       "",
-		IdentityProviderServiceClient: provider,
-	}
-
 	return provider, nil
+}
+
+func (f *FileUserProvider) Name() string           { return f.name }
+func (f *FileUserProvider) Capabilities() []string { return f.capabilities }
+func (f *FileUserProvider) UserMaxAge() uint32     { return f.userMaxAge }
+func (f *FileUserProvider) Address() string        { return f.address }
+
+func (f *FileUserProvider) Close() error {
+	return nil
 }
 
 func (f *FileUserProvider) load(baseDir string) error {
@@ -177,6 +184,18 @@ func (f *FileUserProvider) ResolvePullRequestToRef(ctx context.Context, in *type
 	opts ...grpc.CallOption) (*typespb.RepoRefResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented,
 		"file user provider does not support resolving pull requests to refs")
+}
+
+func (f *FileUserProvider) CompleteUserWebFlow(ctx context.Context, in *typespb.CompleteUserWebFlowRequest,
+	opts ...grpc.CallOption) (*commonpb.User, error) {
+	return nil, status.Errorf(codes.Unimplemented,
+		"file user provider does not support onboarding via web flow")
+}
+
+func (f *FileUserProvider) OnboardUserWebFlow(ctx context.Context, in *typespb.OnboardUserWebFlowRequest,
+	opts ...grpc.CallOption) (*commonpb.OnboardUserWebFlow, error) {
+	return nil, status.Errorf(codes.Unimplemented,
+		"file user provider does not support onboarding via web flow")
 }
 
 // func (f *FileUserProvider) Name() string {

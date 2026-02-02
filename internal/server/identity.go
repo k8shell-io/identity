@@ -110,14 +110,14 @@ func (s *IdentityService) AuthUserPublicKey(ctx context.Context,
 
 	// authenticate the user with the public key using the identity providers
 	for _, provider := range s.server.IdentityProviders {
-		if provider.Name == user.Source {
+		if provider.Name() == user.Source {
 			authpb, err := provider.AuthUserPublicKey(context.Background(), &typespb.AuthUserPublicKeyRequest{
 				Username:  req.Username,
 				PublicKey: string(ssh.MarshalAuthorizedKey(parsedKey)),
 			})
 			if err != nil {
 				return nil, status.Errorf(codes.Internal, "failed to authenticate user '%s' with provider '%s': %s",
-					req.Username, provider.Name, err.Error())
+					req.Username, provider.Name(), err.Error())
 			}
 			return authpb, nil
 		}
@@ -134,7 +134,7 @@ func (s *IdentityService) GetUserOnboardCapability(ctx context.Context,
 		})
 		if err != nil && !errors.Is(err, models.ErrMethodNotSupported) &&
 			!errors.Is(err, models.ErrUserNotAllowedOnboard) {
-			return nil, status.Errorf(codes.Internal, "failed to get onboard capability for user '%s' from provider '%s': %v", req.Username, provider.Name, err)
+			return nil, status.Errorf(codes.Internal, "failed to get onboard capability for user '%s' from provider '%s': %v", req.Username, provider.Name(), err)
 		}
 		if cap != nil {
 			return cap, nil
@@ -151,7 +151,7 @@ func (s *IdentityService) OnboardUserDeviceFlow(ctx context.Context,
 		})
 		if err != nil && !errors.Is(err, models.ErrMethodNotSupported) {
 			return nil, status.Errorf(codes.Internal, "failed to onboard user '%s' with provider '%s': %v",
-				req.Username, provider.Name, err)
+				req.Username, provider.Name(), err)
 		}
 		if onboardUserpb != nil {
 			return onboardUserpb, nil
@@ -163,7 +163,7 @@ func (s *IdentityService) OnboardUserDeviceFlow(ctx context.Context,
 func (s *IdentityService) OnboardUserWebFlow(ctx context.Context,
 	req *typespb.OnboardUserWebFlowRequest) (*commonpb.OnboardUserWebFlow, error) {
 	for _, provider := range s.server.IdentityProviders {
-		if provider.Name == req.Provider {
+		if provider.Name() == req.Provider {
 			authInfo, err := provider.OnboardUserWebFlow(context.Background(), &typespb.OnboardUserWebFlowRequest{
 				Provider:    req.Provider,
 				RedirectUri: req.RedirectUri,
@@ -187,7 +187,7 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 	}
 
 	for _, p := range s.server.IdentityProviders {
-		if p.Name == provider {
+		if p.Name() == provider {
 			username, err := p.CompleteUserWebFlow(context.Background(), &typespb.CompleteUserWebFlowRequest{
 				State: req.State,
 				Code:  req.Code,
@@ -226,14 +226,14 @@ func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context,
 	}
 
 	for _, provider := range s.server.IdentityProviders {
-		if provider.Name == user.Source {
+		if provider.Name() == user.Source {
 			blueprintpb, err := provider.GetBlueprintByUserStr(context.Background(), &typespb.UserStr{
 				Userstr: userStr.Raw,
 			})
 			if err != nil {
 				return nil, status.Errorf(codes.Internal,
 					"failed to get custom blueprint for '%s' with provider '%s': %v",
-					userStr.Username, provider.Name, err)
+					userStr.Username, provider.Name(), err)
 			}
 			return blueprintpb, nil
 		}
@@ -252,7 +252,7 @@ func (s *IdentityService) ResolvePullRequestToRef(ctx context.Context,
 	}
 
 	for _, provider := range s.server.IdentityProviders {
-		if provider.Name == user.Source {
+		if provider.Name() == user.Source {
 			repoRef, err := provider.ResolvePullRequestToRef(context.Background(), &typespb.RepoPullRequestRequest{
 				Username:          req.Username,
 				RepoOwner:         req.RepoOwner,
@@ -262,7 +262,7 @@ func (s *IdentityService) ResolvePullRequestToRef(ctx context.Context,
 			if err != nil {
 				return nil, status.Errorf(codes.Internal,
 					"failed to resolve pull request to ref for '%s' with provider '%s': %v",
-					req.Username, provider.Name, err)
+					req.Username, provider.Name(), err)
 			}
 			return repoRef, nil
 		}
@@ -282,21 +282,21 @@ func (s *IdentityService) GetUserCredentials(ctx context.Context,
 
 	var credentials []*models.ExternalCredential
 	for _, provider := range s.server.IdentityProviders {
-		if provider.Name == user.Source {
+		if provider.Name() == user.Source {
 			token, err := provider.GetUserToken(context.Background(), &typespb.Username{
 				Username: user.Username,
 			})
 			if err != nil && !errors.Is(err, models.ErrMethodNotSupported) {
 				return nil, fmt.Errorf("failed to get user token for '%s' with provider '%s': %w",
-					req.Username, provider.Name, err)
+					req.Username, provider.Name(), err)
 			}
 			if token != nil {
 				credentials = append(credentials, &models.ExternalCredential{
-					ServiceName:   provider.Name,
+					ServiceName:   provider.Name(),
 					Username:      user.Username,
 					ExternalID:    user.Username,
 					ExternalToken: token.Token,
-					ServiceURL:    provider.Address,
+					ServiceURL:    provider.Address(),
 				})
 			}
 		}

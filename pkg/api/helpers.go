@@ -33,40 +33,55 @@ func (c *IdentityClient) Close() error {
 	return c.client.Close()
 }
 
-type IdpClient struct {
-	Name         string
-	Capabilities []string
-	UserMaxAge   uint32
-	Address      string
+type IdpClient interface {
+	Name() string
+	Capabilities() []string
+	UserMaxAge() uint32
+	Address() string
+	Close() error
 	idppb.IdentityProviderServiceClient
-	client *gapi.Client
 }
 
-func NewIdpClient(cfg gapi.ClientConfig) (*IdpClient, error) {
+type idpClient struct {
+	idppb.IdentityProviderServiceClient
+	client *gapi.Client
+
+	name         string
+	capabilities []string
+	userMaxAge   uint32
+	address      string
+}
+
+func (c *idpClient) Close() error { return c.client.Close() }
+
+func (c *idpClient) Name() string           { return c.name }
+func (c *idpClient) Capabilities() []string { return c.capabilities }
+func (c *idpClient) UserMaxAge() uint32     { return c.userMaxAge }
+func (c *idpClient) Address() string        { return c.address }
+
+func NewIdpClient(cfg gapi.ClientConfig) (IdpClient, error) {
 	gapiClient, err := gapi.NewClient(cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	client := &IdpClient{
+	c := &idpClient{
 		IdentityProviderServiceClient: idppb.NewIdentityProviderServiceClient(gapiClient.Conn),
 		client:                        gapiClient,
 	}
-	info, err := client.ProviderInfo(context.Background(), &idppb.ProviderInfoRequest{})
+
+	info, err := c.ProviderInfo(context.Background(), &idppb.ProviderInfoRequest{})
 	if err != nil {
-		gapiClient.Close()
+		_ = gapiClient.Close()
 		return nil, err
 	}
-	client.Name = info.Name
-	client.Capabilities = info.Capabilities
-	client.UserMaxAge = info.UserMaxAge
-	client.Address = info.Address
-	return client, nil
 
-}
+	c.name = info.Name
+	c.capabilities = info.Capabilities
+	c.userMaxAge = info.UserMaxAge
+	c.address = info.Address
 
-func (c *IdpClient) Close() error {
-	return c.client.Close()
+	return c, nil
 }
 
 func BlueprintProtoToCustomBlueprint(bp *typespb.Blueprint) (*models.CustomBlueprint, error) {

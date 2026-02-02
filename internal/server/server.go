@@ -31,7 +31,7 @@ import (
 // Server represents the main server structure for the K8Shell Identity service.
 type Server struct {
 	DB                *backend.DB
-	IdentityProviders map[string]*api.IdpClient
+	IdentityProviders map[string]api.IdpClient
 	grpc              *gapi.Server
 	nats              *natsc.NATSClient
 	log               *zerolog.Logger
@@ -86,14 +86,14 @@ func NewServer(configFile string) (*Server, error) {
 
 // LoadProviders initializes the identity providers based on the configuration.
 func (s *Server) loadProviders(config *Config) error {
-	s.IdentityProviders = make(map[string]*api.IdpClient)
+	s.IdentityProviders = make(map[string]api.IdpClient)
 
 	if config.LocalProviders.Enabled {
 		fileProviders, err := file.NewFileUserProvider(config.LocalProviders, config.configDir)
 		if err != nil {
 			return fmt.Errorf("create file user provider: %w", err)
 		}
-		s.IdentityProviders[file.FILE_PROVIDER_NAME] = &fileProviders.IdpClient
+		s.IdentityProviders[file.FILE_PROVIDER_NAME] = fileProviders
 	}
 
 	for _, idpCfg := range config.RemoteProviders {
@@ -103,13 +103,13 @@ func (s *Server) loadProviders(config *Config) error {
 		}
 
 		if s.IdentityProviders == nil {
-			s.IdentityProviders = make(map[string]*api.IdpClient)
+			s.IdentityProviders = make(map[string]api.IdpClient)
 		}
-		if s.IdentityProviders[client.Name] != nil {
-			return fmt.Errorf("duplicate identity provider name '%s' from address '%s'", client.Name, idpCfg.Address)
+		if s.IdentityProviders[client.Name()] != nil {
+			return fmt.Errorf("duplicate identity provider name '%s' from address '%s'", client.Name(), idpCfg.Address)
 		}
-		s.IdentityProviders[client.Name] = client
-		s.log.Info().Msgf("Loaded identity provider '%s' from address '%s'", client.Name, idpCfg.Address)
+		s.IdentityProviders[client.Name()] = client
+		s.log.Info().Msgf("Loaded identity provider '%s' from address '%s'", client.Name(), idpCfg.Address)
 	}
 
 	return nil
@@ -149,21 +149,21 @@ func (s *Server) refreshUser(username string, user *models.User) (*models.User, 
 	if user == nil || time.Now().After(user.ExpiresAt) || !user.IsValid {
 		var foundUser *models.User
 		for _, provider := range s.IdentityProviders {
-			if user != nil && provider.Name != user.Source {
+			if user != nil && provider.Name() != user.Source {
 				continue
 			}
 			userpb, err := provider.FindUser(context.Background(), &typespb.FindUserRequest{
 				Username: username,
 			})
 			if err != nil {
-				s.log.Warn().Msgf("Failed to look up user '%s' via provider '%s': %v", username, provider.Name, err)
+				s.log.Warn().Msgf("Failed to look up user '%s' via provider '%s': %v", username, provider.Name(), err)
 				continue
 			}
 			foundUser = gapi.ProtoToUser(userpb)
 
 			if foundUser != nil {
 				s.normalizeUser(foundUser)
-				expiresAt := time.Now().Add(time.Duration(provider.UserMaxAge) * time.Second)
+				expiresAt := time.Now().Add(time.Duration(provider.UserMaxAge()) * time.Second)
 				foundUser.ExpiresAt = expiresAt
 				if user != nil {
 					user.ExpiresAt = expiresAt
