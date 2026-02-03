@@ -7,7 +7,12 @@ LABEL VERSION=$VERSION
 LABEL COMMIT_ID=$COMMIT_ID
 
 WORKDIR /go/src/identity
-COPY files .
+COPY go.mod go.sum ./
+COPY vendor ./vendor
+COPY main.go ./
+COPY internal ./internal
+COPY pkg ./pkg
+COPY db ./db
 
 ENV GOFLAGS="-mod=vendor"
 

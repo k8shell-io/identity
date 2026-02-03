@@ -71,10 +71,13 @@ func NewServer(configFile string) (*Server, error) {
 		return nil, fmt.Errorf("create gRPC server: %w", err)
 	}
 
-	server.grpc.RegisterService(func(s *grpc.Server) error {
+	err = server.grpc.RegisterService(func(s *grpc.Server) error {
 		identitypb.RegisterIdentityServiceServer(s, NewIdentityService(server))
 		return nil
 	})
+	if err != nil {
+		return nil, fmt.Errorf("register identity service: %w", err)
+	}
 
 	err = server.loadProviders(config)
 	if err != nil {

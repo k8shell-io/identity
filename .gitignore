@@ -7,3 +7,6 @@ wiki
 scripts
 .proto_deps
 .github-integration.env
+bin/identity
+vendor/
+reports/
