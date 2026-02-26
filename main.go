@@ -73,6 +73,6 @@ func main() {
 
 	err = server.Serve()
 	if err != nil {
-		log.Error().Msgf("Server error: %v\n", err)
+		log.Error().Msgf("Error serving server: %v\n", err)
 	}
 }

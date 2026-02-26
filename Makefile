@@ -58,7 +58,7 @@ test-binary: build
 test-self:  ##@ Run all self-tests
             ##@ Executes static analysis, unit tests, build, and binary smoke tests
             ##@ Validation of code quality and functionality (ran by self-tests CI workflow)
-test-self: test-static test build test-binary
+test-self: test-static build test-binary
 	@echo "All self-tests passed!"
 
 vendor:  ##@ Vendor Go modules
@@ -82,6 +82,27 @@ image: vendor
 coverage:  ##@ Calculate test coverage percentage from coverage.out
 	@go tool cover -func=$(REPORTS_DIR)/coverage.out | grep total | awk '{print $$3}'
 
+##@
+##@ Misc commands
+##@
+
+protoc:
+	@echo "Generating Go code from proto files..."
+	rm -rf pkg/api/typespb
+	protoc -I . -I .proto_deps \
+	  --go_out=. --go_opt=module=github.com/k8shell-io/identity \
+	  --go-grpc_out=. --go-grpc_opt=module=github.com/k8shell-io/identity \
+	  pkg/api/types.proto
+	rm -rf pkg/api/identitypb
+	protoc -I . -I .proto_deps \
+	  --go_out=. --go_opt=module=github.com/k8shell-io/identity \
+	  --go-grpc_out=. --go-grpc_opt=module=github.com/k8shell-io/identity \
+	  pkg/api/identity.proto
+	rm -rf pkg/api/idppb
+	protoc -I . -I .proto_deps \
+	  --go_out=. --go_opt=module=github.com/k8shell-io/identity \
+	  --go-grpc_out=. --go-grpc_opt=module=github.com/k8shell-io/identity \
+	  pkg/api/idp.proto
 ##@
 ##@ Misc commands
 ##@
