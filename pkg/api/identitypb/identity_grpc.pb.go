@@ -39,24 +39,36 @@ const (
 // IdentityServiceClient is the client API for IdentityService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// IdentityService provides operations for user management, authentication,
+// onboarding, and external credential management.
 type IdentityServiceClient interface {
-	// User Management
+	// FindUser retrieves a user by username. It can be used for authentication and user lookup.
 	FindUser(ctx context.Context, in *typespb.FindUserRequest, opts ...grpc.CallOption) (*commonpb.User, error)
+	// GetUsers retrieves a list of users with pagination support.
 	GetUsers(ctx context.Context, in *typespb.GetUsersRequest, opts ...grpc.CallOption) (*typespb.UserList, error)
-	// OAuth2 Onboarding
+	// GetUserOnboardCapability checks if the identity provider supports onboarding and returns the capability details.
 	GetUserOnboardCapability(ctx context.Context, in *typespb.Username, opts ...grpc.CallOption) (*commonpb.UserOnboardCapability, error)
+	// OnboardUserDeviceFlow initiates the device flow onboarding process for a user.
 	OnboardUserDeviceFlow(ctx context.Context, in *typespb.Username, opts ...grpc.CallOption) (*commonpb.OnboardUserDeviceFlow, error)
+	// OnboardUserWebFlow initiates the web flow onboarding process for a user.
 	OnboardUserWebFlow(ctx context.Context, in *typespb.OnboardUserWebFlowRequest, opts ...grpc.CallOption) (*commonpb.OnboardUserWebFlow, error)
+	// CompleteUserWebFlow completes the web flow onboarding process using the provided state and code.
 	CompleteUserWebFlow(ctx context.Context, in *typespb.CompleteUserWebFlowRequest, opts ...grpc.CallOption) (*commonpb.User, error)
-	// Authentication
+	// AuthUserPublicKey authenticates a user using a public key and returns the authentication result
+	// along with user details if valid.
 	AuthUserPublicKey(ctx context.Context, in *typespb.AuthUserPublicKeyRequest, opts ...grpc.CallOption) (*typespb.AuthUserResponse, error)
-	// Repository content
+	// GetBlueprintByUserStr retrieves a blueprint associated with a user string identifier.
 	GetBlueprintByUserStr(ctx context.Context, in *typespb.UserStr, opts ...grpc.CallOption) (*typespb.Blueprint, error)
+	// ResolvePullRequestToRef resolves a pull request to a repository reference (e.g., branch or commit).
 	ResolvePullRequestToRef(ctx context.Context, in *typespb.RepoPullRequestRequest, opts ...grpc.CallOption) (*typespb.RepoRefResponse, error)
-	// External Credentials
+	// GetUserCredentials retrieves all external credentials associated with a user.
 	GetUserCredentials(ctx context.Context, in *typespb.Username, opts ...grpc.CallOption) (*GetUserCredentialsResponse, error)
+	// AddUserCredential adds a new external credential for a user.
 	AddUserCredential(ctx context.Context, in *commonpb.ExternalCredential, opts ...grpc.CallOption) (*AddUserCredentialResponse, error)
+	// UpdateUserCredential updates an existing external credential for a user.
 	UpdateUserCredential(ctx context.Context, in *commonpb.ExternalCredential, opts ...grpc.CallOption) (*UpdateUserCredentialResponse, error)
+	// DeleteUserCredential deletes an external credential by its ID.
 	DeleteUserCredential(ctx context.Context, in *DeleteUserCredentialRequest, opts ...grpc.CallOption) (*DeleteUserCredentialResponse, error)
 }
 
@@ -201,24 +213,36 @@ func (c *identityServiceClient) DeleteUserCredential(ctx context.Context, in *De
 // IdentityServiceServer is the server API for IdentityService service.
 // All implementations must embed UnimplementedIdentityServiceServer
 // for forward compatibility.
+//
+// IdentityService provides operations for user management, authentication,
+// onboarding, and external credential management.
 type IdentityServiceServer interface {
-	// User Management
+	// FindUser retrieves a user by username. It can be used for authentication and user lookup.
 	FindUser(context.Context, *typespb.FindUserRequest) (*commonpb.User, error)
+	// GetUsers retrieves a list of users with pagination support.
 	GetUsers(context.Context, *typespb.GetUsersRequest) (*typespb.UserList, error)
-	// OAuth2 Onboarding
+	// GetUserOnboardCapability checks if the identity provider supports onboarding and returns the capability details.
 	GetUserOnboardCapability(context.Context, *typespb.Username) (*commonpb.UserOnboardCapability, error)
+	// OnboardUserDeviceFlow initiates the device flow onboarding process for a user.
 	OnboardUserDeviceFlow(context.Context, *typespb.Username) (*commonpb.OnboardUserDeviceFlow, error)
+	// OnboardUserWebFlow initiates the web flow onboarding process for a user.
 	OnboardUserWebFlow(context.Context, *typespb.OnboardUserWebFlowRequest) (*commonpb.OnboardUserWebFlow, error)
+	// CompleteUserWebFlow completes the web flow onboarding process using the provided state and code.
 	CompleteUserWebFlow(context.Context, *typespb.CompleteUserWebFlowRequest) (*commonpb.User, error)
-	// Authentication
+	// AuthUserPublicKey authenticates a user using a public key and returns the authentication result
+	// along with user details if valid.
 	AuthUserPublicKey(context.Context, *typespb.AuthUserPublicKeyRequest) (*typespb.AuthUserResponse, error)
-	// Repository content
+	// GetBlueprintByUserStr retrieves a blueprint associated with a user string identifier.
 	GetBlueprintByUserStr(context.Context, *typespb.UserStr) (*typespb.Blueprint, error)
+	// ResolvePullRequestToRef resolves a pull request to a repository reference (e.g., branch or commit).
 	ResolvePullRequestToRef(context.Context, *typespb.RepoPullRequestRequest) (*typespb.RepoRefResponse, error)
-	// External Credentials
+	// GetUserCredentials retrieves all external credentials associated with a user.
 	GetUserCredentials(context.Context, *typespb.Username) (*GetUserCredentialsResponse, error)
+	// AddUserCredential adds a new external credential for a user.
 	AddUserCredential(context.Context, *commonpb.ExternalCredential) (*AddUserCredentialResponse, error)
+	// UpdateUserCredential updates an existing external credential for a user.
 	UpdateUserCredential(context.Context, *commonpb.ExternalCredential) (*UpdateUserCredentialResponse, error)
+	// DeleteUserCredential deletes an external credential by its ID.
 	DeleteUserCredential(context.Context, *DeleteUserCredentialRequest) (*DeleteUserCredentialResponse, error)
 	mustEmbedUnimplementedIdentityServiceServer()
 }

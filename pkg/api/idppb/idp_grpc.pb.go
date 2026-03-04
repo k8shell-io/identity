@@ -36,16 +36,28 @@ const (
 // IdentityProviderServiceClient is the client API for IdentityProviderService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// IdentityProviderService defines the gRPC service for identity provider operations
 type IdentityProviderServiceClient interface {
+	// Provider Information
 	ProviderInfo(ctx context.Context, in *ProviderInfoRequest, opts ...grpc.CallOption) (*ProviderInfoResponse, error)
+	// FindUser retrieves a user by username. It can be used for authentication and user lookup.
 	FindUser(ctx context.Context, in *typespb.FindUserRequest, opts ...grpc.CallOption) (*commonpb.User, error)
+	// GetUsers retrieves a list of users with pagination support.
 	OnboardCapability(ctx context.Context, in *typespb.Username, opts ...grpc.CallOption) (*commonpb.UserOnboardCapability, error)
+	// OnboardUserDeviceFlow initiates the device flow onboarding process for a user.
 	OnboardUserDeviceFlow(ctx context.Context, in *typespb.Username, opts ...grpc.CallOption) (*commonpb.OnboardUserDeviceFlow, error)
+	// OnboardUserWebFlow initiates the web flow onboarding process for a user.
 	OnboardUserWebFlow(ctx context.Context, in *typespb.OnboardUserWebFlowRequest, opts ...grpc.CallOption) (*commonpb.OnboardUserWebFlow, error)
+	// CompleteUserWebFlow completes the web flow onboarding process using the provided state and code.
 	CompleteUserWebFlow(ctx context.Context, in *typespb.CompleteUserWebFlowRequest, opts ...grpc.CallOption) (*commonpb.User, error)
+	// AuthUserPublicKey authenticates a user using a public key and returns the authentication result
 	AuthUserPublicKey(ctx context.Context, in *typespb.AuthUserPublicKeyRequest, opts ...grpc.CallOption) (*typespb.AuthUserResponse, error)
+	// GetBlueprintByUserStr retrieves a blueprint associated with a user string identifier.
 	GetUserToken(ctx context.Context, in *typespb.Username, opts ...grpc.CallOption) (*UserToken, error)
+	// ResolvePullRequestToRef resolves a pull request to a repository reference (e.g., branch or commit).
 	GetBlueprintByUserStr(ctx context.Context, in *typespb.UserStr, opts ...grpc.CallOption) (*typespb.Blueprint, error)
+	// ResolvePullRequestToRef resolves a pull request to a repository reference (e.g., branch or commit).
 	ResolvePullRequestToRef(ctx context.Context, in *typespb.RepoPullRequestRequest, opts ...grpc.CallOption) (*typespb.RepoRefResponse, error)
 }
 
@@ -160,16 +172,28 @@ func (c *identityProviderServiceClient) ResolvePullRequestToRef(ctx context.Cont
 // IdentityProviderServiceServer is the server API for IdentityProviderService service.
 // All implementations must embed UnimplementedIdentityProviderServiceServer
 // for forward compatibility.
+//
+// IdentityProviderService defines the gRPC service for identity provider operations
 type IdentityProviderServiceServer interface {
+	// Provider Information
 	ProviderInfo(context.Context, *ProviderInfoRequest) (*ProviderInfoResponse, error)
+	// FindUser retrieves a user by username. It can be used for authentication and user lookup.
 	FindUser(context.Context, *typespb.FindUserRequest) (*commonpb.User, error)
+	// GetUsers retrieves a list of users with pagination support.
 	OnboardCapability(context.Context, *typespb.Username) (*commonpb.UserOnboardCapability, error)
+	// OnboardUserDeviceFlow initiates the device flow onboarding process for a user.
 	OnboardUserDeviceFlow(context.Context, *typespb.Username) (*commonpb.OnboardUserDeviceFlow, error)
+	// OnboardUserWebFlow initiates the web flow onboarding process for a user.
 	OnboardUserWebFlow(context.Context, *typespb.OnboardUserWebFlowRequest) (*commonpb.OnboardUserWebFlow, error)
+	// CompleteUserWebFlow completes the web flow onboarding process using the provided state and code.
 	CompleteUserWebFlow(context.Context, *typespb.CompleteUserWebFlowRequest) (*commonpb.User, error)
+	// AuthUserPublicKey authenticates a user using a public key and returns the authentication result
 	AuthUserPublicKey(context.Context, *typespb.AuthUserPublicKeyRequest) (*typespb.AuthUserResponse, error)
+	// GetBlueprintByUserStr retrieves a blueprint associated with a user string identifier.
 	GetUserToken(context.Context, *typespb.Username) (*UserToken, error)
+	// ResolvePullRequestToRef resolves a pull request to a repository reference (e.g., branch or commit).
 	GetBlueprintByUserStr(context.Context, *typespb.UserStr) (*typespb.Blueprint, error)
+	// ResolvePullRequestToRef resolves a pull request to a repository reference (e.g., branch or commit).
 	ResolvePullRequestToRef(context.Context, *typespb.RepoPullRequestRequest) (*typespb.RepoRefResponse, error)
 	mustEmbedUnimplementedIdentityProviderServiceServer()
 }

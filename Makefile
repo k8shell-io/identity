@@ -86,6 +86,13 @@ coverage:  ##@ Calculate test coverage percentage from coverage.out
 ##@ Misc commands
 ##@
 
+COMMON_DIR := $(shell go list -m -f '{{.Dir}}' github.com/k8shell-io/common)
+
+proto-setup:
+	mkdir -p .proto_deps
+	@rm -f .proto_deps/common
+	ln -s $(COMMON_DIR) .proto_deps/common
+	
 protoc:
 	@echo "Generating Go code from proto files..."
 	rm -rf pkg/api/typespb

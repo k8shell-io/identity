@@ -4,36 +4,56 @@ package identity;
 
 option go_package = "github.com/k8shell-io/identity/pkg/api/identitypb;identitypb";
 
-import "common/pkg/gapi/common.proto";
+import ".proto_deps/common/pkg/gapi/common.proto";
 import "pkg/api/types.proto";
- 
-// *** Identity service 
 
+// *** Identity service
+
+// IdentityService provides operations for user management, authentication,
+// onboarding, and external credential management.
 service IdentityService {
-  // User Management
+  // FindUser retrieves a user by username. It can be used for authentication and user lookup.
   rpc FindUser (types.FindUserRequest) returns (common.User);
+
+  // GetUsers retrieves a list of users with pagination support.
   rpc GetUsers (types.GetUsersRequest) returns (types.UserList);
 
-  // OAuth2 Onboarding 
+  // GetUserOnboardCapability checks if the identity provider supports onboarding and returns the capability details.
   rpc GetUserOnboardCapability (types.Username) returns (common.UserOnboardCapability);
+
+  // OnboardUserDeviceFlow initiates the device flow onboarding process for a user.
   rpc OnboardUserDeviceFlow (types.Username) returns (common.OnboardUserDeviceFlow);
+
+  // OnboardUserWebFlow initiates the web flow onboarding process for a user.
   rpc OnboardUserWebFlow (types.OnboardUserWebFlowRequest) returns (common.OnboardUserWebFlow);
+
+  // CompleteUserWebFlow completes the web flow onboarding process using the provided state and code.
   rpc CompleteUserWebFlow (types.CompleteUserWebFlowRequest) returns (common.User);
-  
-  // Authentication
+
+  // AuthUserPublicKey authenticates a user using a public key and returns the authentication result
+  // along with user details if valid.
   rpc AuthUserPublicKey (types.AuthUserPublicKeyRequest) returns (types.AuthUserResponse);
 
-  // Repository content
+  // GetBlueprintByUserStr retrieves a blueprint associated with a user string identifier.
   rpc GetBlueprintByUserStr (types.UserStr) returns (types.Blueprint);
+
+  // ResolvePullRequestToRef resolves a pull request to a repository reference (e.g., branch or commit).
   rpc ResolvePullRequestToRef (types.RepoPullRequestRequest) returns (types.RepoRefResponse);
-  // External Credentials
+
+  // GetUserCredentials retrieves all external credentials associated with a user.
   rpc GetUserCredentials (types.Username) returns (GetUserCredentialsResponse);
+
+  // AddUserCredential adds a new external credential for a user.
   rpc AddUserCredential (common.ExternalCredential) returns (AddUserCredentialResponse);
+
+  // UpdateUserCredential updates an existing external credential for a user.
   rpc UpdateUserCredential (common.ExternalCredential) returns (UpdateUserCredentialResponse);
+
+  // DeleteUserCredential deletes an external credential by its ID.
   rpc DeleteUserCredential (DeleteUserCredentialRequest) returns (DeleteUserCredentialResponse);
 }
- 
-// *** Messages ***   
+
+// *** Messages ***
 
 // External Credential messages
 

@@ -714,7 +714,7 @@ var File_pkg_api_types_proto protoreflect.FileDescriptor
 
 const file_pkg_api_types_proto_rawDesc = "" +
 	"\n" +
-	"\x13pkg/api/types.proto\x12\x05types\x1a\x1ccommon/pkg/gapi/common.proto\"&\n" +
+	"\x13pkg/api/types.proto\x12\x05types\x1a(.proto_deps/common/pkg/gapi/common.proto\"&\n" +
 	"\bUsername\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\"#\n" +
 	"\aUserStr\x12\x18\n" +

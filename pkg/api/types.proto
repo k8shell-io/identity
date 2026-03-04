@@ -3,14 +3,14 @@ syntax = "proto3";
 package types;
 
 option go_package = "github.com/k8shell-io/identity/pkg/api/typespb;typespb";
-    
-import "common/pkg/gapi/common.proto";
 
-message Username { 
-  string username = 1;  
+import ".proto_deps/common/pkg/gapi/common.proto";
+
+message Username {
+  string username = 1;
 }
 
-message UserStr {  
+message UserStr {
   string userstr = 1;
 }
 
@@ -24,11 +24,11 @@ message UserList {
 
 message FindUserRequest {
   string username = 1;
-  string token = 2;
+  string token    = 2;
 }
 
 message GetUsersRequest {
-  int32 limit = 1;
+  int32 limit  = 1;
   int32 offset = 2;
 }
 
@@ -37,23 +37,23 @@ message GetUsersResponse {
 }
 
 message AuthUserPublicKeyRequest {
-  string username = 1;
+  string username   = 1;
   string public_key = 2;
 }
 
 message AuthUserResponse {
-  bool valid = 1;
-  common.User user = 2;
+  bool        valid = 1;
+  common.User user  = 2;
 }
 
 message OnboardUserWebFlowRequest {
-  string provider = 1;
+  string provider     = 1;
   string redirect_uri = 2;
 }
 
 message CompleteUserWebFlowRequest {
   string state = 1;
-  string code = 2;
+  string code  = 2;
 }
 
 // Blueprint related messages
@@ -63,10 +63,10 @@ message GetBlueprintByUserStrResponse {
 }
 
 message RepoPullRequestRequest {
-  string username = 1;
-  string repo_owner = 2;
-  string repo_name = 3;
-  int32 pull_request_number = 4;
+  string username            = 1;
+  string repo_owner          = 2;
+  string repo_name           = 3;
+  int32  pull_request_number = 4;
 }
 
 message RepoRefResponse {

@@ -247,7 +247,7 @@ var File_pkg_api_identity_proto protoreflect.FileDescriptor
 
 const file_pkg_api_identity_proto_rawDesc = "" +
 	"\n" +
-	"\x16pkg/api/identity.proto\x12\bidentity\x1a\x1ccommon/pkg/gapi/common.proto\x1a\x13pkg/api/types.proto\"Z\n" +
+	"\x16pkg/api/identity.proto\x12\bidentity\x1a(.proto_deps/common/pkg/gapi/common.proto\x1a\x13pkg/api/types.proto\"Z\n" +
 	"\x1aGetUserCredentialsResponse\x12<\n" +
 	"\vcredentials\x18\x01 \x03(\v2\x1a.common.ExternalCredentialR\vcredentials\"W\n" +
 	"\x19AddUserCredentialResponse\x12:\n" +

@@ -3,9 +3,9 @@
         "path": "/usr/bin/protoc",
         "compile_on_save": false,
         "options": [
-            "--proto_path=${workspaceRoot}",
-            "--proto_path=/usr/local/include",
-            "--proto_path=${workspaceRoot}/.proto_deps",
+            "-I.",
+            "-I/usr/local/include",
+            "-I.proto_deps",
             "--go_out=.",
             "--go_opt=module=github.com/k8shell-io/identity",
             "--go-grpc_out=.",

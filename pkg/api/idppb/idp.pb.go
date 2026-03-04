@@ -63,7 +63,7 @@ type ProviderInfoResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	Capabilities  []string               `protobuf:"bytes,2,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
-	UserMaxAge    uint32                 `protobuf:"varint,3,opt,name=userMaxAge,proto3" json:"userMaxAge,omitempty"`
+	UserMaxAge    uint32                 `protobuf:"varint,3,opt,name=user_max_age,json=userMaxAge,proto3" json:"user_max_age,omitempty"`
 	Address       string                 `protobuf:"bytes,4,opt,name=address,proto3" json:"address,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -175,13 +175,12 @@ var File_pkg_api_idp_proto protoreflect.FileDescriptor
 
 const file_pkg_api_idp_proto_rawDesc = "" +
 	"\n" +
-	"\x11pkg/api/idp.proto\x12\x03idp\x1a\x1ccommon/pkg/gapi/common.proto\x1a\x13pkg/api/types.proto\"\x15\n" +
-	"\x13ProviderInfoRequest\"\x88\x01\n" +
+	"\x11pkg/api/idp.proto\x12\x03idp\x1a(.proto_deps/common/pkg/gapi/common.proto\x1a\x13pkg/api/types.proto\"\x15\n" +
+	"\x13ProviderInfoRequest\"\x8a\x01\n" +
 	"\x14ProviderInfoResponse\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\"\n" +
-	"\fcapabilities\x18\x02 \x03(\tR\fcapabilities\x12\x1e\n" +
-	"\n" +
-	"userMaxAge\x18\x03 \x01(\rR\n" +
+	"\fcapabilities\x18\x02 \x03(\tR\fcapabilities\x12 \n" +
+	"\fuser_max_age\x18\x03 \x01(\rR\n" +
 	"userMaxAge\x12\x18\n" +
 	"\aaddress\x18\x04 \x01(\tR\aaddress\"!\n" +
 	"\tUserToken\x12\x14\n" +
