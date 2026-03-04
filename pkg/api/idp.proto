@@ -30,7 +30,7 @@ service IdentityProviderService {
   // AuthUserPublicKey authenticates a user using a public key and returns the authentication result
   rpc AuthUserPublicKey(types.AuthUserPublicKeyRequest) returns (types.AuthUserResponse);
 
-  // GetBlueprintByUserStr retrieves a blueprint associated with a user string identifier.
+  // GetUserToken retrieves an authentication token for a user.
   rpc GetUserToken(types.Username) returns (UserToken);
 
   // ResolvePullRequestToRef resolves a pull request to a repository reference (e.g., branch or commit).
