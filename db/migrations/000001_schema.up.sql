@@ -50,23 +50,6 @@ CREATE TABLE external_credentials (
 CREATE INDEX idx_external_creds_username ON external_credentials (username);
 CREATE INDEX idx_external_creds_service ON external_credentials (service_name);
 
--- provider_info table to store onboarding user information with OAuth providers
-CREATE TABLE provider_info (
-    username          VARCHAR NOT NULL,
-    provider          VARCHAR NOT NULL,
-    status            VARCHAR NOT NULL CHECK (status IN ('ready', 'pending', 'error', 'expired', 'invalid')),
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-    user_code         VARCHAR NOT NULL,
-    device_code       VARCHAR NOT NULL,
-    expires_at        TIMESTAMPTZ,
-    verification_uri  TEXT NOT NULL,
-    access_token      TEXT NOT NULL,
-    refresh_token     TEXT NOT NULL,
-    
-    PRIMARY KEY (username, provider)
-);
-
 INSERT INTO organizations (name, description) VALUES
     ('default', 'Default organization'),
     ('ctu', 'Users onboarded via Usermap'),

@@ -1,3 +1,11 @@
+// Copyright 2025 the k8Shell authors.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// Package file implements a file-backed identity provider for k8Shell.
+// It implements the idp gRPC interface and provides user data loaded from local YAML files.
+// The provider supports user lookup by username and SSH public key authentication, but does
+// not support onboarding or token management. This provider is intended for simple use cases
+// and testing, and should not be used in production environments.
 package file
 
 import (
@@ -12,7 +20,6 @@ import (
 	"github.com/k8shell-io/common/pkg/gapi/commonpb"
 	logger "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/common/pkg/models"
-	"github.com/k8shell-io/identity/internal/common"
 	"github.com/k8shell-io/identity/pkg/api/idppb"
 	"github.com/k8shell-io/identity/pkg/api/typespb"
 	"github.com/rs/zerolog"
@@ -23,13 +30,19 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// FILE_PROVIDER_NAME is the canonical provider name for the file-backed identity provider.
 const FILE_PROVIDER_NAME = "idp.k8shell.io/file"
 
+// FileUserProviderConfig configures the file-backed identity provider.
 type FileUserProviderConfig struct {
-	Enabled bool     `yaml:"enabled"`
-	Files   []string `yaml:"files"`
+	// Enabled indicates whether the file-backed provider is enabled.
+	Enabled bool `yaml:"enabled"`
+
+	// Files lists user definition files to load.
+	Files []string `yaml:"files"`
 }
 
+// FileUserProvider implements an identity provider backed by local user files.
 type FileUserProvider struct {
 	config       FileUserProviderConfig
 	log          *zerolog.Logger
@@ -41,10 +54,13 @@ type FileUserProvider struct {
 	address      string
 }
 
+// UserFile represents the schema of a user file.
 type UserFile struct {
+	// Users contains users loaded from the file.
 	Users []models.User `json:"users"`
 }
 
+// NewFileUserProvider creates a new FileUserProvider and loads users from the configured files.
 func NewFileUserProvider(cfg FileUserProviderConfig, baseDir string) (*FileUserProvider, error) {
 	provider := &FileUserProvider{
 		config:       cfg,
@@ -64,15 +80,24 @@ func NewFileUserProvider(cfg FileUserProviderConfig, baseDir string) (*FileUserP
 	return provider, nil
 }
 
-func (f *FileUserProvider) Name() string           { return f.name }
-func (f *FileUserProvider) Capabilities() []string { return f.capabilities }
-func (f *FileUserProvider) UserMaxAge() uint32     { return f.userMaxAge }
-func (f *FileUserProvider) Address() string        { return f.address }
+// Name returns the provider name.
+func (f *FileUserProvider) Name() string { return f.name }
 
+// Capabilities returns the capabilities supported by the provider.
+func (f *FileUserProvider) Capabilities() []string { return f.capabilities }
+
+// UserMaxAge returns the maximum age for cached user data in seconds.
+func (f *FileUserProvider) UserMaxAge() uint32 { return f.userMaxAge }
+
+// Address returns the provider address.
+func (f *FileUserProvider) Address() string { return f.address }
+
+// Close releases provider resources.
 func (f *FileUserProvider) Close() error {
 	return nil
 }
 
+// load reads configured user files and populates the in-memory user map.
 func (f *FileUserProvider) load(baseDir string) error {
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
@@ -105,6 +130,7 @@ func (f *FileUserProvider) load(baseDir string) error {
 	return nil
 }
 
+// ProviderInfo returns provider metadata and capabilities.
 func (f *FileUserProvider) ProviderInfo(ctx context.Context, in *idppb.ProviderInfoRequest,
 	opts ...grpc.CallOption) (*idppb.ProviderInfoResponse, error) {
 	return &idppb.ProviderInfoResponse{
@@ -115,6 +141,7 @@ func (f *FileUserProvider) ProviderInfo(ctx context.Context, in *idppb.ProviderI
 	}, nil
 }
 
+// FindUser returns a user by username.
 func (f *FileUserProvider) FindUser(ctx context.Context, in *typespb.FindUserRequest,
 	opts ...grpc.CallOption) (*commonpb.User, error) {
 	f.mutex.RLock()
@@ -128,16 +155,19 @@ func (f *FileUserProvider) FindUser(ctx context.Context, in *typespb.FindUserReq
 	return gapi.UserToProto(user), nil
 }
 
+// OnboardCapability reports onboarding capability for the user.
 func (f *FileUserProvider) OnboardCapability(ctx context.Context, in *typespb.Username,
 	opts ...grpc.CallOption) (*commonpb.UserOnboardCapability, error) {
 	return nil, status.Errorf(codes.Unimplemented, "file user provider does not support onboarding via device flow")
 }
 
+// OnboardUserDeviceFlow starts device-flow onboarding for the user.
 func (f *FileUserProvider) OnboardUserDeviceFlow(ctx context.Context, in *typespb.Username,
 	opts ...grpc.CallOption) (*commonpb.OnboardUserDeviceFlow, error) {
 	return nil, status.Errorf(codes.Unimplemented, "file user provider does not support onboarding via device flow")
 }
 
+// AuthUserPublicKey authenticates a user by SSH public key.
 func (f *FileUserProvider) AuthUserPublicKey(ctx context.Context, in *typespb.AuthUserPublicKeyRequest,
 	opts ...grpc.CallOption) (*typespb.AuthUserResponse, error) {
 	user, err := f.FindUser(ctx, &typespb.FindUserRequest{Username: in.Username})
@@ -150,7 +180,7 @@ func (f *FileUserProvider) AuthUserPublicKey(ctx context.Context, in *typespb.Au
 		authKeys += k + "\n"
 	}
 
-	keys, _, err := common.ParseKeys(authKeys)
+	keys, _, err := parseKeys(authKeys)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to parse keys for user %s: %v", user.Username, err)
 	}
@@ -170,101 +200,62 @@ func (f *FileUserProvider) AuthUserPublicKey(ctx context.Context, in *typespb.Au
 	return &typespb.AuthUserResponse{Valid: false}, nil
 }
 
+// GetUserToken returns a provider token for the user.
 func (f *FileUserProvider) GetUserToken(ctx context.Context, in *typespb.Username,
 	opts ...grpc.CallOption) (*idppb.UserToken, error) {
 	return nil, status.Errorf(codes.Unimplemented, "file user provider does not support user tokens")
 }
 
+// GetBlueprintByUserStr returns a blueprint for the provided user string.
 func (f *FileUserProvider) GetBlueprintByUserStr(ctx context.Context, in *typespb.UserStr,
 	opts ...grpc.CallOption) (*typespb.Blueprint, error) {
 	return nil, status.Errorf(codes.Unimplemented, "file user provider does not support custom blueprints")
 }
 
+// ResolvePullRequestToRef resolves a pull request to a repository reference.
 func (f *FileUserProvider) ResolvePullRequestToRef(ctx context.Context, in *typespb.RepoPullRequestRequest,
 	opts ...grpc.CallOption) (*typespb.RepoRefResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented,
 		"file user provider does not support resolving pull requests to refs")
 }
 
+// CompleteUserWebFlow completes web-flow onboarding and returns the user.
 func (f *FileUserProvider) CompleteUserWebFlow(ctx context.Context, in *typespb.CompleteUserWebFlowRequest,
 	opts ...grpc.CallOption) (*commonpb.User, error) {
 	return nil, status.Errorf(codes.Unimplemented,
 		"file user provider does not support onboarding via web flow")
 }
 
+// OnboardUserWebFlow starts web-flow onboarding for the user.
 func (f *FileUserProvider) OnboardUserWebFlow(ctx context.Context, in *typespb.OnboardUserWebFlowRequest,
 	opts ...grpc.CallOption) (*commonpb.OnboardUserWebFlow, error) {
 	return nil, status.Errorf(codes.Unimplemented,
 		"file user provider does not support onboarding via web flow")
 }
 
-// func (f *FileUserProvider) Name() string {
-// 	return "file"
-// }
+// parseKeyList parses a list of SSH public keys, returning valid keys and any ignored entries.
+func parseKeyList(keys []string) ([]string, []string, error) {
+	var valid []string
+	var ignored []string
 
-// func (f *FileUserProvider) UserMaxAge() int {
-// 	return 0
-// }
+	for _, line := range keys {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		_, _, _, rest, err := ssh.ParseAuthorizedKey([]byte(line))
+		if err != nil || len(rest) > 0 {
+			ignored = append(ignored, line)
+			continue
+		}
+		key, _, _, _, _ := ssh.ParseAuthorizedKey([]byte(line))
+		valid = append(valid, strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key))))
+	}
+	return valid, ignored, nil
+}
 
-// func (p *FileUserProvider) AuthPublicKey(username string, key ssh.PublicKey) (bool, error) {
-// 	user, err := p.FindUser(username)
-// 	if err != nil {
-// 		return false, err
-// 	}
-
-// 	var authKeys string
-// 	for _, k := range user.AuthKeys {
-// 		authKeys += k + "\n"
-// 	}
-
-// 	keys, _, err := common.ParseKeys(authKeys)
-// 	if err != nil {
-// 		return false, fmt.Errorf("failed to parse keys for user %s: %w", user.Username, err)
-// 	}
-
-// 	provided := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
-// 	for _, k := range keys {
-// 		if k == provided {
-// 			return true, nil
-// 		}
-// 	}
-
-// 	return false, nil
-// }
-
-// func (f *FileUserProvider) OnboardCapability(username string) (*models.OnboardCapability, error) {
-// 	// File user provider does not support onboarding via device code
-// 	return nil, fmt.Errorf("%w: file user provider does not support onboarding via device flow",
-// 		models.ErrMethodNotSupported)
-// }
-
-// func (p *FileUserProvider) OnboardUserDeviceFlow(username string) (*models.OnboardUserDeviceFlow, error) {
-// 	// File user provider does not support onboarding via device code
-// 	return nil, fmt.Errorf("%w: file user provider does not support onboarding via device flow",
-// 		models.ErrMethodNotSupported)
-// }
-
-// func (f *FileUserProvider) GetUserToken(username string) (*models.UserToken, error) {
-// 	// File user provider does not support user tokens
-// 	return nil, fmt.Errorf("%w: file user provider does not support user tokens", models.ErrMethodNotSupported)
-// }
-
-// func (p *FileUserProvider) GetCustomBlueprint(userStr *models.UserStr) (*models.CustomBlueprint, error) {
-// 	return nil, fmt.Errorf("%w: file user provider does not support custom blueprints", models.ErrMethodNotSupported)
-// }
-
-// func (f *FileUserProvider) OnboardUserWebFlow(redirectUri string) (*models.OnboardUserWebFlow, error) {
-// 	return nil, fmt.Errorf("%w: file user provider does not support onboarding via web flow",
-// 		models.ErrMethodNotSupported)
-// }
-
-// func (f *FileUserProvider) CompleteUserWebFlow(state string, code string) (string, error) {
-// 	return "", fmt.Errorf("%w: file user provider does not support onboarding via web flow",
-// 		models.ErrMethodNotSupported)
-// }
-
-// func (f *FileUserProvider) ResolvePullRequestRef(username string, repoOwner, repoName string,
-// 	pullRequestNumber int) (string, error) {
-// 	return "", fmt.Errorf("%w: file user provider does not support resolving pull requests to refs",
-// 		models.ErrMethodNotSupported)
-// }
+// parseKeys parses SSH public keys from a string, returning valid keys and any ignored entries.
+func parseKeys(content string) ([]string, []string, error) {
+	lines := strings.Split(content, "\n")
+	return parseKeyList(lines)
+}

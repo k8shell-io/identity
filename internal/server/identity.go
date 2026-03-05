@@ -17,12 +17,14 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// IdentityService implements the identity gRPC service.
 type IdentityService struct {
 	server *Server
 	log    *zerolog.Logger
 	identitypb.UnimplementedIdentityServiceServer
 }
 
+// NewIdentityService returns a new IdentityService.
 func NewIdentityService(server *Server) *IdentityService {
 	return &IdentityService{
 		server: server,
@@ -30,7 +32,7 @@ func NewIdentityService(server *Server) *IdentityService {
 	}
 }
 
-// GetUsers retrieves a list of users with pagination support.
+// GetUsers retrieves users with pagination support.
 func (s *IdentityService) GetUsers(ctx context.Context, req *typespb.GetUsersRequest) (*typespb.UserList, error) {
 	users, err := s.server.DB.ListUsers(int(req.Limit), int(req.Offset))
 	if err != nil {
@@ -80,6 +82,7 @@ func (s *IdentityService) FindUser(ctx context.Context, req *typespb.FindUserReq
 	return gapi.UserToProto(user), nil
 }
 
+// AuthUserPublicKey authenticates a user using an SSH public key.
 func (s *IdentityService) AuthUserPublicKey(ctx context.Context,
 	req *typespb.AuthUserPublicKeyRequest) (*typespb.AuthUserResponse, error) {
 
@@ -126,6 +129,7 @@ func (s *IdentityService) AuthUserPublicKey(ctx context.Context,
 	return nil, nil
 }
 
+// GetUserOnboardCapability returns onboarding capability information for a user.
 func (s *IdentityService) GetUserOnboardCapability(ctx context.Context,
 	req *typespb.Username) (*commonpb.UserOnboardCapability, error) {
 	for _, provider := range s.server.IdentityProviders {
@@ -143,6 +147,7 @@ func (s *IdentityService) GetUserOnboardCapability(ctx context.Context,
 	return nil, status.Errorf(codes.NotFound, "no onboarding capability found for user '%s'", req.Username)
 }
 
+// OnboardUserDeviceFlow starts device-flow onboarding for a user.
 func (s *IdentityService) OnboardUserDeviceFlow(ctx context.Context,
 	req *typespb.Username) (*commonpb.OnboardUserDeviceFlow, error) {
 	for _, provider := range s.server.IdentityProviders {
@@ -160,6 +165,7 @@ func (s *IdentityService) OnboardUserDeviceFlow(ctx context.Context,
 	return nil, status.Errorf(codes.NotFound, "no onboarding device flow found for user '%s'", req.Username)
 }
 
+// OnboardUserWebFlow starts web-flow onboarding for the requested provider.
 func (s *IdentityService) OnboardUserWebFlow(ctx context.Context,
 	req *typespb.OnboardUserWebFlowRequest) (*commonpb.OnboardUserWebFlow, error) {
 	for _, provider := range s.server.IdentityProviders {
@@ -179,6 +185,7 @@ func (s *IdentityService) OnboardUserWebFlow(ctx context.Context,
 		"no suitable identity provider found for onboarding via web flow with provider '%s'", req.Provider)
 }
 
+// CompleteUserWebFlow completes web-flow onboarding and returns the resolved user.
 func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 	req *typespb.CompleteUserWebFlowRequest) (*commonpb.User, error) {
 	provider, _, err := utils.DecodeState(req.State)
@@ -211,7 +218,7 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 		"no suitable identity provider found to complete web flow for provider '%s'", provider)
 }
 
-// Blueprint methods
+// GetBlueprintByUserStr resolves and returns a blueprint for the provided user string.
 func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context,
 	req *typespb.UserStr) (*typespb.Blueprint, error) {
 
@@ -242,7 +249,7 @@ func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context,
 	return nil, status.Errorf(codes.NotFound, "no suitable identity provider found for user '%s'", userStr.Username)
 }
 
-// ResolvePullRequestToRef resolves a repository pull request to its corresponding reference.
+// ResolvePullRequestToRef resolves a repository pull request to its reference.
 func (s *IdentityService) ResolvePullRequestToRef(ctx context.Context,
 	req *typespb.RepoPullRequestRequest) (*typespb.RepoRefResponse, error) {
 
@@ -271,7 +278,7 @@ func (s *IdentityService) ResolvePullRequestToRef(ctx context.Context,
 	return nil, status.Errorf(codes.NotFound, "no suitable identity provider found for user '%s'", req.Username)
 }
 
-// External credentials methods
+// GetUserCredentials returns external credentials for a user.
 func (s *IdentityService) GetUserCredentials(ctx context.Context,
 	req *typespb.Username) (*identitypb.GetUserCredentialsResponse, error) {
 
@@ -316,6 +323,7 @@ func (s *IdentityService) GetUserCredentials(ctx context.Context,
 	return &identitypb.GetUserCredentialsResponse{Credentials: pbCredentials}, nil
 }
 
+// AddUserCredential adds an external credential for a user.
 func (s *IdentityService) AddUserCredential(ctx context.Context,
 	req *commonpb.ExternalCredential) (*identitypb.AddUserCredentialResponse, error) {
 	credential := gapi.ProtoToExternalCredential(req)
@@ -328,7 +336,9 @@ func (s *IdentityService) AddUserCredential(ctx context.Context,
 	return &identitypb.AddUserCredentialResponse{Credential: req}, nil
 }
 
-func (s *IdentityService) UpdateUserCredential(ctx context.Context, req *commonpb.ExternalCredential) (*identitypb.UpdateUserCredentialResponse, error) {
+// UpdateUserCredential updates an existing external credential.
+func (s *IdentityService) UpdateUserCredential(ctx context.Context,
+	req *commonpb.ExternalCredential) (*identitypb.UpdateUserCredentialResponse, error) {
 	credential := gapi.ProtoToExternalCredential(req)
 
 	err := s.server.DB.UpdateExternalCredential(credential)
@@ -339,6 +349,7 @@ func (s *IdentityService) UpdateUserCredential(ctx context.Context, req *commonp
 	return &identitypb.UpdateUserCredentialResponse{Credential: req}, nil
 }
 
+// DeleteUserCredential deletes an external credential by ID.
 func (s *IdentityService) DeleteUserCredential(ctx context.Context,
 	req *identitypb.DeleteUserCredentialRequest) (*identitypb.DeleteUserCredentialResponse, error) {
 	err := s.server.DB.DeleteExternalCredential(req.Id)

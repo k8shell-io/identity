@@ -22,6 +22,7 @@ nats:
 
 # DB configuration
 db:
+  enabled: true
   username: !file ${SECRET_FILES}/postgres_username
   password: !file ${SECRET_FILES}/postgres_password
   database: ${POSTGRES_DATABASE}

@@ -1,8 +1,9 @@
-// Copyright 2025 the k8Shell authors
-// Package server implements the main server logic for the K8Shell Identity service.
-// It initializes the server, loads configuration, sets up identity providers,
-// and provides methods for user authentication and management.
-
+// Copyright 2025 the k8Shell authors.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// Package server implements the main server logic for the k8Shell Identity service.
+// It initializes the server, loads configuration, sets up identity providers, and
+// provides methods for user authentication and management.
 package server
 
 import (
@@ -19,7 +20,7 @@ import (
 	log "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/common/pkg/models"
 	natsc "github.com/k8shell-io/common/pkg/nats"
-	"github.com/k8shell-io/identity/internal/backend"
+	backend "github.com/k8shell-io/identity/internal/db"
 	"github.com/k8shell-io/identity/internal/providers/file"
 	"github.com/k8shell-io/identity/pkg/api"
 	"github.com/k8shell-io/identity/pkg/api/identitypb"
@@ -28,18 +29,22 @@ import (
 	"google.golang.org/grpc"
 )
 
-// Server represents the main server structure for the K8Shell Identity service.
+// Server represents the identity service runtime and its dependencies.
 type Server struct {
-	DB                *backend.DB
+	// DB provides persistent user storage.
+	DB *backend.DB
+
+	// IdentityProviders maps provider name to provider client.
 	IdentityProviders map[string]api.IdpClient
-	grpc              *gapi.Server
-	nats              *natsc.NATSClient
-	log               *zerolog.Logger
+
+	grpc *gapi.Server
+	nats *natsc.NATSClient
+	log  *zerolog.Logger
 }
 
-// NewServer initializes a new Server instance with the provided configuration file.
-// It loads the server configuration, initializes the database connection,
-// and sets up the identity providers based on the configuration.
+// NewServer initializes a new Server from the provided configuration file.
+// It loads configuration, initializes the database connection, and sets up
+// identity providers.
 func NewServer(configFile string) (*Server, error) {
 	server := &Server{
 		log: log.NewLogger("server"),
@@ -87,7 +92,7 @@ func NewServer(configFile string) (*Server, error) {
 	return server, nil
 }
 
-// LoadProviders initializes the identity providers based on the configuration.
+// loadProviders initializes identity providers from the loaded configuration.
 func (s *Server) loadProviders(config *Config) error {
 	s.IdentityProviders = make(map[string]api.IdpClient)
 
@@ -118,7 +123,8 @@ func (s *Server) loadProviders(config *Config) error {
 	return nil
 }
 
-// Start starts the gRPC server and waits for shutdown signals
+// Serve starts the gRPC server and blocks until shutdown signals are received
+// or an error occurs.
 func (s *Server) Serve() error {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -143,9 +149,8 @@ func (s *Server) Serve() error {
 	}
 }
 
-// refreshUser checks if the user is valid and updates their information
-// based on the identity providers. If the user is not found or expired,
-// it attempts to refresh the user data from the identity providers.
+// refreshUser refreshes user data from configured identity providers when the
+// user is missing, expired, or invalid.
 func (s *Server) refreshUser(username string, user *models.User) (*models.User, error) {
 	var err error
 
@@ -175,16 +180,13 @@ func (s *Server) refreshUser(username string, user *models.User) (*models.User, 
 			}
 		}
 
-		// create or update the user in the database
 		if foundUser != nil && user == nil {
-			// Create the new user if found in identity provider but not in DB
 			err = s.DB.CreateUser(foundUser)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create user '%s' in database: %w", username, err)
 			}
 			user = foundUser
 		} else if foundUser != nil && user != nil {
-			// Update existing user with new data from the identity provider
 			err = s.DB.UpdateUser(foundUser)
 			if err != nil {
 				return nil, fmt.Errorf("failed to update user '%s' in database: %w", username, err)
@@ -194,22 +196,20 @@ func (s *Server) refreshUser(username string, user *models.User) (*models.User, 
 			foundUser.FailedLogins = user.FailedLogins
 			user = foundUser
 		} else if foundUser == nil && user != nil {
-			// If user was not found in identity provider but it exists in the DB, mark as invalid
 			user.IsValid = false
 			err = s.DB.UpdateUser(user)
 			if err != nil {
 				return nil, fmt.Errorf("failed to mark user '%s' as invalid in database: %w", username, err)
 			}
 		} else {
-			// No valid user was found
 			user = nil
 		}
 	}
 	return user, nil
 }
 
-// GetUser retrieves a user by their username from the database.
-// It refreshes the user data if necessary, checking against the identity providers.
+// GetUser retrieves a user by username from the database.
+// It refreshes the user data when needed by querying configured identity providers.
 func (s *Server) GetUser(username string) (*models.User, error) {
 	user, err := s.DB.FindUser(username)
 	if err != nil && !errors.Is(err, models.ErrUserNotFound) {
@@ -233,7 +233,7 @@ func (s *Server) GetUser(username string) (*models.User, error) {
 	return user, nil
 }
 
-// normalizeUser ensures that the user's attributes conform to expected formats and defaults.
+// normalizeUser normalizes user attributes and applies default UID/GID values.
 func (s *Server) normalizeUser(user *models.User) {
 	if user == nil {
 		return

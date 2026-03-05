@@ -1,5 +1,3 @@
-// Copyright 2025 the k8Shell authors
-
 package server
 
 import (
@@ -13,19 +11,28 @@ import (
 	"github.com/k8shell-io/identity/internal/providers/file"
 )
 
-// Config represents the server configuration structure.
+// Config contains server configuration loaded from YAML.
 type Config struct {
-	GrpcConfig      gapi.ServerConfig           `yaml:"grpc"`
-	Nats            natsc.NATSClientConfig      `yaml:"nats"`
-	DB              db.DBConfig                 `yaml:"db"`
-	LocalProviders  file.FileUserProviderConfig `yaml:"localProviders"`
-	RemoteProviders []gapi.ClientConfig         `yaml:"remoteProviders"`
+	// GrpcConfig configures the gRPC server.
+	GrpcConfig gapi.ServerConfig `yaml:"grpc"`
 
-	// ConfigDir is the directory where the configuration file is located.
+	// Nats configures the NATS client.
+	Nats natsc.NATSClientConfig `yaml:"nats"`
+
+	// DB configures the database connection.
+	DB db.DBConfig `yaml:"db"`
+
+	// LocalProviders configures local file-based identity providers.
+	LocalProviders file.FileUserProviderConfig `yaml:"localProviders"`
+
+	// RemoteProviders configures remote identity provider clients.
+	RemoteProviders []gapi.ClientConfig `yaml:"remoteProviders"`
+
+	// configDir is the directory containing the loaded configuration file.
 	configDir string
 }
 
-// LoadConfig loads the server configuration from the specified YAML file.
+// LoadConfig loads server configuration from configFile.
 func LoadConfig(configFile string) (*Config, error) {
 	var cfg Config
 	err := config.LoadConfig(configFile, &cfg)
