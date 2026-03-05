@@ -57,9 +57,14 @@ func NewServer(configFile string) (*Server, error) {
 		return nil, err
 	}
 
-	server.DB, err = backend.NewDB(config.DB)
-	if err != nil {
-		return nil, fmt.Errorf("create database pool: %w", err)
+	if config.DB.Enabled {
+		server.log.Info().Msg("Database is enabled; initializing database connection")
+		server.DB, err = backend.NewDB(config.DB)
+		if err != nil {
+			return nil, fmt.Errorf("create database pool: %w", err)
+		}
+	} else {
+		server.log.Warn().Msg("Database is disabled in configuration; server will run without persistent storage")
 	}
 
 	server.nats, err = natsc.NewNATSClient(config.Nats)
@@ -90,6 +95,23 @@ func NewServer(configFile string) (*Server, error) {
 	}
 
 	return server, nil
+}
+
+// getLocalUsers retrieves users from local file-based identity providers for in-memory user management.
+// This is used when the server is running without a database, allowing to serve users defined in local files.
+func (s *Server) getLocalUsers() []*models.User {
+	var users []*models.User
+	for _, provider := range s.IdentityProviders {
+		if provider.Name() == file.FILE_PROVIDER_NAME {
+			fileProvider := provider.(*file.FileUserProvider)
+			userList := fileProvider.GetUsers()
+			for _, user := range userList {
+				s.normalizeUser(user)
+				users = append(users, user)
+			}
+		}
+	}
+	return users
 }
 
 // loadProviders initializes identity providers from the loaded configuration.
@@ -208,9 +230,18 @@ func (s *Server) refreshUser(username string, user *models.User) (*models.User, 
 	return user, nil
 }
 
-// GetUser retrieves a user by username from the database.
+// GetUserByUsername retrieves a user by username from the database.
 // It refreshes the user data when needed by querying configured identity providers.
-func (s *Server) GetUser(username string) (*models.User, error) {
+func (s *Server) GetUserByUsername(username string) (*models.User, error) {
+	if s.DB == nil {
+		for _, user := range s.getLocalUsers() {
+			if user.Username == username {
+				return user, nil
+			}
+		}
+		return nil, fmt.Errorf("user '%s' not found: %w", username, models.ErrUserNotFound)
+	}
+
 	user, err := s.DB.FindUser(username)
 	if err != nil && !errors.Is(err, models.ErrUserNotFound) {
 		return nil, fmt.Errorf("error occured when finding user '%s': %w", username, err)
@@ -228,6 +259,37 @@ func (s *Server) GetUser(username string) (*models.User, error) {
 
 	if !user.IsValid {
 		return nil, fmt.Errorf("user '%s' is not valid: %w", username, models.ErrUserIsNotValid)
+	}
+
+	return user, nil
+}
+
+func (s *Server) GetUserByAccessToken(token string) (*models.User, error) {
+	if s.DB == nil {
+		for _, user := range s.getLocalUsers() {
+			if user.AccessToken == token {
+				return user, nil
+			}
+		}
+		return nil, fmt.Errorf("user with access token not found: %w", models.ErrUserNotFound)
+	}
+
+	user, err := s.DB.FindUserByAccessToken(token)
+	if err != nil && !errors.Is(err, models.ErrUserNotFound) {
+		return nil, fmt.Errorf("error occured when finding user by access token: %w", err)
+	}
+
+	user, err = s.refreshUser(user.Username, user)
+	if err != nil {
+		return nil, fmt.Errorf("error occured when refreshing user '%s': %w", user.Username, err)
+	}
+
+	if user == nil {
+		return nil, fmt.Errorf("user with access token not found: %w", models.ErrUserNotFound)
+	}
+
+	if !user.IsValid {
+		return nil, fmt.Errorf("user with access token is not valid: %w", models.ErrUserIsNotValid)
 	}
 
 	return user, nil

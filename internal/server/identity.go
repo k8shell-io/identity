@@ -34,6 +34,22 @@ func NewIdentityService(server *Server) *IdentityService {
 
 // GetUsers retrieves users with pagination support.
 func (s *IdentityService) GetUsers(ctx context.Context, req *typespb.GetUsersRequest) (*typespb.UserList, error) {
+	if s.server.DB == nil {
+		userList := make([]*commonpb.User, 0)
+		localUsers := s.server.getLocalUsers()
+
+		for inx, user := range localUsers {
+			if inx < int(req.Offset) {
+				continue
+			}
+			userList = append(userList, gapi.UserToProto(user))
+			if len(userList) >= int(req.Limit) {
+				break
+			}
+		}
+		return &typespb.UserList{Users: userList}, nil
+	}
+
 	users, err := s.server.DB.ListUsers(int(req.Limit), int(req.Offset))
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to list users: %v", err)
@@ -57,7 +73,7 @@ func (s *IdentityService) FindUser(ctx context.Context, req *typespb.FindUserReq
 	}
 
 	if req.Username != "" {
-		user, err := s.server.GetUser(req.Username)
+		user, err := s.server.GetUserByUsername(req.Username)
 		if err != nil {
 			if errors.Is(err, models.ErrUserNotFound) {
 				return nil, status.Error(codes.NotFound, "user not found")
@@ -68,41 +84,32 @@ func (s *IdentityService) FindUser(ctx context.Context, req *typespb.FindUserReq
 		return gapi.UserToProto(user), nil
 	}
 
-	user, err := s.server.DB.FindUserByAccessToken(req.Token)
-	if err != nil {
-		if errors.Is(err, models.ErrUserNotFound) {
-			return nil, status.Error(codes.NotFound, "user not found by token")
+	if req.Token != "" {
+		user, err := s.server.GetUserByAccessToken(req.Token)
+		if err != nil {
+			if errors.Is(err, models.ErrUserNotFound) {
+				return nil, status.Error(codes.NotFound, "user not found by token")
+			}
+			s.log.Error().Err(err).Msg("failed to get user by token")
+			return nil, status.Errorf(codes.Internal, "failed to get user by token: %v", err)
 		}
-		s.log.Error().Err(err).Msg("failed to get user by token")
-		return nil, status.Errorf(codes.Internal, "failed to get user by token: %v", err)
+		if user == nil {
+			return nil, status.Error(codes.NotFound, "user not found for the provided token")
+		}
+		return gapi.UserToProto(user), nil
 	}
-	if user == nil {
-		return nil, status.Error(codes.NotFound, "user not found for the provided token")
-	}
-	return gapi.UserToProto(user), nil
+
+	return nil, status.Error(codes.InvalidArgument, "invalid request: must provide either username or token")
 }
 
 // AuthUserPublicKey authenticates a user using an SSH public key.
 func (s *IdentityService) AuthUserPublicKey(ctx context.Context,
 	req *typespb.AuthUserPublicKeyRequest) (*typespb.AuthUserResponse, error) {
 
-	user, err := s.server.DB.FindUser(req.Username)
+	user, err := s.server.GetUserByUsername(req.Username)
 	if err != nil && !errors.Is(err, models.ErrUserNotFound) {
 		return nil, status.Errorf(codes.Internal, "error occured when finding user '%s': %s",
 			req.Username, err.Error())
-	}
-
-	// refresh user in the database
-	if user != nil {
-		user, err = s.server.refreshUser(req.Username, user)
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "error occured when refreshing user '%s': %s",
-				req.Username, err.Error())
-		}
-	}
-
-	if user == nil || !user.IsValid {
-		return nil, nil
 	}
 
 	parsedKey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(req.PublicKey))
@@ -204,7 +211,7 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 					"failed to complete web flow for provider '%s': %v", provider, err)
 			}
 
-			user, err := s.server.GetUser(username.GetUsername())
+			user, err := s.server.GetUserByUsername(username.GetUsername())
 			if err != nil {
 				return nil, status.Errorf(codes.Internal,
 					"failed to get user '%s' after completing web flow for provider '%s': %v",
@@ -227,7 +234,7 @@ func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context,
 		return nil, status.Errorf(codes.InvalidArgument, "invalid user string: %v", err)
 	}
 
-	user, err := s.server.GetUser(userStr.Username)
+	user, err := s.server.GetUserByUsername(userStr.Username)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "error occurred when getting user '%s': %v", userStr.Username, err)
 	}
@@ -253,7 +260,7 @@ func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context,
 func (s *IdentityService) ResolvePullRequestToRef(ctx context.Context,
 	req *typespb.RepoPullRequestRequest) (*typespb.RepoRefResponse, error) {
 
-	user, err := s.server.GetUser(req.Username)
+	user, err := s.server.GetUserByUsername(req.Username)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "error occurred when getting user '%s': %v", req.Username, err)
 	}
@@ -281,8 +288,11 @@ func (s *IdentityService) ResolvePullRequestToRef(ctx context.Context,
 // GetUserCredentials returns external credentials for a user.
 func (s *IdentityService) GetUserCredentials(ctx context.Context,
 	req *typespb.Username) (*identitypb.GetUserCredentialsResponse, error) {
+	if s.server.DB == nil {
+		return nil, status.Errorf(codes.Unavailable, "database is not configured, cannot retrieve user credentials")
+	}
 
-	user, err := s.server.GetUser(req.Username)
+	user, err := s.server.GetUserByUsername(req.Username)
 	if err != nil {
 		return nil, fmt.Errorf("error occurred when getting user '%s': %w", req.Username, err)
 	}
@@ -326,6 +336,10 @@ func (s *IdentityService) GetUserCredentials(ctx context.Context,
 // AddUserCredential adds an external credential for a user.
 func (s *IdentityService) AddUserCredential(ctx context.Context,
 	req *commonpb.ExternalCredential) (*identitypb.AddUserCredentialResponse, error) {
+	if s.server.DB == nil {
+		return nil, status.Errorf(codes.Unavailable, "database is not configured, cannot add user credential")
+	}
+
 	credential := gapi.ProtoToExternalCredential(req)
 
 	err := s.server.DB.AddExternalCredential(credential)
@@ -339,6 +353,10 @@ func (s *IdentityService) AddUserCredential(ctx context.Context,
 // UpdateUserCredential updates an existing external credential.
 func (s *IdentityService) UpdateUserCredential(ctx context.Context,
 	req *commonpb.ExternalCredential) (*identitypb.UpdateUserCredentialResponse, error) {
+	if s.server.DB == nil {
+		return nil, status.Errorf(codes.Unavailable, "database is not configured, cannot update user credential")
+	}
+
 	credential := gapi.ProtoToExternalCredential(req)
 
 	err := s.server.DB.UpdateExternalCredential(credential)
@@ -352,6 +370,10 @@ func (s *IdentityService) UpdateUserCredential(ctx context.Context,
 // DeleteUserCredential deletes an external credential by ID.
 func (s *IdentityService) DeleteUserCredential(ctx context.Context,
 	req *identitypb.DeleteUserCredentialRequest) (*identitypb.DeleteUserCredentialResponse, error) {
+	if s.server.DB == nil {
+		return nil, status.Errorf(codes.Unavailable, "database is not configured, cannot delete user credential")
+	}
+
 	err := s.server.DB.DeleteExternalCredential(req.Id)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to delete user credential: %v", err)

@@ -130,6 +130,18 @@ func (f *FileUserProvider) load(baseDir string) error {
 	return nil
 }
 
+// GetUsers returns all users loaded by the provider.
+func (f *FileUserProvider) GetUsers() []*models.User {
+	f.mutex.RLock()
+	defer f.mutex.RUnlock()
+
+	var users []*models.User
+	for _, u := range f.users {
+		users = append(users, u)
+	}
+	return users
+}
+
 // ProviderInfo returns provider metadata and capabilities.
 func (f *FileUserProvider) ProviderInfo(ctx context.Context, in *idppb.ProviderInfoRequest,
 	opts ...grpc.CallOption) (*idppb.ProviderInfoResponse, error) {
