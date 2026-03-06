@@ -40,3 +40,4 @@ remoteProviders:
     tokenFilePath: /opt/shared/auth/identity/idp-token
     #caCertPath: /opt/shared/auth/ca.crt
     #serverName: idp-usermap.k8shell-test.svc  
+
