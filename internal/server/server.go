@@ -119,6 +119,7 @@ func (s *Server) loadProviders(config *Config) error {
 	s.IdentityProviders = make(map[string]api.IdpClient)
 
 	if config.LocalProviders.Enabled {
+		s.log.Info().Msg("Loading local file-based identity provider")
 		fileProviders, err := file.NewFileUserProvider(config.LocalProviders, config.configDir)
 		if err != nil {
 			return fmt.Errorf("create file user provider: %w", err)

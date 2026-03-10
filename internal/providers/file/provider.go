@@ -107,6 +107,8 @@ func (f *FileUserProvider) load(baseDir string) error {
 			filename = filepath.Join(baseDir, filename)
 		}
 
+		f.log.Debug().Msgf("Loading user file '%s'", filename)
+
 		var userFile UserFile
 		data, err := os.ReadFile(filename)
 		if err != nil {
@@ -119,6 +121,7 @@ func (f *FileUserProvider) load(baseDir string) error {
 
 		for i := range userFile.Users {
 			u := &userFile.Users[i]
+			f.log.Debug().Msgf("Loaded user '%s' from file '%s'", u.Username, filename)
 			if f.users[u.Username] != nil {
 				f.log.Warn().Msgf("duplicate user '%s' found in file '%s', ignoring duplicate", u.Username, filename)
 			} else {
