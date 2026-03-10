@@ -9,6 +9,7 @@
 package file
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -203,10 +204,22 @@ func (f *FileUserProvider) AuthUserPublicKey(ctx context.Context, in *typespb.Au
 	f.log.Debug().Msgf("Parsed %d valid keys and %d ignored entries for user '%s'",
 		len(keys), len(user.AuthKeys)-len(keys), user.Username)
 
-	sshKey, err := ssh.ParsePublicKey([]byte(in.PublicKey))
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "failed to parse provided public key %s: %v",
-			in.PublicKey, err)
+	providedKeyStr := strings.TrimSpace(in.PublicKey)
+	providedKeyStr = strings.ReplaceAll(providedKeyStr, "\\n", "\n")
+	for _, line := range strings.Split(providedKeyStr, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			providedKeyStr = line
+			break
+		}
+	}
+
+	sshKey, _, _, rest, err := ssh.ParseAuthorizedKey([]byte(providedKeyStr))
+	if err != nil || len(bytes.TrimSpace(rest)) > 0 {
+		if err == nil {
+			err = fmt.Errorf("unexpected trailing data")
+		}
+		return nil, status.Errorf(codes.InvalidArgument, "failed to parse provided public key: %v", err)
 	}
 
 	provided := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshKey)))
