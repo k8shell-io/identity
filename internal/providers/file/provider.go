@@ -189,7 +189,6 @@ func (f *FileUserProvider) AuthUserPublicKey(ctx context.Context, in *typespb.Au
 	if err != nil {
 		return nil, err
 	}
-
 	f.log.Debug().Msgf("Authenticating user '%s' via public key", in.Username)
 
 	var authKeys string
@@ -201,13 +200,13 @@ func (f *FileUserProvider) AuthUserPublicKey(ctx context.Context, in *typespb.Au
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to parse keys for user %s: %v", user.Username, err)
 	}
-
 	f.log.Debug().Msgf("Parsed %d valid keys and %d ignored entries for user '%s'",
 		len(keys), len(user.AuthKeys)-len(keys), user.Username)
 
 	sshKey, err := ssh.ParsePublicKey([]byte(in.PublicKey))
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "failed to parse provided public key: %v", err)
+		return nil, status.Errorf(codes.InvalidArgument, "failed to parse provided public key %s: %v",
+			in.PublicKey, err)
 	}
 
 	provided := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshKey)))
