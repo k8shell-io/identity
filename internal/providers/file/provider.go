@@ -126,6 +126,7 @@ func (f *FileUserProvider) load(baseDir string) error {
 				f.log.Warn().Msgf("duplicate user '%s' found in file '%s', ignoring duplicate", u.Username, filename)
 			} else {
 				f.users[u.Username] = u
+				f.users[u.Username].Source = FILE_PROVIDER_NAME
 			}
 		}
 	}
@@ -166,7 +167,6 @@ func (f *FileUserProvider) FindUser(ctx context.Context, in *typespb.FindUserReq
 	if !exists {
 		return nil, nil
 	}
-	user.Source = FILE_PROVIDER_NAME
 	return gapi.UserToProto(user), nil
 }
 
