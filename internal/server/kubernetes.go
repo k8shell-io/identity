@@ -301,11 +301,13 @@ func (s *Server) runFileProviderTokenRefreshLoop(ctx context.Context) {
 	}
 }
 
-// refreshLocalUserTokens issues fresh tokens for all users from file providers.
+// refreshLocalUserTokens issues tokens for file-provider users whose token is
+// absent or approaching expiry. Uses the same ensureToken logic as on-demand
+// lookups so that tokens are not re-issued on every background tick.
 func (s *Server) refreshLocalUserTokens() {
 	for _, user := range s.getLocalUsers() {
-		if err := s.issueAndStoreToken(user); err != nil {
-			s.log.Error().Err(err).Msgf("token refresh: failed to issue/store token for local user '%s'", user.Username)
+		if err := s.ensureToken(user); err != nil {
+			s.log.Error().Err(err).Msgf("token refresh: failed to ensure token for local user '%s'", user.Username)
 		}
 	}
 }
