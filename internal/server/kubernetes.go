@@ -31,6 +31,11 @@ const (
 	tokenRefreshClaimTTL = 10 * time.Minute
 	// tokenRefreshBatchSize is the maximum number of users claimed per tick.
 	tokenRefreshBatchSize = 50
+
+	// Labels on managed Kubernetes Secrets.
+	labelManagedBy    = "app.kubernetes.io/managed-by"
+	labelManagedByVal = "identity"
+	labelUsername     = "identity.k8shell.io/username"
 )
 
 // initKubernetesClient builds a Kubernetes client from the provided config.
@@ -127,8 +132,8 @@ func (s *Server) upsertKubernetesSecret(username, token string) error {
 			Name:      secretName,
 			Namespace: namespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "identity",
-				"identity.k8shell.io/username": username,
+				labelManagedBy: labelManagedByVal,
+				labelUsername:  username,
 			},
 		},
 		Type: corev1.SecretTypeOpaque,
@@ -156,6 +161,81 @@ func (s *Server) upsertKubernetesSecret(username, token string) error {
 	return nil
 }
 
+// reconcileSecrets performs a one-time reconciliation between user state and
+// Kubernetes Secrets: valid users whose Secret is absent get a fresh token
+// issued and their Secret created.
+//
+// For the DB path all instances reconcile independently at startup; operations
+// are idempotent so concurrent runs are harmless. For the file-provider path
+// this is called only by the Lease leader.
+func (s *Server) reconcileSecrets(ctx context.Context) {
+	if s.k8sClient == nil {
+		return
+	}
+
+	namespace := s.k8sCfg.Namespace
+	s.log.Info().Msgf("reconcile: scanning managed secrets in namespace '%s'", namespace)
+
+	// List all Secrets managed by identity.
+	secretList, err := s.k8sClient.CoreV1().Secrets(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labelManagedBy + "=" + labelManagedByVal,
+	})
+	if err != nil {
+		s.log.Error().Err(err).Msg("reconcile: failed to list managed secrets")
+		return
+	}
+
+	// Build a set of usernames that already have a Secret.
+	existingSecrets := make(map[string]struct{}, len(secretList.Items))
+	for _, secret := range secretList.Items {
+		if u := secret.Labels[labelUsername]; u != "" {
+			existingSecrets[u] = struct{}{}
+		}
+	}
+
+	// Get the current set of valid users.
+	validUsers, err := s.validUsersForReconcile(ctx)
+	if err != nil {
+		s.log.Error().Err(err).Msg("reconcile: failed to retrieve valid users")
+		return
+	}
+
+	for _, user := range validUsers {
+		if _, exists := existingSecrets[user.Username]; !exists {
+			s.log.Info().Msgf("reconcile: secret missing for user '%s'; issuing token", user.Username)
+			if err := s.ensureToken(user); err != nil {
+				s.log.Error().Err(err).Msgf("reconcile: failed to ensure token for user '%s'", user.Username)
+			}
+		}
+	}
+
+	s.log.Info().Msg("reconcile: finished")
+}
+
+// validUsersForReconcile returns all valid users from either the DB or the
+// file providers, depending on what is configured.
+func (s *Server) validUsersForReconcile(ctx context.Context) ([]*models.User, error) {
+	if s.DB == nil {
+		return s.getLocalUsers(), nil
+	}
+
+	usernames, err := s.DB.ListValidUsernames(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	users := make([]*models.User, 0, len(usernames))
+	for _, username := range usernames {
+		user, err := s.DB.FindUser(username)
+		if err != nil {
+			s.log.Warn().Err(err).Msgf("reconcile: skipping user '%s': failed to load from DB", username)
+			continue
+		}
+		users = append(users, user)
+	}
+	return users, nil
+}
+
 // startTokenRefreshLoop launches the background token-refresh goroutine.
 // When the DB is configured it uses SELECT FOR UPDATE SKIP LOCKED so that
 // multiple instances share the work without duplication.
@@ -180,7 +260,9 @@ func (s *Server) runDBTokenRefreshLoop(ctx context.Context) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	// Refresh immediately on start, then on every tick.
+	// Reconcile K8s Secrets against DB state once on startup, then process
+	// near-expiry tokens and orphan cleanup on every subsequent tick.
+	s.reconcileSecrets(ctx)
 	s.refreshExpiredTokensFromDB(ctx)
 	for {
 		select {
@@ -289,7 +371,9 @@ func (s *Server) runFileProviderTokenRefreshLoop(ctx context.Context) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	// Refresh immediately on election, then on every tick.
+	// Reconcile K8s Secrets against file-provider state immediately on leader
+	// election, then process near-expiry tokens and orphan cleanup each tick.
+	s.reconcileSecrets(ctx)
 	s.refreshLocalUserTokens()
 	for {
 		select {

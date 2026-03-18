@@ -312,7 +312,7 @@ func (d *DB) UpdateExternalCredential(cred *models.ExternalCredential) error {
 	return err
 }
 
-// SetUserToken stores an issued JWT and its expiry for the given user. It also
+// SetUserToken stores an issued JWT and its expiry for the given user.
 // clears any in-progress refresh claim so the background loop can reclaim the
 // user on the next cycle when the new token approaches its expiry.
 func (d *DB) SetUserToken(ctx context.Context, username, token string, expiresAt time.Time) error {
@@ -356,6 +356,26 @@ func (d *DB) ClaimUsersForTokenRefresh(ctx context.Context, expiresBeforeTime ti
 		expiresBeforeTime, limit, claimUntil)
 	if err != nil {
 		return nil, fmt.Errorf("claim users for token refresh: %w", err)
+	}
+	defer rows.Close()
+
+	var usernames []string
+	for rows.Next() {
+		var username string
+		if err := rows.Scan(&username); err != nil {
+			return nil, err
+		}
+		usernames = append(usernames, username)
+	}
+	return usernames, rows.Err()
+}
+
+// ListValidUsernames returns the usernames of all users with is_valid=true.
+// Used during startup reconciliation to detect missing or orphaned K8s Secrets.
+func (d *DB) ListValidUsernames(ctx context.Context) ([]string, error) {
+	rows, err := d.Pool.Query(ctx, `SELECT username FROM public.users WHERE is_valid = true ORDER BY username`)
+	if err != nil {
+		return nil, fmt.Errorf("list valid usernames: %w", err)
 	}
 	defer rows.Close()
 
