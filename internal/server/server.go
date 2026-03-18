@@ -45,6 +45,10 @@ type Server struct {
 	// It is nil when JWT issuance is disabled in config.
 	JWT *authz.JWTIssuer
 
+	// Verifier parses and validates JWT tokens for GetUserByAccessToken.
+	// It is nil when JWT verification could not be initialized.
+	Verifier *authz.JWTVerifier
+
 	// jwtExpiry is the lifetime of issued JWTs, copied from JWTIssuerConfig so
 	// the token refresh loop can compute expiry times without re-reading config.
 	jwtExpiry time.Duration
@@ -57,8 +61,9 @@ type Server struct {
 	k8sCfg KubernetesConfig
 
 	// tokenCache tracks expiry times for issued tokens keyed by username.
-	// Used when DB is nil so that file-provider user lookups can skip
-	// re-issuing a token that is still valid.
+	// Used so that ensureToken can skip re-issuing a token that is still valid.
+	// The token string itself is never held in memory; Kubernetes Secrets are
+	// the source of truth.
 	tokenCache sync.Map // map[string]time.Time
 
 	grpc *gapi.Server
@@ -109,6 +114,21 @@ func NewServer(configFile string) (*Server, error) {
 	server.jwtExpiry = config.JWTIssuer.Expiry
 	if server.jwtExpiry == 0 {
 		server.jwtExpiry = time.Hour
+	}
+
+	// Build verifier config by inheriting issuer fields; PublicKeyFile can be
+	// overridden explicitly for rs256/es256.
+	verifierCfg := authz.JWTVerifierConfig{
+		Issuer:        config.JWTIssuer.Issuer,
+		Audience:      config.JWTIssuer.Audience,
+		SigningMethod: config.JWTIssuer.SigningMethod,
+		SecretKey:     config.JWTIssuer.SecretKey,
+		PublicKeyFile: config.JWTVerifier.PublicKeyFile,
+	}
+	server.Verifier, err = authz.NewJWTVerifier(verifierCfg)
+	if err != nil {
+		server.log.Warn().Err(err).Msg("failed to initialize JWT verifier; token-based lookup will be unavailable")
+		server.Verifier = nil
 	}
 
 	if config.Kubernetes.Enabled {
@@ -272,9 +292,7 @@ func (s *Server) refreshUser(username string, user *models.User) (*models.User, 
 			if err != nil {
 				return nil, fmt.Errorf("failed to update user '%s' in database: %w", username, err)
 			}
-			foundUser.AccessToken = user.AccessToken
 			foundUser.Locked = user.Locked
-			foundUser.FailedLogins = user.FailedLogins
 			user = foundUser
 			if err := s.ensureToken(user); err != nil {
 				s.log.Error().Err(err).Msgf("failed to ensure token for updated user '%s'", username)
@@ -330,34 +348,33 @@ func (s *Server) GetUserByUsername(username string) (*models.User, error) {
 }
 
 func (s *Server) GetUserByAccessToken(token string) (*models.User, error) {
+	if s.Verifier == nil {
+		return nil, fmt.Errorf("JWT verification is not configured")
+	}
+
+	claims, err := s.Verifier.VerifyToken(token)
+	if err != nil {
+		return nil, fmt.Errorf("invalid token: %w", err)
+	}
+
 	if s.DB == nil {
+		// File-provider path: signature is already verified; look up by subject.
 		for _, user := range s.getLocalUsers() {
-			if user.AccessToken == token {
-				if err := s.ensureToken(user); err != nil {
-					s.log.Error().Err(err).Msgf("failed to ensure token for user '%s'", user.Username)
-				}
+			if user.Username == claims.Subject {
 				return user, nil
 			}
 		}
-		return nil, fmt.Errorf("user with access token not found: %w", models.ErrUserNotFound)
+		return nil, fmt.Errorf("user '%s' not found: %w", claims.Subject, models.ErrUserNotFound)
 	}
 
-	user, err := s.DB.FindUserByAccessToken(token)
-	if err != nil && !errors.Is(err, models.ErrUserNotFound) {
-		return nil, fmt.Errorf("error occured when finding user by access token: %w", err)
-	}
-
-	user, err = s.refreshUser(user.Username, user)
+	// DB path: match JTI against current_token_id to support revocation.
+	user, err := s.DB.FindUserByTokenID(context.Background(), claims.ID)
 	if err != nil {
-		return nil, fmt.Errorf("error occured when refreshing user '%s': %w", user.Username, err)
-	}
-
-	if user == nil {
-		return nil, fmt.Errorf("user with access token not found: %w", models.ErrUserNotFound)
+		return nil, fmt.Errorf("token not recognized: %w", err)
 	}
 
 	if !user.IsValid {
-		return nil, fmt.Errorf("user with access token is not valid: %w", models.ErrUserIsNotValid)
+		return nil, fmt.Errorf("user '%s' is not valid: %w", user.Username, models.ErrUserIsNotValid)
 	}
 
 	return user, nil

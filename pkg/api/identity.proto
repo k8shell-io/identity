@@ -18,6 +18,9 @@ service IdentityService {
   // GetUsers retrieves a list of users with pagination support.
   rpc GetUsers (types.GetUsersRequest) returns (types.UserList);
 
+  // GetUsers retrieves a list of users with pagination support.
+  rpc GetUserAccessToken (GetUserAccessTokenRequest) returns (GetUserAccessTokenResponse);
+
   // GetUserOnboardCapability checks if the identity provider supports onboarding and returns the capability details.
   rpc GetUserOnboardCapability (types.Username) returns (common.UserOnboardCapability);
 
@@ -54,6 +57,14 @@ service IdentityService {
 }
 
 // *** Messages ***
+
+message GetUserAccessTokenRequest {
+  string username = 1;
+}
+
+message GetUserAccessTokenResponse {
+  string access_token = 1;
+}
 
 // External Credential messages
 

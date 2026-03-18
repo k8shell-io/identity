@@ -116,6 +116,23 @@ func (s *Server) ensureToken(user *models.User) error {
 	return s.issueAndStoreToken(user)
 }
 
+// getTokenFromKubernetesSecret reads the JWT string from the user's managed
+// Kubernetes Secret. Returns an error if the secret does not exist.
+func (s *Server) getTokenFromKubernetesSecret(username string) (string, error) {
+	prefix := s.k8sCfg.SecretPrefix
+	if prefix == "" {
+		prefix = defaultSecretPrefix
+	}
+	namespace := s.k8sCfg.Namespace
+	secretName := prefix + username
+
+	secret, err := s.k8sClient.CoreV1().Secrets(namespace).Get(context.Background(), secretName, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("get k8s secret '%s/%s': %w", namespace, secretName, err)
+	}
+	return string(secret.Data["token"]), nil
+}
+
 // upsertKubernetesSecret creates or updates the Kubernetes Secret that holds
 // the user's JWT token.
 func (s *Server) upsertKubernetesSecret(username, token string) error {

@@ -2,8 +2,6 @@ package db
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -16,9 +14,8 @@ import (
 
 func (d *DB) FindUser(username string) (*models.User, error) {
 	query := `
-		SELECT username, is_valid, expires_at, uid, gid, fullname, 
-		       access_token, email, password, locked, failed_logins,
-		       auths, auth_keys, channels, envs, roles, blueprints, source, organization
+		SELECT username, is_valid, expires_at, uid, gid, fullname,
+		       email, password, locked, auths, auth_keys, envs, roles, blueprints, source, organization
 		FROM public.users
 		WHERE username=$1
 	`
@@ -31,14 +28,11 @@ func (d *DB) FindUser(username string) (*models.User, error) {
 		&user.UID,
 		&user.GID,
 		&user.Fullname,
-		&user.AccessToken,
 		&user.Email,
 		&user.Password,
 		&user.Locked,
-		&user.FailedLogins,
 		&user.Auths,
 		&user.AuthKeys,
-		&user.Channels,
 		&user.Envs,
 		&user.Roles,
 		&user.Blueprints,
@@ -54,31 +48,32 @@ func (d *DB) FindUser(username string) (*models.User, error) {
 	return &user, nil
 }
 
-func (d *DB) FindUserByAccessToken(token string) (*models.User, error) {
+// FindUserByTokenID looks up a user by the JTI stored in current_token_id.
+// Only returns a user if the token has not yet expired, enabling revocation
+// by overwriting current_token_id on re-issuance.
+func (d *DB) FindUserByTokenID(ctx context.Context, tokenID string) (*models.User, error) {
 	query := `
 		SELECT username, is_valid, expires_at, uid, gid, fullname,
-		       access_token, email, COALESCE(password, '') AS password, locked, failed_logins,
-		       auths, auth_keys, channels, envs, roles, blueprints, source, organization
+		       email, COALESCE(password, '') AS password, locked,
+		       auths, auth_keys, envs, roles, blueprints, source, organization
 		FROM public.users
-		WHERE access_token=$1
+		WHERE current_token_id=$1
+		  AND token_expires_at > NOW()
 	`
 
 	var user models.User
-	err := d.Pool.QueryRow(context.Background(), query, token).Scan(
+	err := d.Pool.QueryRow(ctx, query, tokenID).Scan(
 		&user.Username,
 		&user.IsValid,
 		&user.ExpiresAt,
 		&user.UID,
 		&user.GID,
 		&user.Fullname,
-		&user.AccessToken,
 		&user.Email,
 		&user.Password,
 		&user.Locked,
-		&user.FailedLogins,
 		&user.Auths,
 		&user.AuthKeys,
-		&user.Channels,
 		&user.Envs,
 		&user.Roles,
 		&user.Blueprints,
@@ -95,28 +90,21 @@ func (d *DB) FindUserByAccessToken(token string) (*models.User, error) {
 }
 
 func (d *DB) CreateUser(user *models.User) error {
-	accessToken, err := generateAccessToken()
-	if err != nil {
-		return fmt.Errorf("failed to generate access token: %w", err)
-	}
-	user.AccessToken = accessToken
-
 	query := `INSERT INTO public.users (
 		username, is_valid, expires_at, uid, gid, fullname,
-		access_token, email, password, locked, failed_logins,
-		auths, auth_keys, channels, envs, roles, blueprints, source, organization
+		email, password, locked, auths, auth_keys, envs, roles, blueprints, source, organization
 	) VALUES (
-		$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+		$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
 	)`
-	_, err = d.Pool.Exec(context.Background(), query,
-		user.Username, user.IsValid, user.ExpiresAt, user.UID, user.GID, user.Fullname, user.AccessToken, user.Email,
-		user.Password, user.Locked, user.FailedLogins, user.Auths, user.AuthKeys, user.Channels,
+	_, err := d.Pool.Exec(context.Background(), query,
+		user.Username, user.IsValid, user.ExpiresAt, user.UID, user.GID, user.Fullname,
+		user.Email, user.Password, user.Locked, user.Auths, user.AuthKeys,
 		user.Envs, user.Roles, user.Blueprints, user.Source, user.Organization)
 	return err
 }
 
 func (d *DB) UpdateUser(user *models.User) error {
-	query := `UPDATE public.users SET 
+	query := `UPDATE public.users SET
 		is_valid=$1,
 		expires_at=$2,
 		uid=$3,
@@ -126,13 +114,12 @@ func (d *DB) UpdateUser(user *models.User) error {
 		password=$7,
 		auths=$8,
 		auth_keys=$9,
-		channels=$10,
-		envs=$11,
-		roles=$12,
-		blueprints=$13,
-		source=$14,
-		organization=$15
-	WHERE username=$16`
+		envs=$10,
+		roles=$11,
+		blueprints=$12,
+		source=$13,
+		organization=$14
+	WHERE username=$15`
 
 	_, err := d.Pool.Exec(context.Background(), query,
 		user.IsValid,
@@ -144,7 +131,6 @@ func (d *DB) UpdateUser(user *models.User) error {
 		user.Password,
 		user.Auths,
 		user.AuthKeys,
-		user.Channels,
 		user.Envs,
 		user.Roles,
 		user.Blueprints,
@@ -171,8 +157,8 @@ func (d *DB) ListUsers(limit, offset int) ([]*models.User, error) {
 
 	query := `
 		SELECT username, is_valid, expires_at, uid, gid, fullname,
-		       access_token, email, COALESCE(password, '') AS password, locked, failed_logins,
-		       auths, auth_keys, channels, envs, roles, blueprints, source, organization
+		       email, COALESCE(password, '') AS password, locked,
+		       auths, auth_keys, envs, roles, blueprints, source, organization
 		FROM public.users
 		ORDER BY username
 		LIMIT $1 OFFSET $2
@@ -194,14 +180,11 @@ func (d *DB) ListUsers(limit, offset int) ([]*models.User, error) {
 			&user.UID,
 			&user.GID,
 			&user.Fullname,
-			&user.AccessToken,
 			&user.Email,
 			&user.Password,
 			&user.Locked,
-			&user.FailedLogins,
 			&user.Auths,
 			&user.AuthKeys,
-			&user.Channels,
 			&user.Envs,
 			&user.Roles,
 			&user.Blueprints,
@@ -388,14 +371,4 @@ func (d *DB) ListValidUsernames(ctx context.Context) ([]string, error) {
 		usernames = append(usernames, username)
 	}
 	return usernames, rows.Err()
-}
-
-// generateAccessToken creates a random 32-byte hex token
-func generateAccessToken() (string, error) {
-	b := make([]byte, 32)
-	_, err := rand.Read(b)
-	if err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
 }

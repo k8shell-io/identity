@@ -23,6 +23,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	IdentityService_FindUser_FullMethodName                 = "/identity.IdentityService/FindUser"
 	IdentityService_GetUsers_FullMethodName                 = "/identity.IdentityService/GetUsers"
+	IdentityService_GetUserAccessToken_FullMethodName       = "/identity.IdentityService/GetUserAccessToken"
 	IdentityService_GetUserOnboardCapability_FullMethodName = "/identity.IdentityService/GetUserOnboardCapability"
 	IdentityService_OnboardUserDeviceFlow_FullMethodName    = "/identity.IdentityService/OnboardUserDeviceFlow"
 	IdentityService_OnboardUserWebFlow_FullMethodName       = "/identity.IdentityService/OnboardUserWebFlow"
@@ -47,6 +48,8 @@ type IdentityServiceClient interface {
 	FindUser(ctx context.Context, in *typespb.FindUserRequest, opts ...grpc.CallOption) (*commonpb.User, error)
 	// GetUsers retrieves a list of users with pagination support.
 	GetUsers(ctx context.Context, in *typespb.GetUsersRequest, opts ...grpc.CallOption) (*typespb.UserList, error)
+	// GetUsers retrieves a list of users with pagination support.
+	GetUserAccessToken(ctx context.Context, in *GetUserAccessTokenRequest, opts ...grpc.CallOption) (*GetUserAccessTokenResponse, error)
 	// GetUserOnboardCapability checks if the identity provider supports onboarding and returns the capability details.
 	GetUserOnboardCapability(ctx context.Context, in *typespb.Username, opts ...grpc.CallOption) (*commonpb.UserOnboardCapability, error)
 	// OnboardUserDeviceFlow initiates the device flow onboarding process for a user.
@@ -94,6 +97,16 @@ func (c *identityServiceClient) GetUsers(ctx context.Context, in *typespb.GetUse
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(typespb.UserList)
 	err := c.cc.Invoke(ctx, IdentityService_GetUsers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *identityServiceClient) GetUserAccessToken(ctx context.Context, in *GetUserAccessTokenRequest, opts ...grpc.CallOption) (*GetUserAccessTokenResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetUserAccessTokenResponse)
+	err := c.cc.Invoke(ctx, IdentityService_GetUserAccessToken_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -221,6 +234,8 @@ type IdentityServiceServer interface {
 	FindUser(context.Context, *typespb.FindUserRequest) (*commonpb.User, error)
 	// GetUsers retrieves a list of users with pagination support.
 	GetUsers(context.Context, *typespb.GetUsersRequest) (*typespb.UserList, error)
+	// GetUsers retrieves a list of users with pagination support.
+	GetUserAccessToken(context.Context, *GetUserAccessTokenRequest) (*GetUserAccessTokenResponse, error)
 	// GetUserOnboardCapability checks if the identity provider supports onboarding and returns the capability details.
 	GetUserOnboardCapability(context.Context, *typespb.Username) (*commonpb.UserOnboardCapability, error)
 	// OnboardUserDeviceFlow initiates the device flow onboarding process for a user.
@@ -259,6 +274,9 @@ func (UnimplementedIdentityServiceServer) FindUser(context.Context, *typespb.Fin
 }
 func (UnimplementedIdentityServiceServer) GetUsers(context.Context, *typespb.GetUsersRequest) (*typespb.UserList, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetUsers not implemented")
+}
+func (UnimplementedIdentityServiceServer) GetUserAccessToken(context.Context, *GetUserAccessTokenRequest) (*GetUserAccessTokenResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetUserAccessToken not implemented")
 }
 func (UnimplementedIdentityServiceServer) GetUserOnboardCapability(context.Context, *typespb.Username) (*commonpb.UserOnboardCapability, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetUserOnboardCapability not implemented")
@@ -346,6 +364,24 @@ func _IdentityService_GetUsers_Handler(srv interface{}, ctx context.Context, dec
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(IdentityServiceServer).GetUsers(ctx, req.(*typespb.GetUsersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IdentityService_GetUserAccessToken_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetUserAccessTokenRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IdentityServiceServer).GetUserAccessToken(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IdentityService_GetUserAccessToken_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IdentityServiceServer).GetUserAccessToken(ctx, req.(*GetUserAccessTokenRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -562,6 +598,10 @@ var IdentityService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetUsers",
 			Handler:    _IdentityService_GetUsers_Handler,
+		},
+		{
+			MethodName: "GetUserAccessToken",
+			Handler:    _IdentityService_GetUserAccessToken_Handler,
 		},
 		{
 			MethodName: "GetUserOnboardCapability",

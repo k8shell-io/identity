@@ -100,6 +100,8 @@ github.com/k8shell-io/common v0.12.165 h1:Q+FdaKKqis2TU4NDbKwCKXUlob8V6qaCreQ/HU
 github.com/k8shell-io/common v0.12.165/go.mod h1:gAPtoNoMHwStlYLtOAD3vRzBgKDtBbxKAnBCtmzEhUI=
 github.com/k8shell-io/common v0.12.166 h1:RZF82kEOfO34CnPB6AYDd2fawLPsRYcItedjbhzPCRA=
 github.com/k8shell-io/common v0.12.166/go.mod h1:gAPtoNoMHwStlYLtOAD3vRzBgKDtBbxKAnBCtmzEhUI=
+github.com/k8shell-io/common v0.12.167 h1:aV8S8dQSlvAHYTfPqtNbs3V2Et4FZjjVwsuynIapcow=
+github.com/k8shell-io/common v0.12.167/go.mod h1:gAPtoNoMHwStlYLtOAD3vRzBgKDtBbxKAnBCtmzEhUI=
 github.com/klauspost/compress v1.18.0 h1:c/Cqfb0r+Yi+JtIEq73FWXVkRonBlf0CRNYc8Zttxdo=
 github.com/klauspost/compress v1.18.0/go.mod h1:2Pp+KzxcywXVXMr50+X0Q/Lsb43OQHYWRCY2AiWywWQ=
 github.com/kr/pretty v0.2.1/go.mod h1:ipq/a2n7PKx3OHsz4KJII5eveXtPO4qwEXGdVfWzfnI=

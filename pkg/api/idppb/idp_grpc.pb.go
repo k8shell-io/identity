@@ -53,7 +53,7 @@ type IdentityProviderServiceClient interface {
 	CompleteUserWebFlow(ctx context.Context, in *typespb.CompleteUserWebFlowRequest, opts ...grpc.CallOption) (*commonpb.User, error)
 	// AuthUserPublicKey authenticates a user using a public key and returns the authentication result
 	AuthUserPublicKey(ctx context.Context, in *typespb.AuthUserPublicKeyRequest, opts ...grpc.CallOption) (*typespb.AuthUserResponse, error)
-	// GetBlueprintByUserStr retrieves a blueprint associated with a user string identifier.
+	// GetUserToken retrieves an authentication token for a user.
 	GetUserToken(ctx context.Context, in *typespb.Username, opts ...grpc.CallOption) (*UserToken, error)
 	// ResolvePullRequestToRef resolves a pull request to a repository reference (e.g., branch or commit).
 	GetBlueprintByUserStr(ctx context.Context, in *typespb.UserStr, opts ...grpc.CallOption) (*typespb.Blueprint, error)
@@ -189,7 +189,7 @@ type IdentityProviderServiceServer interface {
 	CompleteUserWebFlow(context.Context, *typespb.CompleteUserWebFlowRequest) (*commonpb.User, error)
 	// AuthUserPublicKey authenticates a user using a public key and returns the authentication result
 	AuthUserPublicKey(context.Context, *typespb.AuthUserPublicKeyRequest) (*typespb.AuthUserResponse, error)
-	// GetBlueprintByUserStr retrieves a blueprint associated with a user string identifier.
+	// GetUserToken retrieves an authentication token for a user.
 	GetUserToken(context.Context, *typespb.Username) (*UserToken, error)
 	// ResolvePullRequestToRef resolves a pull request to a repository reference (e.g., branch or commit).
 	GetBlueprintByUserStr(context.Context, *typespb.UserStr) (*typespb.Blueprint, error)

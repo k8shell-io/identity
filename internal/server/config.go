@@ -69,6 +69,11 @@ type Config struct {
 	// JWTIssuer configures JWT token issuance.
 	JWTIssuer authz.JWTIssuerConfig `yaml:"jwtIssuer"`
 
+	// JWTVerifier configures JWT token verification for GetUserByAccessToken.
+	// For hs256 the SecretKey is inherited from JWTIssuer automatically.
+	// For rs256/es256 set PublicKeyFile to the PEM-encoded public key path.
+	JWTVerifier authz.JWTVerifierConfig `yaml:"jwtVerifier"`
+
 	// Kubernetes configures Kubernetes secret management and distributed
 	// leader election for the token refresh loop.
 	Kubernetes KubernetesConfig `yaml:"kubernetes"`

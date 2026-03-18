@@ -32,6 +32,40 @@ func NewIdentityService(server *Server) *IdentityService {
 	}
 }
 
+// GetUserAccessToken returns the current JWT for the requested user.
+// Kubernetes must be configured; the Secret is the source of truth for the token.
+// If the token is absent or near expiry it is re-issued before reading.
+func (s *IdentityService) GetUserAccessToken(ctx context.Context, req *identitypb.GetUserAccessTokenRequest) (*identitypb.GetUserAccessTokenResponse, error) {
+	if req.Username == "" {
+		return nil, status.Error(codes.InvalidArgument, "username is required")
+	}
+
+	if s.server.k8sClient == nil {
+		return nil, status.Error(codes.FailedPrecondition, "Kubernetes is not configured")
+	}
+
+	user, err := s.server.GetUserByUsername(req.Username)
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
+		}
+		s.log.Error().Err(err).Msgf("GetUserAccessToken: failed to get user '%s'", req.Username)
+		return nil, status.Errorf(codes.Internal, "failed to get user '%s'", req.Username)
+	}
+
+	if err := s.server.ensureToken(user); err != nil {
+		s.log.Error().Err(err).Msgf("GetUserAccessToken: failed to ensure token for user '%s'", req.Username)
+		return nil, status.Errorf(codes.Internal, "failed to issue token for user '%s'", req.Username)
+	}
+
+	token, err := s.server.getTokenFromKubernetesSecret(req.Username)
+	if err != nil {
+		s.log.Error().Err(err).Msgf("GetUserAccessToken: failed to read k8s secret for user '%s'", req.Username)
+		return nil, status.Errorf(codes.Internal, "failed to read token secret for user '%s'", req.Username)
+	}
+	return &identitypb.GetUserAccessTokenResponse{AccessToken: token}, nil
+}
+
 // GetUsers retrieves users with pagination support.
 func (s *IdentityService) GetUsers(ctx context.Context, req *typespb.GetUsersRequest) (*typespb.UserList, error) {
 	if s.server.DB == nil {
