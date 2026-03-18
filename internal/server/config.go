@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"path/filepath"
+	"time"
 
 	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/common/pkg/config"
@@ -11,6 +12,42 @@ import (
 	natsc "github.com/k8shell-io/common/pkg/nats"
 	"github.com/k8shell-io/identity/internal/providers/file"
 )
+
+// KubernetesConfig contains configuration for Kubernetes secret management
+// and distributed leader election.
+type KubernetesConfig struct {
+	// Enabled toggles Kubernetes secret management. When false, no secrets are
+	// written and no leader election is performed.
+	Enabled bool `yaml:"enabled"`
+
+	// Namespace is the Kubernetes namespace where user token secrets are created.
+	Namespace string `yaml:"namespace"`
+
+	// SecretPrefix is the prefix for user token secret names.
+	// The full name is <SecretPrefix><username>. Defaults to "identity-token-".
+	SecretPrefix string `yaml:"secretPrefix"`
+
+	// LeaseName is the name of the Lease object used for leader election when
+	// the database is not configured. Defaults to "identity-token-refresh".
+	LeaseName string `yaml:"leaseName"`
+
+	// LeaseNamespace is the namespace for the leader election Lease. Defaults
+	// to Namespace when empty.
+	LeaseNamespace string `yaml:"leaseNamespace"`
+
+	// KubeconfigPath is the path to a kubeconfig file. When empty the
+	// in-cluster service-account configuration is used, falling back to
+	// $KUBECONFIG / ~/.kube/config for local development.
+	KubeconfigPath string `yaml:"kubeconfigPath"`
+
+	// RefreshInterval is how often the background loop checks for near-expiry
+	// tokens. Defaults to 15 minutes.
+	RefreshInterval time.Duration `yaml:"refreshInterval"`
+
+	// RefreshLookahead is the remaining-lifetime threshold below which a token
+	// is considered due for renewal. Defaults to 20 minutes.
+	RefreshLookahead time.Duration `yaml:"refreshLookahead"`
+}
 
 // Config contains server configuration loaded from YAML.
 type Config struct {
@@ -31,6 +68,10 @@ type Config struct {
 
 	// JWTIssuer configures JWT token issuance.
 	JWTIssuer authz.JWTIssuerConfig `yaml:"jwtIssuer"`
+
+	// Kubernetes configures Kubernetes secret management and distributed
+	// leader election for the token refresh loop.
+	Kubernetes KubernetesConfig `yaml:"kubernetes"`
 
 	// configDir is the directory containing the loaded configuration file.
 	configDir string

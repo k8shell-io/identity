@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"time"
 
+	"sync"
+
 	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/common/pkg/gapi"
 	log "github.com/k8shell-io/common/pkg/logger"
@@ -28,6 +30,7 @@ import (
 	"github.com/k8shell-io/identity/pkg/api/typespb"
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
+	"k8s.io/client-go/kubernetes"
 )
 
 // Server represents the identity service runtime and its dependencies.
@@ -41,6 +44,22 @@ type Server struct {
 	// JWT issues signed JWT tokens for authenticated users.
 	// It is nil when JWT issuance is disabled in config.
 	JWT *authz.JWTIssuer
+
+	// jwtExpiry is the lifetime of issued JWTs, copied from JWTIssuerConfig so
+	// the token refresh loop can compute expiry times without re-reading config.
+	jwtExpiry time.Duration
+
+	// k8sClient is the Kubernetes API client used to manage user token secrets.
+	// It is nil when Kubernetes integration is disabled or unavailable.
+	k8sClient *kubernetes.Clientset
+
+	// k8sCfg holds the resolved Kubernetes configuration.
+	k8sCfg KubernetesConfig
+
+	// tokenCache tracks expiry times for issued tokens keyed by username.
+	// Used when DB is nil so that file-provider user lookups can skip
+	// re-issuing a token that is still valid.
+	tokenCache sync.Map // map[string]time.Time
 
 	grpc *gapi.Server
 	nats *natsc.NATSClient
@@ -86,6 +105,24 @@ func NewServer(configFile string) (*Server, error) {
 	server.JWT, err = authz.NewJWTIssuer(config.JWTIssuer)
 	if err != nil {
 		return nil, fmt.Errorf("initialize JWT issuer: %w", err)
+	}
+	server.jwtExpiry = config.JWTIssuer.Expiry
+	if server.jwtExpiry == 0 {
+		server.jwtExpiry = time.Hour
+	}
+
+	if config.Kubernetes.Enabled {
+		server.k8sCfg = config.Kubernetes
+		server.k8sClient, err = initKubernetesClient(config.Kubernetes)
+		if err != nil {
+			server.log.Warn().Err(err).Msg("failed to initialize Kubernetes client; token secret management will be disabled")
+			server.k8sClient = nil
+		} else {
+			server.log.Info().Msgf("Kubernetes client initialized; token secrets will be written to namespace '%s'",
+				config.Kubernetes.Namespace)
+		}
+	} else {
+		server.log.Warn().Msg("Kubernetes integration is disabled; token secrets will not be managed")
 	}
 
 	server.grpc, err = gapi.NewServer(&config.GrpcConfig, true)
@@ -164,6 +201,11 @@ func (s *Server) Serve() error {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	s.startTokenRefreshLoop(ctx)
+
 	errChan := make(chan error, 1)
 	go func() {
 		s.log.Info().Msg("Starting gRPC server")
@@ -175,6 +217,7 @@ func (s *Server) Serve() error {
 	select {
 	case sig := <-sigChan:
 		s.log.Info().Msgf("Received signal %v, shutting down gracefully", sig)
+		cancel()
 		s.grpc.Stop()
 		s.log.Info().Msg("Server shutdown complete")
 		return nil
@@ -221,6 +264,9 @@ func (s *Server) refreshUser(username string, user *models.User) (*models.User, 
 				return nil, fmt.Errorf("failed to create user '%s' in database: %w", username, err)
 			}
 			user = foundUser
+			if err := s.issueAndStoreToken(user); err != nil {
+				s.log.Error().Err(err).Msgf("failed to issue token for new user '%s'", username)
+			}
 		} else if foundUser != nil && user != nil {
 			err = s.DB.UpdateUser(foundUser)
 			if err != nil {
@@ -230,6 +276,9 @@ func (s *Server) refreshUser(username string, user *models.User) (*models.User, 
 			foundUser.Locked = user.Locked
 			foundUser.FailedLogins = user.FailedLogins
 			user = foundUser
+			if err := s.issueAndStoreToken(user); err != nil {
+				s.log.Error().Err(err).Msgf("failed to issue token for updated user '%s'", username)
+			}
 		} else if foundUser == nil && user != nil {
 			user.IsValid = false
 			err = s.DB.UpdateUser(user)
@@ -249,6 +298,9 @@ func (s *Server) GetUserByUsername(username string) (*models.User, error) {
 	if s.DB == nil {
 		for _, user := range s.getLocalUsers() {
 			if user.Username == username {
+				if err := s.ensureToken(user); err != nil {
+					s.log.Error().Err(err).Msgf("failed to ensure token for user '%s'", username)
+				}
 				return user, nil
 			}
 		}
@@ -281,6 +333,9 @@ func (s *Server) GetUserByAccessToken(token string) (*models.User, error) {
 	if s.DB == nil {
 		for _, user := range s.getLocalUsers() {
 			if user.AccessToken == token {
+				if err := s.ensureToken(user); err != nil {
+					s.log.Error().Err(err).Msgf("failed to ensure token for user '%s'", user.Username)
+				}
 				return user, nil
 			}
 		}
