@@ -41,3 +41,10 @@ remoteProviders:
     #caCertPath: /opt/shared/auth/ca.crt
     #serverName: idp-usermap.k8shell-test.svc  
 
+# JWT token issuance
+jwtIssuer:
+  issuer: identity.k8shell
+  audience: k8shell
+  expiry: 1h
+  signingMethod: rs256
+  privateKeyFile: ${SECRET_FILES}/jwt_private.pem

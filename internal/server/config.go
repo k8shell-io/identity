@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/common/pkg/config"
 	"github.com/k8shell-io/common/pkg/db"
 	"github.com/k8shell-io/common/pkg/gapi"
@@ -27,6 +28,9 @@ type Config struct {
 
 	// RemoteProviders configures remote identity provider clients.
 	RemoteProviders []gapi.ClientConfig `yaml:"remoteProviders"`
+
+	// JWTIssuer configures JWT token issuance.
+	JWTIssuer authz.JWTIssuerConfig `yaml:"jwtIssuer"`
 
 	// configDir is the directory containing the loaded configuration file.
 	configDir string

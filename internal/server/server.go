@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/common/pkg/gapi"
 	log "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/common/pkg/models"
@@ -36,6 +37,10 @@ type Server struct {
 
 	// IdentityProviders maps provider name to provider client.
 	IdentityProviders map[string]api.IdpClient
+
+	// JWT issues signed JWT tokens for authenticated users.
+	// It is nil when JWT issuance is disabled in config.
+	JWT *authz.JWTIssuer
 
 	grpc *gapi.Server
 	nats *natsc.NATSClient
@@ -74,6 +79,13 @@ func NewServer(configFile string) (*Server, error) {
 
 	if server.nats == nil {
 		server.log.Warn().Msg("NATS client is not configured; caching and messaging features will be disabled")
+	}
+
+	server.log.Info().Msgf("Initializing JWT issuer: issuer=%s method=%s expiry=%s",
+		config.JWTIssuer.Issuer, config.JWTIssuer.SigningMethod, config.JWTIssuer.Expiry)
+	server.JWT, err = authz.NewJWTIssuer(config.JWTIssuer)
+	if err != nil {
+		return nil, fmt.Errorf("initialize JWT issuer: %w", err)
 	}
 
 	server.grpc, err = gapi.NewServer(&config.GrpcConfig, true)
