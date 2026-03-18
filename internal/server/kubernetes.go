@@ -215,8 +215,8 @@ func (s *Server) refreshExpiredTokensFromDB(ctx context.Context) {
 			s.log.Warn().Err(err).Msgf("token refresh: failed to get user '%s'", username)
 			continue
 		}
-		if err := s.issueAndStoreToken(user); err != nil {
-			s.log.Error().Err(err).Msgf("token refresh: failed to issue/store token for user '%s'", username)
+		if err := s.ensureToken(user); err != nil {
+			s.log.Error().Err(err).Msgf("token refresh: failed to ensure token for user '%s'", username)
 		}
 	}
 }

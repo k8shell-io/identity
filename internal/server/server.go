@@ -264,8 +264,8 @@ func (s *Server) refreshUser(username string, user *models.User) (*models.User, 
 				return nil, fmt.Errorf("failed to create user '%s' in database: %w", username, err)
 			}
 			user = foundUser
-			if err := s.issueAndStoreToken(user); err != nil {
-				s.log.Error().Err(err).Msgf("failed to issue token for new user '%s'", username)
+			if err := s.ensureToken(user); err != nil {
+				s.log.Error().Err(err).Msgf("failed to ensure token for new user '%s'", username)
 			}
 		} else if foundUser != nil && user != nil {
 			err = s.DB.UpdateUser(foundUser)
@@ -276,8 +276,8 @@ func (s *Server) refreshUser(username string, user *models.User) (*models.User, 
 			foundUser.Locked = user.Locked
 			foundUser.FailedLogins = user.FailedLogins
 			user = foundUser
-			if err := s.issueAndStoreToken(user); err != nil {
-				s.log.Error().Err(err).Msgf("failed to issue token for updated user '%s'", username)
+			if err := s.ensureToken(user); err != nil {
+				s.log.Error().Err(err).Msgf("failed to ensure token for updated user '%s'", username)
 			}
 		} else if foundUser == nil && user != nil {
 			user.IsValid = false
