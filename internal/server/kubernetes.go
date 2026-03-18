@@ -75,14 +75,14 @@ func (s *Server) issueAndStoreToken(user *models.User) error {
 		return nil
 	}
 
-	token, err := s.JWT.IssueToken(user)
+	jti, token, err := s.JWT.IssueToken(user)
 	if err != nil {
 		return fmt.Errorf("issue JWT for user '%s': %w", user.Username, err)
 	}
 	expiresAt := time.Now().Add(s.jwtExpiry)
 
 	if s.DB != nil {
-		if err := s.DB.SetUserToken(context.Background(), user.Username, token, expiresAt); err != nil {
+		if err := s.DB.SetUserToken(context.Background(), user.Username, jti, expiresAt); err != nil {
 			return fmt.Errorf("store token for user '%s': %w", user.Username, err)
 		}
 	}

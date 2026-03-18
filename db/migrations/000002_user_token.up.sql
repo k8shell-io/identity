@@ -1,6 +1,6 @@
--- Add JWT token storage and distributed refresh coordination columns to users
+-- Add JWT token ID and distributed refresh coordination columns to users
 
-ALTER TABLE users ADD COLUMN jwt_token TEXT;
+ALTER TABLE users ADD COLUMN current_token_id TEXT;
 ALTER TABLE users ADD COLUMN token_expires_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN token_refresh_claimed_until TIMESTAMPTZ;
 

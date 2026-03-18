@@ -312,15 +312,15 @@ func (d *DB) UpdateExternalCredential(cred *models.ExternalCredential) error {
 	return err
 }
 
-// SetUserToken stores an issued JWT and its expiry for the given user.
-// clears any in-progress refresh claim so the background loop can reclaim the
+// SetUserToken stores the JTI of an issued JWT and its expiry for the given user.
+// Clears any in-progress refresh claim so the background loop can reclaim the
 // user on the next cycle when the new token approaches its expiry.
-func (d *DB) SetUserToken(ctx context.Context, username, token string, expiresAt time.Time) error {
+func (d *DB) SetUserToken(ctx context.Context, username, tokenID string, expiresAt time.Time) error {
 	_, err := d.Pool.Exec(ctx,
 		`UPDATE public.users
-		 SET jwt_token=$1, token_expires_at=$2, token_refresh_claimed_until=NULL
+		 SET current_token_id=$1, token_expires_at=$2, token_refresh_claimed_until=NULL
 		 WHERE username=$3`,
-		token, expiresAt, username)
+		tokenID, expiresAt, username)
 	return err
 }
 

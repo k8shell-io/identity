@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/jackc/pgx/v5 v5.7.6
-	github.com/k8shell-io/common v0.12.164
+	github.com/k8shell-io/common v0.12.166
 	github.com/k8shell-io/identity/pkg/api v0.0.0-00010101000000-000000000000
 	github.com/rs/zerolog v1.34.0
 	golang.org/x/crypto v0.44.0
