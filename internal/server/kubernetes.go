@@ -33,9 +33,10 @@ const (
 	tokenRefreshBatchSize = 50
 
 	// Labels on managed Kubernetes Secrets.
-	labelManagedBy    = "app.kubernetes.io/managed-by"
-	labelManagedByVal = "identity"
-	labelUsername     = "identity.k8shell.io/username"
+	labelManagedBy      = "app.kubernetes.io/managed-by"
+	labelManagedByVal   = "identity"
+	labelUsername       = "identity.k8shell.io/username"
+	annotationExpiresAt = "identity.k8shell.io/expires-at"
 )
 
 // initKubernetesClient builds a Kubernetes client from the provided config.
@@ -88,7 +89,7 @@ func (s *Server) issueAndStoreToken(user *models.User) error {
 	}
 
 	if s.k8sClient != nil {
-		if err := s.upsertKubernetesSecret(user.Username, token); err != nil {
+		if err := s.upsertKubernetesSecret(user.Username, token, expiresAt); err != nil {
 			return fmt.Errorf("upsert k8s secret for user '%s': %w", user.Username, err)
 		}
 	}
@@ -135,7 +136,7 @@ func (s *Server) getTokenFromKubernetesSecret(username string) (string, error) {
 
 // upsertKubernetesSecret creates or updates the Kubernetes Secret that holds
 // the user's JWT token.
-func (s *Server) upsertKubernetesSecret(username, token string) error {
+func (s *Server) upsertKubernetesSecret(username, token string, expiresAt time.Time) error {
 	prefix := s.k8sCfg.SecretPrefix
 	if prefix == "" {
 		prefix = defaultSecretPrefix
@@ -151,6 +152,9 @@ func (s *Server) upsertKubernetesSecret(username, token string) error {
 			Labels: map[string]string{
 				labelManagedBy: labelManagedByVal,
 				labelUsername:  username,
+			},
+			Annotations: map[string]string{
+				annotationExpiresAt: expiresAt.Format(time.RFC3339),
 			},
 		},
 		Type: corev1.SecretTypeOpaque,
