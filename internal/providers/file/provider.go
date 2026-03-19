@@ -224,7 +224,6 @@ func (f *FileUserProvider) AuthUserPublicKey(ctx context.Context, in *typespb.Au
 
 	provided := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshKey)))
 	for _, k := range keys {
-		f.log.Debug().Msgf("Comparing provided key '%s' with user key '%s'", provided, k)
 		if k == provided {
 			return &typespb.AuthUserResponse{Valid: true}, nil
 		}
