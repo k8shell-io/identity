@@ -119,11 +119,11 @@ func NewServer(configFile string) (*Server, error) {
 	// Build verifier config by inheriting issuer fields; PublicKeyFile can be
 	// overridden explicitly for rs256/es256.
 	verifierCfg := authz.JWTVerifierConfig{
-		Issuer:        config.JWTIssuer.Issuer,
-		Audience:      config.JWTIssuer.Audience,
-		SigningMethod: config.JWTIssuer.SigningMethod,
-		SecretKey:     config.JWTIssuer.SecretKey,
-		PublicKeyFile: config.JWTVerifier.PublicKeyFile,
+		Issuer:         config.JWTIssuer.Issuer,
+		Audience:       config.JWTIssuer.Audience,
+		SigningMethod:  config.JWTIssuer.SigningMethod,
+		SecretKey:      config.JWTIssuer.SecretKey,
+		PrivateKeyFile: config.JWTIssuer.PrivateKeyFile,
 	}
 	server.Verifier, err = authz.NewJWTVerifier(verifierCfg)
 	if err != nil {
