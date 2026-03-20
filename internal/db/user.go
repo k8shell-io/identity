@@ -19,8 +19,9 @@ import (
 func (d *DB) FindUser(username string) (*models.User, error) {
 	query := `
 		SELECT username, is_valid, expires_at, uid, gid, fullname,
-		       email, password, locked, auths, auth_keys, envs, roles, blueprints, source, organization
-		FROM public.users
+		       email, password, shell, sudo, locked,
+		       auths, auth_keys, roles, blueprints, source, organization
+		FROM identity.users
 		WHERE username=$1
 	`
 
@@ -34,10 +35,11 @@ func (d *DB) FindUser(username string) (*models.User, error) {
 		&user.Fullname,
 		&user.Email,
 		&user.Password,
+		&user.Shell,
+		&user.Sudo,
 		&user.Locked,
 		&user.Auths,
 		&user.AuthKeys,
-		&user.Envs,
 		&user.Roles,
 		&user.Blueprints,
 		&user.Source,
@@ -58,9 +60,9 @@ func (d *DB) FindUser(username string) (*models.User, error) {
 func (d *DB) FindUserByTokenID(ctx context.Context, tokenID string) (*models.User, error) {
 	query := `
 		SELECT username, is_valid, expires_at, uid, gid, fullname,
-		       email, COALESCE(password, '') AS password, locked,
-		       auths, auth_keys, envs, roles, blueprints, source, organization
-		FROM public.users
+		       email, COALESCE(password, '') AS password, shell, sudo, locked,
+		       auths, auth_keys, roles, blueprints, source, organization
+		FROM identity.users
 		WHERE current_token_id=$1
 		  AND token_expires_at > NOW()
 	`
@@ -75,10 +77,11 @@ func (d *DB) FindUserByTokenID(ctx context.Context, tokenID string) (*models.Use
 		&user.Fullname,
 		&user.Email,
 		&user.Password,
+		&user.Shell,
+		&user.Sudo,
 		&user.Locked,
 		&user.Auths,
 		&user.AuthKeys,
-		&user.Envs,
 		&user.Roles,
 		&user.Blueprints,
 		&user.Source,
@@ -95,22 +98,23 @@ func (d *DB) FindUserByTokenID(ctx context.Context, tokenID string) (*models.Use
 
 // CreateUser inserts a new user record into the database.
 func (d *DB) CreateUser(user *models.User) error {
-	query := `INSERT INTO public.users (
+	query := `INSERT INTO identity.users (
 		username, is_valid, expires_at, uid, gid, fullname,
-		email, password, locked, auths, auth_keys, envs, roles, blueprints, source, organization
+		email, password, shell, sudo, locked,
+		auths, auth_keys, roles, blueprints, source, organization
 	) VALUES (
-		$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+		$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
 	)`
 	_, err := d.Pool.Exec(context.Background(), query,
 		user.Username, user.IsValid, user.ExpiresAt, user.UID, user.GID, user.Fullname,
-		user.Email, user.Password, user.Locked, user.Auths, user.AuthKeys,
-		user.Envs, user.Roles, user.Blueprints, user.Source, user.Organization)
+		user.Email, user.Password, user.Shell, user.Sudo, user.Locked,
+		user.Auths, user.AuthKeys, user.Roles, user.Blueprints, user.Source, user.Organization)
 	return err
 }
 
 // UpdateUser updates an existing user's fields, identified by username.
 func (d *DB) UpdateUser(user *models.User) error {
-	query := `UPDATE public.users SET
+	query := `UPDATE identity.users SET
 		is_valid=$1,
 		expires_at=$2,
 		uid=$3,
@@ -118,14 +122,15 @@ func (d *DB) UpdateUser(user *models.User) error {
 		fullname=$5,
 		email=$6,
 		password=$7,
-		auths=$8,
-		auth_keys=$9,
-		envs=$10,
-		roles=$11,
-		blueprints=$12,
-		source=$13,
-		organization=$14
-	WHERE username=$15`
+		shell=$8,
+		sudo=$9,
+		auths=$10,
+		auth_keys=$11,
+		roles=$12,
+		blueprints=$13,
+		source=$14,
+		organization=$15
+	WHERE username=$16`
 
 	_, err := d.Pool.Exec(context.Background(), query,
 		user.IsValid,
@@ -135,9 +140,10 @@ func (d *DB) UpdateUser(user *models.User) error {
 		user.Fullname,
 		user.Email,
 		user.Password,
+		user.Shell,
+		user.Sudo,
 		user.Auths,
 		user.AuthKeys,
-		user.Envs,
 		user.Roles,
 		user.Blueprints,
 		user.Source,
@@ -149,14 +155,14 @@ func (d *DB) UpdateUser(user *models.User) error {
 
 // InvalidateUser marks a user account as invalid (is_valid=false) without deleting it.
 func (d *DB) InvalidateUser(username string) error {
-	query := `UPDATE public.users SET is_valid=false WHERE username=$1`
+	query := `UPDATE identity.users SET is_valid=false WHERE username=$1`
 	_, err := d.Pool.Exec(context.Background(), query, username)
 	return err
 }
 
 // DeleteUser permanently removes a user record from the database by username.
 func (d *DB) DeleteUser(username string) error {
-	_, err := d.Pool.Exec(context.Background(), `DELETE FROM users WHERE username=$1`, username)
+	_, err := d.Pool.Exec(context.Background(), `DELETE FROM identity.users WHERE username=$1`, username)
 	return err
 }
 
@@ -166,9 +172,9 @@ func (d *DB) ListUsers(limit, offset int) ([]*models.User, error) {
 
 	query := `
 		SELECT username, is_valid, expires_at, uid, gid, fullname,
-		       email, COALESCE(password, '') AS password, locked,
-		       auths, auth_keys, envs, roles, blueprints, source, organization
-		FROM public.users
+		       email, COALESCE(password, '') AS password, shell, sudo, locked,
+		       auths, auth_keys, roles, blueprints, source, organization
+		FROM identity.users
 		ORDER BY username
 		LIMIT $1 OFFSET $2
 	`
@@ -191,10 +197,11 @@ func (d *DB) ListUsers(limit, offset int) ([]*models.User, error) {
 			&user.Fullname,
 			&user.Email,
 			&user.Password,
+			&user.Shell,
+			&user.Sudo,
 			&user.Locked,
 			&user.Auths,
 			&user.AuthKeys,
-			&user.Envs,
 			&user.Roles,
 			&user.Blueprints,
 			&user.Source,
@@ -215,7 +222,7 @@ func (d *DB) AddExternalCredential(cred *models.ExternalCredential) error {
 		return fmt.Errorf("required field: username, service_name, service_url, external_id, external_token")
 	}
 
-	query := `INSERT INTO public.external_credentials (
+	query := `INSERT INTO identity.external_credentials (
         username, service_name, service_url, external_id, external_token
     ) VALUES ($1, $2, $3, $4, $5)`
 
@@ -244,7 +251,7 @@ func (d *DB) AddExternalCredential(cred *models.ExternalCredential) error {
 // GetExternalCredentials retrieves all external credentials for the given username.
 func (d *DB) GetExternalCredentials(username string) ([]*models.ExternalCredential, error) {
 	query := `SELECT id, username, service_name, service_url, external_id, external_token
-		FROM public.external_credentials
+		FROM identity.external_credentials
 		WHERE username=$1`
 
 	rows, err := d.Pool.Query(context.Background(), query, username)
@@ -273,7 +280,7 @@ func (d *DB) GetExternalCredentials(username string) ([]*models.ExternalCredenti
 
 // DeleteExternalCredential removes an external credential by its ID.
 func (d *DB) DeleteExternalCredential(id uint32) error {
-	result, err := d.Pool.Exec(context.Background(), `DELETE FROM public.external_credentials WHERE id=$1`, id)
+	result, err := d.Pool.Exec(context.Background(), `DELETE FROM identity.external_credentials WHERE id=$1`, id)
 	if err != nil {
 		return err
 	}
@@ -293,7 +300,7 @@ func (d *DB) UpdateExternalCredential(cred *models.ExternalCredential) error {
 		return fmt.Errorf("required field: username, service_name, service_url, external_id, external_token")
 	}
 
-	query := `UPDATE public.external_credentials SET
+	query := `UPDATE identity.external_credentials SET
 		service_name=$1,
 		service_url=$2,
 		external_id=$3,
@@ -311,7 +318,7 @@ func (d *DB) UpdateExternalCredential(cred *models.ExternalCredential) error {
 // user on the next cycle when the new token approaches its expiry.
 func (d *DB) SetUserToken(ctx context.Context, username, tokenID string, expiresAt time.Time) error {
 	_, err := d.Pool.Exec(ctx,
-		`UPDATE public.users
+		`UPDATE identity.users
 		 SET current_token_id=$1, token_expires_at=$2, token_refresh_claimed_until=NULL
 		 WHERE username=$3`,
 		tokenID, expiresAt, username)
@@ -329,7 +336,7 @@ func (d *DB) ClaimUsersForTokenRefresh(ctx context.Context, expiresBeforeTime ti
 	rows, err := d.Pool.Query(ctx, `
 		WITH claimed AS (
 			SELECT username
-			FROM public.users
+			FROM identity.users
 			WHERE is_valid = true
 			  AND (
 			      token_expires_at IS NULL
@@ -343,7 +350,7 @@ func (d *DB) ClaimUsersForTokenRefresh(ctx context.Context, expiresBeforeTime ti
 			LIMIT $2
 			FOR UPDATE SKIP LOCKED
 		)
-		UPDATE public.users
+		UPDATE identity.users
 		SET token_refresh_claimed_until = $3
 		WHERE username IN (SELECT username FROM claimed)
 		RETURNING username`,
