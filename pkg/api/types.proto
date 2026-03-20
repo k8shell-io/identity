@@ -1,3 +1,6 @@
+// Copyright 2025 the k8Shell authors.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 syntax = "proto3";
 
 package types;
@@ -6,62 +9,73 @@ option go_package = "github.com/k8shell-io/identity/pkg/api/typespb;typespb";
 
 import ".proto_deps/common/pkg/gapi/common.proto";
 
+// Username carries a single username identifier.
 message Username {
   string username = 1;
 }
 
+// UserStr carries a raw user string, which may encode username, organization, or other attributes.
 message UserStr {
   string userstr = 1;
 }
 
+// Blueprint carries a JSON-encoded custom blueprint definition.
 message Blueprint {
   string blueprint_json = 1;
 }
 
+// UserList holds a paginated list of users.
 message UserList {
   repeated common.User users = 1;
 }
 
+// FindUserRequest looks up a user by username or access token.
 message FindUserRequest {
   string username = 1;
   string token    = 2;
 }
 
+// GetUsersRequest carries pagination parameters for listing users.
 message GetUsersRequest {
   int32 limit  = 1;
   int32 offset = 2;
 }
 
+// GetUsersResponse carries the paginated list of users.
 message GetUsersResponse {
   repeated common.User users = 1;
 }
 
+// AuthUserPublicKeyRequest carries the credentials for SSH public key authentication.
 message AuthUserPublicKeyRequest {
   string username   = 1;
   string public_key = 2;
 }
 
+// AuthUserResponse carries the result of an authentication attempt.
 message AuthUserResponse {
   bool        valid = 1;
   common.User user  = 2;
 }
 
+// OnboardUserWebFlowRequest initiates a web-flow onboarding session for the given provider.
 message OnboardUserWebFlowRequest {
   string provider     = 1;
   string redirect_uri = 2;
 }
 
+// CompleteUserWebFlowRequest carries the OAuth state and authorization code to finalize web-flow onboarding.
 message CompleteUserWebFlowRequest {
   string state = 1;
   string code  = 2;
 }
 
-// Blueprint related messages
-
+// GetBlueprintByUserStrResponse carries the raw blueprint string for a user.
 message GetBlueprintByUserStrResponse {
   string blueprint = 1;
 }
 
+// RepoPullRequestRequest identifies a pull request within a repository for a given user.
 message RepoPullRequestRequest {
   string username            = 1;
   string repo_owner          = 2;
@@ -69,6 +83,7 @@ message RepoPullRequestRequest {
   int32  pull_request_number = 4;
 }
 
+// RepoRefResponse carries the resolved repository reference for a pull request.
 message RepoRefResponse {
   string repo_ref = 1;
 }

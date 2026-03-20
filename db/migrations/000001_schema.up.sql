@@ -1,56 +1,72 @@
--- This SQL script creates the initial schema for the database
+-- Initial schema for the k8Shell Identity service.
 
--- organizations table to store organization information
+-- organizations groups users into named tenants (e.g. a company or a university).
+-- Every user must belong to exactly one organization.
 CREATE TABLE organizations (
-    name          varchar      not null primary key,
-    description   text
+    name          varchar  not null primary key,  -- short unique identifier
+    description   text                            -- human-readable description
 );
 
--- users table to store user information
+-- users is the central identity table.
+-- A record is created on first login and refreshed from the configured identity
+-- provider when the cached record expires (expires_at).
 CREATE TABLE users (
-    username       varchar      not null    primary key,
-    organization   varchar      not null    references organizations(name),
-    is_valid       boolean      not null,
-    expires_at     TIMESTAMPTZ  not null,
-    uid            integer      not null    unique,
-    gid            integer      not null,
+    username       varchar      not null primary key,
+    organization   varchar      not null references organizations(name),
+
+    -- account state
+    is_valid       boolean      not null,        -- false = account disabled
+    locked         boolean      not null,        -- true = all logins blocked
+    failed_logins  integer      not null,        -- consecutive failure count
+    expires_at     TIMESTAMPTZ  not null,        -- re-fetch from provider after this
+
+    -- POSIX identity
+    uid            integer      not null unique, -- POSIX UID
+    gid            integer      not null,        -- primary POSIX GID
+
+    -- profile
     fullname       varchar,
-    access_token   varchar,
     email          varchar,
-    password       varchar,
-    auths          character    varying[],
-    auth_keys      character    varying[],
-    locked         boolean      not null,
-    failed_logins  integer      not null,
-    channels       character    varying[],
-    envs           character    varying[],
-    roles          character    varying[],
-    blueprints     character    varying[],
-    source         varchar
+
+    -- authentication
+    password       varchar,                      -- hashed; NULL for external auth
+    auths          character varying[],          -- allowed auth methods
+    auth_keys      character varying[],          -- authorized SSH public keys
+
+    -- provider metadata
+    source         varchar,                      -- owning identity provider name
+    roles          character varying[],          -- RBAC roles
+    blueprints     character varying[],          -- available k8shell blueprints
+
+    -- JWT token refresh coordination
+    current_token_id            TEXT,            -- JTI of the last issued JWT
+    token_expires_at            TIMESTAMPTZ,     -- expiry of current_token_id
+    token_refresh_claimed_until TIMESTAMPTZ      -- refresh lease expiry
 );
 
-CREATE INDEX idx_users_access_token ON users (access_token);
+-- Speeds up the background token-refresh loop (finds near-expiry tokens).
+CREATE INDEX idx_users_token_expires_at ON users (token_expires_at)
+    WHERE token_expires_at IS NOT NULL;
 
--- external_credentials table to store external service credentials for users
+-- external_credentials stores credentials for external services (e.g. Docker).
+-- A user may have multiple credentials, but only one per service URL
 CREATE TABLE external_credentials (
     id             SERIAL PRIMARY KEY,
-    username       VARCHAR NOT NULL REFERENCES users(username) ON DELETE CASCADE,
-    service_name   VARCHAR NOT NULL CHECK (service_name IN ('registry', 'github', 'gitlab', 'bitbucket')),
-    service_url    VARCHAR NOT NULL,
-    external_id    VARCHAR NOT NULL,
-    external_token VARCHAR NOT NULL,
+    username       VARCHAR     NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+    service_name   VARCHAR     NOT NULL, 
+    service_url    VARCHAR     NOT NULL,  -- base URL of the external service
+    external_id    VARCHAR     NOT NULL,  -- user identifier on the external service
+    external_token VARCHAR     NOT NULL,  -- OAuth or API token
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    is_active      BOOLEAN NOT NULL DEFAULT TRUE,
+    is_active      BOOLEAN     NOT NULL DEFAULT TRUE,
 
     UNIQUE(username, service_url)
 );
 
--- Create indexes separately
 CREATE INDEX idx_external_creds_username ON external_credentials (username);
-CREATE INDEX idx_external_creds_service ON external_credentials (service_name);
+CREATE INDEX idx_external_creds_service  ON external_credentials (service_name);
 
+-- Seed the built-in organizations.
 INSERT INTO organizations (name, description) VALUES
-    ('default', 'Default organization'),
-    ('ctu', 'Users onboarded via Usermap'),
-    ('github', 'Users onboarded via GitHub');
+    ('default', 'Default organization');

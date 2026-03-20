@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Package db provides database access and management for the k8Shell Identity service.
-// It allows to persist users, and provides methods for managing them.
+// It provides persistence for users and methods for managing them.
 package db
 
 import (

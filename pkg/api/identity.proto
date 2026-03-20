@@ -1,3 +1,6 @@
+// Copyright 2025 the k8Shell authors.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 syntax = "proto3";
 
 package identity;
@@ -6,8 +9,6 @@ option go_package = "github.com/k8shell-io/identity/pkg/api/identitypb;identityp
 
 import ".proto_deps/common/pkg/gapi/common.proto";
 import "pkg/api/types.proto";
-
-// *** Identity service
 
 // IdentityService provides operations for user management, authentication,
 // onboarding, and external credential management.
@@ -18,7 +19,7 @@ service IdentityService {
   // GetUsers retrieves a list of users with pagination support.
   rpc GetUsers (types.GetUsersRequest) returns (types.UserList);
 
-  // GetUsers retrieves a list of users with pagination support.
+  // GetUserAccessToken returns the current JWT access token for a user.
   rpc GetUserAccessToken (GetUserAccessTokenRequest) returns (GetUserAccessTokenResponse);
 
   // GetUserOnboardCapability checks if the identity provider supports onboarding and returns the capability details.
@@ -56,34 +57,39 @@ service IdentityService {
   rpc DeleteUserCredential (DeleteUserCredentialRequest) returns (DeleteUserCredentialResponse);
 }
 
-// *** Messages ***
+// Messages
 
+// GetUserAccessTokenRequest carries the username for a token retrieval request.
 message GetUserAccessTokenRequest {
   string username = 1;
 }
 
+// GetUserAccessTokenResponse carries the JWT access token for the requested user.
 message GetUserAccessTokenResponse {
   string access_token = 1;
 }
 
-// External Credential messages
-
+// GetUserCredentialsResponse carries all external credentials associated with a user.
 message GetUserCredentialsResponse {
   repeated common.ExternalCredential credentials = 1;
 }
 
+// AddUserCredentialResponse carries the newly added external credential.
 message AddUserCredentialResponse {
   common.ExternalCredential credential = 1;
 }
 
+// UpdateUserCredentialResponse carries the updated external credential.
 message UpdateUserCredentialResponse {
   common.ExternalCredential credential = 1;
 }
 
+// DeleteUserCredentialRequest identifies the external credential to delete by its ID.
 message DeleteUserCredentialRequest {
   uint32 id = 1;
 }
 
+// DeleteUserCredentialResponse indicates whether the deletion was successful.
 message DeleteUserCredentialResponse {
   bool success = 1;
 }

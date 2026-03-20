@@ -68,16 +68,22 @@ vendor:  ##@ Vendor Go modules
 
 image:  ##@ Build Docker image
         ##@ Builds container image with version tagging
-        ##@ Accepts VERSION, COMMIT_ID, IMAGE_TAG from environment or auto-detects from git
+        ##@ Accepts VERSION, COMMIT_ID, IMAGE_TAG, RUNTIME from environment or auto-detects from git
+        ##@ RUNTIME selects the runtime stage: alpine (default) or distroless
 image: vendor
 	@echo "Building $(SERVICE_NAME) docker image..."
 	@if ! command -v git >/dev/null 2>&1; then echo "Git not found. Please install Git."; exit 1; fi
 	@VERSION=$${VERSION:-$$(git describe --tags --match 'v*' | sed 's/-g.*//')} && \
 	COMMIT_ID=$${COMMIT_ID:-$$(git rev-parse --short HEAD)} && \
 	IMAGE_TAG=$${IMAGE_TAG:-$$VERSION} && \
-	docker build --build-arg VERSION=$$VERSION \
-		--build-arg COMMIT_ID=$$COMMIT_ID -t $(REPO)/$$(cat docker/$(SERVICE_NAME)/BUILD):$$IMAGE_TAG . \
-		-f docker/$(SERVICE_NAME)/Dockerfile
+	RUNTIME=$${RUNTIME:-alpine} && \
+	docker build \
+		--target $$RUNTIME \
+		--build-arg VERSION=$$VERSION \
+		--build-arg COMMIT_ID=$$COMMIT_ID \
+		-t $(REPO)/$$(grep -v '^#' docker/$(SERVICE_NAME)/BUILD | tail -1):$$IMAGE_TAG \
+		-f docker/$(SERVICE_NAME)/Dockerfile \
+		.
 
 coverage:  ##@ Calculate test coverage percentage from coverage.out
 	@go tool cover -func=$(REPORTS_DIR)/coverage.out | grep total | awk '{print $$3}'

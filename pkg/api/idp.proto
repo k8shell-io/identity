@@ -1,3 +1,6 @@
+// Copyright 2025 the k8Shell authors.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 syntax = "proto3";
 
 package idp;
@@ -9,14 +12,14 @@ import "pkg/api/types.proto";
 
 // IdentityProviderService defines the gRPC service for identity provider operations
 service IdentityProviderService {
-  // Provider Information
+  // ProviderInfo returns metadata about the identity provider, including its name,
+  // capabilities, user max age, and address.
   rpc ProviderInfo(ProviderInfoRequest) returns (ProviderInfoResponse);
 
   // FindUser retrieves a user by username. It can be used for authentication and user lookup.
   rpc FindUser(types.FindUserRequest) returns (common.User);
 
-  // GetUsers retrieves a list of users with pagination support.
-  rpc OnboardCapability(types.Username) returns (common.UserOnboardCapability);
+  // OnboardCapability returns the onboarding capability details for a user.(types.Username) returns (common.UserOnboardCapability);
 
   // OnboardUserDeviceFlow initiates the device flow onboarding process for a user.
   rpc OnboardUserDeviceFlow(types.Username) returns (common.OnboardUserDeviceFlow);
@@ -33,15 +36,17 @@ service IdentityProviderService {
   // GetUserToken retrieves an authentication token for a user.
   rpc GetUserToken(types.Username) returns (UserToken);
 
-  // ResolvePullRequestToRef resolves a pull request to a repository reference (e.g., branch or commit).
+  // GetBlueprintByUserStr retrieves a blueprint associated with a user string identifier.
   rpc GetBlueprintByUserStr(types.UserStr) returns (types.Blueprint);
 
   // ResolvePullRequestToRef resolves a pull request to a repository reference (e.g., branch or commit).
   rpc ResolvePullRequestToRef(types.RepoPullRequestRequest) returns (types.RepoRefResponse);
 }
 
+// ProviderInfoRequest is an empty request message used to query provider metadata.
 message ProviderInfoRequest {}
 
+// ProviderInfoResponse carries metadata about the identity provider.
 message ProviderInfoResponse {
   string          name         = 1;
   repeated string capabilities = 2;
@@ -49,6 +54,7 @@ message ProviderInfoResponse {
   string          address      = 4;
 }
 
+// UserToken holds a provider-issued authentication token for a user.
 message UserToken {
   string token = 1;
 }

@@ -1,3 +1,6 @@
+// Copyright 2025 the k8Shell authors.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package db
 
 import (
@@ -12,6 +15,7 @@ import (
 	"github.com/k8shell-io/common/pkg/models"
 )
 
+// FindUser retrieves a user by username.
 func (d *DB) FindUser(username string) (*models.User, error) {
 	query := `
 		SELECT username, is_valid, expires_at, uid, gid, fullname,
@@ -89,6 +93,7 @@ func (d *DB) FindUserByTokenID(ctx context.Context, tokenID string) (*models.Use
 	return &user, nil
 }
 
+// CreateUser inserts a new user record into the database.
 func (d *DB) CreateUser(user *models.User) error {
 	query := `INSERT INTO public.users (
 		username, is_valid, expires_at, uid, gid, fullname,
@@ -103,6 +108,7 @@ func (d *DB) CreateUser(user *models.User) error {
 	return err
 }
 
+// UpdateUser updates an existing user's fields, identified by username.
 func (d *DB) UpdateUser(user *models.User) error {
 	query := `UPDATE public.users SET
 		is_valid=$1,
@@ -141,17 +147,20 @@ func (d *DB) UpdateUser(user *models.User) error {
 	return err
 }
 
+// InvalidateUser marks a user account as invalid (is_valid=false) without deleting it.
 func (d *DB) InvalidateUser(username string) error {
 	query := `UPDATE public.users SET is_valid=false WHERE username=$1`
 	_, err := d.Pool.Exec(context.Background(), query, username)
 	return err
 }
 
+// DeleteUser permanently removes a user record from the database by username.
 func (d *DB) DeleteUser(username string) error {
 	_, err := d.Pool.Exec(context.Background(), `DELETE FROM users WHERE username=$1`, username)
 	return err
 }
 
+// ListUsers returns a paginated list of all users ordered by username.
 func (d *DB) ListUsers(limit, offset int) ([]*models.User, error) {
 	limit, offset = db.AdjustListLimit(limit, offset)
 
@@ -198,6 +207,8 @@ func (d *DB) ListUsers(limit, offset int) ([]*models.User, error) {
 	return users, nil
 }
 
+// AddExternalCredential inserts a new external credential for a user.
+// Returns an error if a credential already exists for the given username and service URL.
 func (d *DB) AddExternalCredential(cred *models.ExternalCredential) error {
 	if cred.Username == "" || cred.ServiceName == "" || cred.ServiceURL == "" ||
 		cred.ExternalID == "" || cred.ExternalToken == "" {
@@ -230,7 +241,7 @@ func (d *DB) AddExternalCredential(cred *models.ExternalCredential) error {
 	return nil
 }
 
-// GetExternalCredentials retrieves all external credentials for a given username
+// GetExternalCredentials retrieves all external credentials for the given username.
 func (d *DB) GetExternalCredentials(username string) ([]*models.ExternalCredential, error) {
 	query := `SELECT id, username, service_name, service_url, external_id, external_token
 		FROM public.external_credentials
@@ -260,7 +271,7 @@ func (d *DB) GetExternalCredentials(username string) ([]*models.ExternalCredenti
 	return creds, nil
 }
 
-// DeleteExternalCredential deletes an external credential by its ID
+// DeleteExternalCredential removes an external credential by its ID.
 func (d *DB) DeleteExternalCredential(id uint32) error {
 	result, err := d.Pool.Exec(context.Background(), `DELETE FROM public.external_credentials WHERE id=$1`, id)
 	if err != nil {
@@ -275,7 +286,7 @@ func (d *DB) DeleteExternalCredential(id uint32) error {
 	return nil
 }
 
-// UpdateExternalCredential updates an existing external credential
+// UpdateExternalCredential updates an existing external credential record.
 func (d *DB) UpdateExternalCredential(cred *models.ExternalCredential) error {
 	if cred.Username == "" || cred.ServiceName == "" || cred.ServiceURL == "" ||
 		cred.ExternalID == "" || cred.ExternalToken == "" {
@@ -339,26 +350,6 @@ func (d *DB) ClaimUsersForTokenRefresh(ctx context.Context, expiresBeforeTime ti
 		expiresBeforeTime, limit, claimUntil)
 	if err != nil {
 		return nil, fmt.Errorf("claim users for token refresh: %w", err)
-	}
-	defer rows.Close()
-
-	var usernames []string
-	for rows.Next() {
-		var username string
-		if err := rows.Scan(&username); err != nil {
-			return nil, err
-		}
-		usernames = append(usernames, username)
-	}
-	return usernames, rows.Err()
-}
-
-// ListValidUsernames returns the usernames of all users with is_valid=true.
-// Used during startup reconciliation to detect missing or orphaned K8s Secrets.
-func (d *DB) ListValidUsernames(ctx context.Context) ([]string, error) {
-	rows, err := d.Pool.Query(ctx, `SELECT username FROM public.users WHERE is_valid = true ORDER BY username`)
-	if err != nil {
-		return nil, fmt.Errorf("list valid usernames: %w", err)
 	}
 	defer rows.Close()
 
