@@ -116,7 +116,7 @@ jobs:
             IMAGE_TAG_LATEST="latest"
           fi
 
-          echo "REPO_NAME=$(cat docker/identity/BUILD)" >> $GITHUB_ENV
+          echo "REPO_NAME=$(grep -v '^#' docker/identity/BUILD | tail -1)" >> $GITHUB_ENV
           echo "COMMIT_ID=$COMMIT_ID" >> $GITHUB_ENV
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
