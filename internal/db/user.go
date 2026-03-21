@@ -106,7 +106,12 @@ func (d *DB) CreateUser(user *models.User) error {
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		err := tx.Rollback(ctx)
+		if err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			d.log.Error().Err(err).Msg("rollback transaction")
+		}
+	}()
 
 	if d.orgAutoCreateAllowed(user.Organization) {
 		_, err = tx.Exec(ctx,

@@ -9,12 +9,15 @@ import (
 	"fmt"
 
 	"github.com/k8shell-io/common/pkg/db"
+	"github.com/k8shell-io/common/pkg/logger"
+	"github.com/rs/zerolog"
 )
 
 // DB wraps the shared database implementation for the identity service.
 type DB struct {
 	db.DB
 	autoCreateOrgs []string
+	log            *zerolog.Logger
 }
 
 // NewDB creates a new DB for the identity service.
@@ -25,7 +28,10 @@ func NewDB(config db.DBConfig, autoCreateOrgs []string) (*DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create db: %w", err)
 	}
-	return &DB{DB: *d, autoCreateOrgs: autoCreateOrgs}, nil
+	return &DB{
+		DB:             *d,
+		autoCreateOrgs: autoCreateOrgs,
+		log:            logger.NewLogger("db")}, nil
 }
 
 // orgAutoCreateAllowed reports whether org may be created automatically.
