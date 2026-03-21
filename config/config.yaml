@@ -44,7 +44,7 @@ localProviders:
     - users.yaml
   
 remoteProviders:
-  - address: 10.42.2.211:9030 #idp-usermap.k8shell-test:9030
+  - address: bruckins-idp-usermap.k8shell-io:9030 #idp-usermap.k8shell-test:9030
     tokenFilePath: /opt/shared/auth/identity/idp-token
     #caCertPath: /opt/shared/auth/ca.crt
     #serverName: idp-usermap.k8shell-test.svc  
@@ -53,8 +53,8 @@ remoteProviders:
 jwtIssuer:
   issuer: identity.k8shell
   audience: k8shell
-  expiry: 1h
-  signingMethod: rs256
+  expiry: 10m
+  signingMethod: es256
   privateKeyFile: ${SECRET_FILES}/jwt_private.pem
 
 # Kubernetes secret management for user tokens.
@@ -65,10 +65,10 @@ jwtIssuer:
 # ensures only one instance runs the refresh loop.
 kubernetes:
   enabled: true
-  namespace: k8shell-test
+  namespace: workspaces-x
   secretPrefix: "identity-token-"
   leaseName: identity-token-refresh
   leaseNamespace: k8shell-test
-  # refreshInterval: 15m
-  # refreshLookahead: 20m
+  refreshInterval: 1m
+  refreshLookahead: 2m
 

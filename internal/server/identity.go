@@ -46,7 +46,7 @@ func (s *IdentityService) GetUserAccessToken(ctx context.Context, req *identityp
 		return nil, status.Error(codes.FailedPrecondition, "Kubernetes is not configured")
 	}
 
-	_, err := s.server.GetUserByUsername(req.Username)
+	_, _, err := s.server.GetUserByUsername(req.Username)
 	if err != nil {
 		if errors.Is(err, models.ErrUserNotFound) {
 			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
@@ -104,7 +104,7 @@ func (s *IdentityService) FindUser(ctx context.Context, req *typespb.FindUserReq
 	}
 
 	if req.Username != "" {
-		user, err := s.server.GetUserByUsername(req.Username)
+		user, _, err := s.server.GetUserByUsername(req.Username)
 		if err != nil {
 			if errors.Is(err, models.ErrUserNotFound) {
 				return nil, status.Error(codes.NotFound, "user not found")
@@ -137,7 +137,7 @@ func (s *IdentityService) FindUser(ctx context.Context, req *typespb.FindUserReq
 func (s *IdentityService) AuthUserPublicKey(ctx context.Context,
 	req *typespb.AuthUserPublicKeyRequest) (*typespb.AuthUserResponse, error) {
 
-	user, err := s.server.GetUserByUsername(req.Username)
+	user, _, err := s.server.GetUserByUsername(req.Username)
 	if err != nil && !errors.Is(err, models.ErrUserNotFound) {
 		return nil, status.Errorf(codes.Internal, "error occured when finding user '%s': %s",
 			req.Username, err.Error())
@@ -242,7 +242,7 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 					"failed to complete web flow for provider '%s': %v", provider, err)
 			}
 
-			user, err := s.server.GetUserByUsername(username.GetUsername())
+			user, _, err := s.server.GetUserByUsername(username.GetUsername())
 			if err != nil {
 				return nil, status.Errorf(codes.Internal,
 					"failed to get user '%s' after completing web flow for provider '%s': %v",
@@ -265,7 +265,7 @@ func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context,
 		return nil, status.Errorf(codes.InvalidArgument, "invalid user string: %v", err)
 	}
 
-	user, err := s.server.GetUserByUsername(userStr.Username)
+	user, _, err := s.server.GetUserByUsername(userStr.Username)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "error occurred when getting user '%s': %v", userStr.Username, err)
 	}
@@ -291,7 +291,7 @@ func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context,
 func (s *IdentityService) ResolvePullRequestToRef(ctx context.Context,
 	req *typespb.RepoPullRequestRequest) (*typespb.RepoRefResponse, error) {
 
-	user, err := s.server.GetUserByUsername(req.Username)
+	user, _, err := s.server.GetUserByUsername(req.Username)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "error occurred when getting user '%s': %v", req.Username, err)
 	}
@@ -323,7 +323,7 @@ func (s *IdentityService) GetUserCredentials(ctx context.Context,
 		return nil, status.Errorf(codes.Unavailable, "database is not configured, cannot retrieve user credentials")
 	}
 
-	user, err := s.server.GetUserByUsername(req.Username)
+	user, _, err := s.server.GetUserByUsername(req.Username)
 	if err != nil {
 		return nil, fmt.Errorf("error occurred when getting user '%s': %w", req.Username, err)
 	}

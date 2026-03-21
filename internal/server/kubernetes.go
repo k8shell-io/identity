@@ -103,22 +103,27 @@ func (s *Server) issueAndStoreToken(user *models.User) error {
 }
 
 // ensureToken issues and stores a token for the user only when one is absent
-// or approaching expiry. This is used in the no-DB path so that file-provider
-// users still get a K8s Secret without re-issuing on every single lookup.
-func (s *Server) ensureToken(user *models.User) error {
-	lookahead := s.k8sCfg.RefreshLookahead
-	if lookahead == 0 {
-		lookahead = defaultRefreshLookahead
-	}
-	threshold := time.Now().Add(lookahead)
+// or approaching expiry. When forceRefresh is true it unconditionally issues a new token, ignoring the cache.
+func (s *Server) ensureToken(user *models.User, forceRefresh bool) (refreshed bool, err error) {
+	if !forceRefresh {
+		lookahead := s.k8sCfg.RefreshLookahead
+		if lookahead == 0 {
+			lookahead = defaultRefreshLookahead
+		}
+		threshold := time.Now().Add(lookahead)
 
-	if v, ok := s.tokenCache.Load(user.Username); ok {
-		if expiresAt, ok := v.(time.Time); ok && expiresAt.After(threshold) {
-			return nil // token is still valid
+		if v, ok := s.tokenCache.Load(user.Username); ok {
+			if expiresAt, ok := v.(time.Time); ok && expiresAt.After(threshold) {
+				return false, nil
+			}
 		}
 	}
 
-	return s.issueAndStoreToken(user)
+	err = s.issueAndStoreToken(user)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // getTokenFromKubernetesSecret reads the JWT string from the user's managed
@@ -199,6 +204,8 @@ func (s *Server) startTokenRefreshLoop(ctx context.Context) {
 	}
 }
 
+// *** Database-based token refresh loop with SELECT FOR UPDATE SKIP LOCKED ***
+
 // runDBTokenRefreshLoop runs a ticker that continuously claims and refreshes
 // near-expiry user tokens using Postgres FOR UPDATE SKIP LOCKED.
 func (s *Server) runDBTokenRefreshLoop(ctx context.Context) {
@@ -235,6 +242,7 @@ func (s *Server) refreshExpiredTokensFromDB(ctx context.Context) {
 	expiresBeforeTime := time.Now().Add(lookahead)
 	claimUntil := time.Now().Add(tokenRefreshClaimTTL)
 
+	s.log.Debug().Msgf("claiming users with tokens expiring before %s", expiresBeforeTime.Format(time.RFC3339))
 	usernames, err := s.DB.ClaimUsersForTokenRefresh(ctx, expiresBeforeTime, claimUntil, tokenRefreshBatchSize)
 	if err != nil {
 		s.log.Error().Err(err).Msg("failed to claim users for token refresh")
@@ -242,16 +250,21 @@ func (s *Server) refreshExpiredTokensFromDB(ctx context.Context) {
 	}
 
 	for _, username := range usernames {
-		user, err := s.GetUserByUsername(username)
+		user, refreshed, err := s.GetUserByUsername(username)
 		if err != nil {
 			s.log.Warn().Err(err).Msgf("token refresh: failed to get user '%s'", username)
 			continue
 		}
-		if err := s.ensureToken(user); err != nil {
+		if refreshed {
+			continue
+		}
+		if _, err := s.ensureToken(user, true); err != nil {
 			s.log.Error().Err(err).Msgf("token refresh: failed to ensure token for user '%s'", username)
 		}
 	}
 }
+
+// *** Kubernetes Lease-based token refresh loop (no-DB path) ***
 
 // runLeaseTokenRefreshLoop acquires a Kubernetes Lease (leader election) and,
 // while holding the lease, runs a ticker to refresh tokens for all local file
@@ -343,7 +356,7 @@ func (s *Server) runFileProviderTokenRefreshLoop(ctx context.Context) {
 // lookups so that tokens are not re-issued on every background tick.
 func (s *Server) refreshLocalUserTokens() {
 	for _, user := range s.getLocalUsers() {
-		if err := s.ensureToken(user); err != nil {
+		if _, err := s.ensureToken(user, false); err != nil {
 			s.log.Error().Err(err).Msgf("token refresh: failed to ensure token for local user '%s'", user.Username)
 		}
 	}

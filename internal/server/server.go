@@ -249,9 +249,7 @@ func (s *Server) Serve() error {
 
 // refreshUser refreshes user data from configured identity providers when the
 // user is missing, expired, or invalid.
-func (s *Server) refreshUser(username string, user *models.User) (*models.User, error) {
-	var err error
-
+func (s *Server) refreshUser(username string, user *models.User) (*models.User, bool, error) {
 	if user == nil || time.Now().After(user.ExpiresAt) || !user.IsValid {
 		var foundUser *models.User
 		for _, provider := range s.IdentityProviders {
@@ -269,82 +267,93 @@ func (s *Server) refreshUser(username string, user *models.User) (*models.User, 
 
 			if foundUser != nil {
 				s.normalizeUser(foundUser)
-				expiresAt := time.Now().Add(time.Duration(provider.UserMaxAge()) * time.Second)
-				foundUser.ExpiresAt = expiresAt
-				if user != nil {
-					user.ExpiresAt = expiresAt
-				}
+				foundUser.ExpiresAt = time.Now().Add(time.Duration(provider.UserMaxAge()) * time.Second)
 				break
 			}
 		}
 
-		if foundUser != nil && user == nil {
-			err = s.DB.CreateUser(foundUser)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create user '%s' in database: %w", username, err)
+		createUser := (foundUser != nil && user == nil)
+		updateUser := (foundUser != nil && user != nil)
+		invalidateUser := (foundUser == nil && user != nil)
+
+		if createUser || updateUser {
+			if createUser {
+				err := s.DB.CreateUser(foundUser)
+				if err != nil {
+					return nil, false, fmt.Errorf("failed to create user '%s' in database: %w", username, err)
+				}
+			} else if updateUser {
+				foundUser.Shell = user.Shell
+				foundUser.Sudo = user.Sudo
+				foundUser.Locked = user.Locked
+				err := s.DB.UpdateUser(foundUser)
+				if err != nil {
+					return nil, false, fmt.Errorf("failed to update user '%s' in database: %w", username, err)
+				}
 			}
+
 			user = foundUser
-			if err := s.ensureToken(user); err != nil {
+			refreshed, err := s.ensureToken(user, true)
+			if err != nil {
 				s.log.Error().Err(err).Msgf("failed to ensure token for new user '%s'", username)
 			}
-		} else if foundUser != nil && user != nil {
-			err = s.DB.UpdateUser(foundUser)
-			if err != nil {
-				return nil, fmt.Errorf("failed to update user '%s' in database: %w", username, err)
-			}
-			foundUser.Locked = user.Locked
-			user = foundUser
-			if err := s.ensureToken(user); err != nil {
-				s.log.Error().Err(err).Msgf("failed to ensure token for updated user '%s'", username)
-			}
-		} else if foundUser == nil && user != nil {
+
+			return user, refreshed, nil
+
+		}
+
+		if invalidateUser {
 			user.IsValid = false
-			err = s.DB.UpdateUser(user)
+			err := s.DB.UpdateUser(user)
 			if err != nil {
-				return nil, fmt.Errorf("failed to mark user '%s' as invalid in database: %w", username, err)
+				return nil, false, fmt.Errorf("failed to mark user '%s' as invalid in database: %w", username, err)
 			}
-		} else {
-			user = nil
+			s.log.Warn().Msgf("User '%s' marked as invalid because it could not be found in any provider", username)
+			return user, false, nil
 		}
 	}
-	return user, nil
+
+	return user, false, nil
 }
 
 // GetUserByUsername retrieves a user by username from the database.
 // It refreshes the user data when needed by querying configured identity providers.
-func (s *Server) GetUserByUsername(username string) (*models.User, error) {
+func (s *Server) GetUserByUsername(username string) (*models.User, bool, error) {
 	if s.DB == nil {
 		for _, user := range s.getLocalUsers() {
 			if user.Username == username {
-				if err := s.ensureToken(user); err != nil {
+				if refreshed, err := s.ensureToken(user, false); err != nil {
 					s.log.Error().Err(err).Msgf("failed to ensure token for user '%s'", username)
+				} else if refreshed {
+					return user, true, nil
 				}
-				return user, nil
+				return user, false, nil
 			}
 		}
-		return nil, fmt.Errorf("user '%s' not found: %w", username, models.ErrUserNotFound)
+		return nil, false, fmt.Errorf("user '%s' not found: %w", username, models.ErrUserNotFound)
 	}
 
 	user, err := s.DB.FindUser(username)
 	if err != nil && !errors.Is(err, models.ErrUserNotFound) {
-		return nil, fmt.Errorf("error occured when finding user '%s': %w", username, err)
+		return nil, false, fmt.Errorf("error occured when finding user '%s': %w", username, err)
 	}
 
 	// refresh user in the database
-	user, err = s.refreshUser(username, user)
+	var refreshed bool
+	user, refreshed, err = s.refreshUser(username, user)
 	if err != nil {
-		return nil, fmt.Errorf("error occured when refreshing user '%s': %w", username, err)
+		return nil, false, fmt.Errorf("error occured when refreshing user '%s': %w", username, err)
 	}
 
 	if user == nil {
-		return nil, fmt.Errorf("user '%s' not found: %w", username, models.ErrUserNotFound)
+		return nil, false, fmt.Errorf("user '%s' not found: %w", username, models.ErrUserNotFound)
 	}
 
 	if !user.IsValid {
-		return nil, fmt.Errorf("user '%s' is not valid: %w", username, models.ErrUserIsNotValid)
+		return nil, false, fmt.Errorf("user '%s' is not valid: %w", username, models.ErrUserIsNotValid)
 	}
 
-	return user, nil
+	return user, refreshed, nil
 }
 
 // GetUserByAccessToken retrieves a user by verifying the provided JWT access token.
