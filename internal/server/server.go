@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -247,15 +248,33 @@ func (s *Server) Serve() error {
 	}
 }
 
+// orderedProviders returns identity providers in deterministic (name-sorted) order.
+// When source is non-empty only the provider matching that name is included.
+func (s *Server) orderedProviders(source string) []api.IdpClient {
+	names := make([]string, 0, len(s.IdentityProviders))
+	for name := range s.IdentityProviders {
+		if source == "" || name == source {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	result := make([]api.IdpClient, 0, len(names))
+	for _, name := range names {
+		result = append(result, s.IdentityProviders[name])
+	}
+	return result
+}
+
 // refreshUser refreshes user data from configured identity providers when the
 // user is missing, expired, or invalid.
 func (s *Server) refreshUser(username string, user *models.User) (*models.User, bool, error) {
 	if user == nil || time.Now().After(user.ExpiresAt) || !user.IsValid {
 		var foundUser *models.User
-		for _, provider := range s.IdentityProviders {
-			if user != nil && provider.Name() != user.Source {
-				continue
-			}
+		source := ""
+		if user != nil {
+			source = user.Source
+		}
+		for _, provider := range s.orderedProviders(source) {
 			userpb, err := provider.FindUser(context.Background(), &typespb.FindUserRequest{
 				Username: username,
 			})

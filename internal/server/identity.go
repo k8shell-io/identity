@@ -150,27 +150,25 @@ func (s *IdentityService) AuthUserPublicKey(ctx context.Context,
 	}
 
 	// authenticate the user with the public key using the identity providers
-	for _, provider := range s.server.IdentityProviders {
-		if provider.Name() == user.Source {
-			authpb, err := provider.AuthUserPublicKey(context.Background(), &typespb.AuthUserPublicKeyRequest{
-				Username:  req.Username,
-				PublicKey: string(ssh.MarshalAuthorizedKey(parsedKey)),
-			})
-			if err != nil {
-				return nil, status.Errorf(codes.Internal, "failed to authenticate user '%s' with provider '%s': %s",
-					req.Username, provider.Name(), err.Error())
-			}
-			return authpb, nil
-		}
+	provider, ok := s.server.IdentityProviders[user.Source]
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "no suitable identity provider found for user '%s'", req.Username)
 	}
-
-	return nil, nil
+	authpb, err := provider.AuthUserPublicKey(context.Background(), &typespb.AuthUserPublicKeyRequest{
+		Username:  req.Username,
+		PublicKey: string(ssh.MarshalAuthorizedKey(parsedKey)),
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to authenticate user '%s' with provider '%s': %s",
+			req.Username, provider.Name(), err.Error())
+	}
+	return authpb, nil
 }
 
 // GetUserOnboardCapability returns onboarding capability information for a user.
 func (s *IdentityService) GetUserOnboardCapability(ctx context.Context,
 	req *typespb.Username) (*commonpb.UserOnboardCapability, error) {
-	for _, provider := range s.server.IdentityProviders {
+	for _, provider := range s.server.orderedProviders("") {
 		cap, err := provider.OnboardCapability(context.Background(), &typespb.Username{
 			Username: req.Username,
 		})
@@ -188,7 +186,7 @@ func (s *IdentityService) GetUserOnboardCapability(ctx context.Context,
 // OnboardUserDeviceFlow starts device-flow onboarding for a user.
 func (s *IdentityService) OnboardUserDeviceFlow(ctx context.Context,
 	req *typespb.Username) (*commonpb.OnboardUserDeviceFlow, error) {
-	for _, provider := range s.server.IdentityProviders {
+	for _, provider := range s.server.orderedProviders("") {
 		onboardUserpb, err := provider.OnboardUserDeviceFlow(context.Background(), &typespb.Username{
 			Username: req.Username,
 		})
@@ -206,21 +204,20 @@ func (s *IdentityService) OnboardUserDeviceFlow(ctx context.Context,
 // OnboardUserWebFlow starts web-flow onboarding for the requested provider.
 func (s *IdentityService) OnboardUserWebFlow(ctx context.Context,
 	req *typespb.OnboardUserWebFlowRequest) (*commonpb.OnboardUserWebFlow, error) {
-	for _, provider := range s.server.IdentityProviders {
-		if provider.Name() == req.Provider {
-			authInfo, err := provider.OnboardUserWebFlow(context.Background(), &typespb.OnboardUserWebFlowRequest{
-				Provider:    req.Provider,
-				RedirectUri: req.RedirectUri,
-			})
-			if err != nil {
-				return nil, status.Errorf(codes.Internal, "failed to onboard user via web flow with provider '%s': %v",
-					req.Provider, err)
-			}
-			return authInfo, nil
-		}
+	provider, ok := s.server.IdentityProviders[req.Provider]
+	if !ok {
+		return nil, status.Errorf(codes.NotFound,
+			"no suitable identity provider found for onboarding via web flow with provider '%s'", req.Provider)
 	}
-	return nil, status.Errorf(codes.NotFound,
-		"no suitable identity provider found for onboarding via web flow with provider '%s'", req.Provider)
+	authInfo, err := provider.OnboardUserWebFlow(context.Background(), &typespb.OnboardUserWebFlowRequest{
+		Provider:    req.Provider,
+		RedirectUri: req.RedirectUri,
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to onboard user via web flow with provider '%s': %v",
+			req.Provider, err)
+	}
+	return authInfo, nil
 }
 
 // CompleteUserWebFlow completes web-flow onboarding and returns the resolved user.
@@ -231,29 +228,28 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 		return nil, status.Errorf(codes.InvalidArgument, "failed to decode web flow state: %v", err)
 	}
 
-	for _, p := range s.server.IdentityProviders {
-		if p.Name() == provider {
-			username, err := p.CompleteUserWebFlow(context.Background(), &typespb.CompleteUserWebFlowRequest{
-				State: req.State,
-				Code:  req.Code,
-			})
-			if err != nil {
-				return nil, status.Errorf(codes.Internal,
-					"failed to complete web flow for provider '%s': %v", provider, err)
-			}
-
-			user, _, err := s.server.GetUserByUsername(username.GetUsername())
-			if err != nil {
-				return nil, status.Errorf(codes.Internal,
-					"failed to get user '%s' after completing web flow for provider '%s': %v",
-					username.GetUsername(), provider, err)
-			}
-
-			return gapi.UserToProto(user), nil
-		}
+	p, ok := s.server.IdentityProviders[provider]
+	if !ok {
+		return nil, status.Errorf(codes.NotFound,
+			"no suitable identity provider found to complete web flow for provider '%s'", provider)
 	}
-	return nil, status.Errorf(codes.NotFound,
-		"no suitable identity provider found to complete web flow for provider '%s'", provider)
+	username, err := p.CompleteUserWebFlow(context.Background(), &typespb.CompleteUserWebFlowRequest{
+		State: req.State,
+		Code:  req.Code,
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"failed to complete web flow for provider '%s': %v", provider, err)
+	}
+
+	user, _, err := s.server.GetUserByUsername(username.GetUsername())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"failed to get user '%s' after completing web flow for provider '%s': %v",
+			username.GetUsername(), provider, err)
+	}
+
+	return gapi.UserToProto(user), nil
 }
 
 // GetBlueprintByUserStr resolves and returns a blueprint for the provided user string.
@@ -270,21 +266,19 @@ func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context,
 		return nil, status.Errorf(codes.Internal, "error occurred when getting user '%s': %v", userStr.Username, err)
 	}
 
-	for _, provider := range s.server.IdentityProviders {
-		if provider.Name() == user.Source {
-			blueprintpb, err := provider.GetBlueprintByUserStr(context.Background(), &typespb.UserStr{
-				Userstr: userStr.Raw,
-			})
-			if err != nil {
-				return nil, status.Errorf(codes.Internal,
-					"failed to get custom blueprint for '%s' with provider '%s': %v",
-					userStr.Username, provider.Name(), err)
-			}
-			return blueprintpb, nil
-		}
+	provider, ok := s.server.IdentityProviders[user.Source]
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "no suitable identity provider found for user '%s'", userStr.Username)
 	}
-
-	return nil, status.Errorf(codes.NotFound, "no suitable identity provider found for user '%s'", userStr.Username)
+	blueprintpb, err := provider.GetBlueprintByUserStr(context.Background(), &typespb.UserStr{
+		Userstr: userStr.Raw,
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"failed to get custom blueprint for '%s' with provider '%s': %v",
+			userStr.Username, provider.Name(), err)
+	}
+	return blueprintpb, nil
 }
 
 // ResolvePullRequestToRef resolves a repository pull request to its reference.
@@ -296,24 +290,22 @@ func (s *IdentityService) ResolvePullRequestToRef(ctx context.Context,
 		return nil, status.Errorf(codes.Internal, "error occurred when getting user '%s': %v", req.Username, err)
 	}
 
-	for _, provider := range s.server.IdentityProviders {
-		if provider.Name() == user.Source {
-			repoRef, err := provider.ResolvePullRequestToRef(context.Background(), &typespb.RepoPullRequestRequest{
-				Username:          req.Username,
-				RepoOwner:         req.RepoOwner,
-				RepoName:          req.RepoName,
-				PullRequestNumber: int32(req.PullRequestNumber),
-			})
-			if err != nil {
-				return nil, status.Errorf(codes.Internal,
-					"failed to resolve pull request to ref for '%s' with provider '%s': %v",
-					req.Username, provider.Name(), err)
-			}
-			return repoRef, nil
-		}
+	provider, ok := s.server.IdentityProviders[user.Source]
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "no suitable identity provider found for user '%s'", req.Username)
 	}
-
-	return nil, status.Errorf(codes.NotFound, "no suitable identity provider found for user '%s'", req.Username)
+	repoRef, err := provider.ResolvePullRequestToRef(context.Background(), &typespb.RepoPullRequestRequest{
+		Username:          req.Username,
+		RepoOwner:         req.RepoOwner,
+		RepoName:          req.RepoName,
+		PullRequestNumber: int32(req.PullRequestNumber),
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"failed to resolve pull request to ref for '%s' with provider '%s': %v",
+			req.Username, provider.Name(), err)
+	}
+	return repoRef, nil
 }
 
 // GetUserCredentials returns external credentials for a user.
@@ -329,24 +321,22 @@ func (s *IdentityService) GetUserCredentials(ctx context.Context,
 	}
 
 	var credentials []*models.ExternalCredential
-	for _, provider := range s.server.IdentityProviders {
-		if provider.Name() == user.Source {
-			token, err := provider.GetUserToken(context.Background(), &typespb.Username{
-				Username: user.Username,
+	if provider, ok := s.server.IdentityProviders[user.Source]; ok {
+		token, err := provider.GetUserToken(context.Background(), &typespb.Username{
+			Username: user.Username,
+		})
+		if err != nil && !errors.Is(err, models.ErrMethodNotSupported) {
+			return nil, fmt.Errorf("failed to get user token for '%s' with provider '%s': %w",
+				req.Username, provider.Name(), err)
+		}
+		if token != nil {
+			credentials = append(credentials, &models.ExternalCredential{
+				ServiceName:   provider.Name(),
+				Username:      user.Username,
+				ExternalID:    user.Username,
+				ExternalToken: token.Token,
+				ServiceURL:    provider.Address(),
 			})
-			if err != nil && !errors.Is(err, models.ErrMethodNotSupported) {
-				return nil, fmt.Errorf("failed to get user token for '%s' with provider '%s': %w",
-					req.Username, provider.Name(), err)
-			}
-			if token != nil {
-				credentials = append(credentials, &models.ExternalCredential{
-					ServiceName:   provider.Name(),
-					Username:      user.Username,
-					ExternalID:    user.Username,
-					ExternalToken: token.Token,
-					ServiceURL:    provider.Address(),
-				})
-			}
 		}
 	}
 
