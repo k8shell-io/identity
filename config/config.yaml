@@ -29,6 +29,14 @@ db:
   hostname: ${POSTGRES_HOSTNAME}
   port: !!int ${POSTGRES_PORT}
 
+# Organization management
+organizations:
+  # autoCreate lists organizations that are created automatically when a user
+  # with that organization is first seen. Use ["*"] to allow all organizations.
+  autoCreate:
+    - default
+    - ctu
+
 # identity providers
 localProviders:
   enabled: true

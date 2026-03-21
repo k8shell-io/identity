@@ -63,6 +63,9 @@ type Config struct {
 	// DB configures the database connection.
 	DB db.DBConfig `yaml:"db"`
 
+	// Organizations configures organization management.
+	Organizations OrganizationsConfig `yaml:"organizations"`
+
 	// LocalProviders configures local file-based identity providers.
 	LocalProviders file.FileUserProviderConfig `yaml:"localProviders"`
 
@@ -78,6 +81,13 @@ type Config struct {
 
 	// configDir is the directory containing the loaded configuration file.
 	configDir string
+}
+
+// OrganizationsConfig configures organization management.
+type OrganizationsConfig struct {
+	// AutoCreate lists organization names that are created automatically when a
+	// user with that organization is first seen. Use ["*"] to allow all organizations.
+	AutoCreate []string `yaml:"autoCreate"`
 }
 
 // LoadConfig loads server configuration from configFile.

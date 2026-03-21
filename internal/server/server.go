@@ -88,7 +88,7 @@ func NewServer(configFile string) (*Server, error) {
 
 	if config.DB.Enabled {
 		server.log.Info().Msg("Database is enabled; initializing database connection")
-		server.DB, err = backend.NewDB(config.DB)
+		server.DB, err = backend.NewDB(config.DB, config.Organizations.AutoCreate)
 		if err != nil {
 			return nil, fmt.Errorf("create database pool: %w", err)
 		}

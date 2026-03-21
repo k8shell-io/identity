@@ -14,13 +14,26 @@ import (
 // DB wraps the shared database implementation for the identity service.
 type DB struct {
 	db.DB
+	autoCreateOrgs []string
 }
 
 // NewDB creates a new DB for the identity service.
-func NewDB(config db.DBConfig) (*DB, error) {
+// autoCreateOrgs is the list of organization names that may be created automatically
+// when a user with that organization is first seen. Use ["*"] to allow all organizations.
+func NewDB(config db.DBConfig, autoCreateOrgs []string) (*DB, error) {
 	d, err := db.NewDB(config, "identity")
 	if err != nil {
 		return nil, fmt.Errorf("create db: %w", err)
 	}
-	return &DB{DB: *d}, nil
+	return &DB{DB: *d, autoCreateOrgs: autoCreateOrgs}, nil
+}
+
+// orgAutoCreateAllowed reports whether org may be created automatically.
+func (d *DB) orgAutoCreateAllowed(org string) bool {
+	for _, allowed := range d.autoCreateOrgs {
+		if allowed == "*" || allowed == org {
+			return true
+		}
+	}
+	return false
 }

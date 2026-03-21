@@ -97,19 +97,43 @@ func (d *DB) FindUserByTokenID(ctx context.Context, tokenID string) (*models.Use
 }
 
 // CreateUser inserts a new user record into the database.
+// If the user's organization does not exist and is in the auto-create allowlist,
+// it is created automatically. Otherwise the insert will fail if the org is missing.
 func (d *DB) CreateUser(user *models.User) error {
-	query := `INSERT INTO identity.users (
+	ctx := context.Background()
+
+	tx, err := d.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if d.orgAutoCreateAllowed(user.Organization) {
+		_, err = tx.Exec(ctx,
+			`INSERT INTO identity.organizations (name, description)
+			 VALUES ($1, '')
+			 ON CONFLICT (name) DO NOTHING`,
+			user.Organization)
+		if err != nil {
+			return fmt.Errorf("ensure organization: %w", err)
+		}
+	}
+
+	_, err = tx.Exec(ctx, `INSERT INTO identity.users (
 		username, is_valid, expires_at, uid, gid, fullname,
 		email, password, shell, sudo, locked,
 		auths, auth_keys, roles, blueprints, source, organization
 	) VALUES (
 		$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
-	)`
-	_, err := d.Pool.Exec(context.Background(), query,
+	)`,
 		user.Username, user.IsValid, user.ExpiresAt, user.UID, user.GID, user.Fullname,
 		user.Email, user.Password, user.Shell, user.Sudo, user.Locked,
 		user.Auths, user.AuthKeys, user.Roles, user.Blueprints, user.Source, user.Organization)
-	return err
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }
 
 // UpdateUser updates an existing user's fields, identified by username.
