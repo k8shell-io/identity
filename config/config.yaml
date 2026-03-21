@@ -49,7 +49,8 @@ remoteProviders:
     #caCertPath: /opt/shared/auth/ca.crt
     #serverName: idp-usermap.k8shell-test.svc  
 
-# JWT token issuance
+# JWT token issuance for user tokens. 
+# These tokens are used for authentication to the API server and SSH proxy.
 jwtIssuer:
   issuer: identity.k8shell
   audience: k8shell
@@ -62,7 +63,7 @@ jwtIssuer:
 # "<secretPrefix><username>" in <namespace>.
 # When db is configured, distributed refresh uses SELECT FOR UPDATE SKIP LOCKED.
 # When db is disabled (file-provider only), Kubernetes Lease leader election
-# ensures only one instance runs the refresh loop.
+# ensures only one identity instance runs the refresh loop.
 kubernetes:
   enabled: true
   namespace: workspaces-x
