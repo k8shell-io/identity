@@ -11,7 +11,7 @@ Identity is built around pluggable providers. A provider is the source of truth 
 | Type | Description |
 |---|---|
 | **Local** (`file`) | Users loaded from YAML files on disk. No onboarding. Good for development and testing. |
-| **Remote** (`idp`)  | gRPC-connected external provider (e.g. GitHub, Usermap). Supports device-flow and web-flow onboarding. |
+| **Remote** (`idp`)  | gRPC-connected external provider (e.g. GitHub). Supports device-flow and web-flow onboarding. |
 
 A user record is cached in Postgres after the first login. On subsequent requests the cache is refreshed when `expires_at` has passed.
 
@@ -27,7 +27,7 @@ A background loop continuously re-issues tokens for users whose tokens are near 
 
 ### gRPC API
 
-The service exposes two gRPC services defined in `pkg/api/`:
+The service exposes two gRPC services defined in a separate common repository at `pkg/api/identity/v1`:
 
 - `IdentityService` (`identity.proto`) — user lookup, authentication, onboarding, credential management. Consumed by other k8shell components.
 - `IdentityProviderService` (`idp.proto`) — implemented by remote identity providers. Identity connects to them as a client.
@@ -40,7 +40,6 @@ internal/
   providers/
     file/      # File-backed identity provider
   server/      # gRPC server, JWT issuance, Kubernetes secret management
-pkg/api/       # Protobuf definitions and generated Go code
 db/migrations/ # SQL migrations (golang-migrate)
 config/        # Example configuration and user files
 docker/        # Dockerfile (alpine + distroless stages)
@@ -50,7 +49,6 @@ docker/        # Dockerfile (alpine + distroless stages)
 
 - Go 1.24+
 - Docker
-- `protoc` + `protoc-gen-go` / `protoc-gen-go-grpc` (only when changing `.proto` files)
 - A running Postgres instance (see `backend/compose.yaml`)
 
 ## Local development
@@ -83,7 +81,6 @@ make build
 | `make test-self` | Static analysis + build + smoke tests (used in CI) |
 | `make image` | Build Docker image (Alpine by default) |
 | `RUNTIME=distroless make image` | Build production-hardened distroless image |
-| `make protoc` | Regenerate protobuf Go code from `.proto` files |
 | `make vendor` | Vendor Go dependencies |
 
 ## Docker images
