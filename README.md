@@ -1,5 +1,7 @@
 # identity
 
+[![Self-Tests](https://github.com/k8shell-io/identity/actions/workflows/self-tests.yaml/badge.svg)](https://github.com/k8shell-io/identity/actions/workflows/self-tests.yaml)
+
 The k8Shell Identity service. Manages user identities, authenticates users via SSH public key or password, issues JWTs, and stores per-user tokens as Kubernetes Secrets so other k8shell components can verify access without hitting the database.
 
 ## Concepts
