@@ -24,7 +24,6 @@ COPY vendor ./vendor
 
 COPY main.go ./
 COPY internal ./internal
-COPY pkg ./pkg
 COPY db ./db
 
 ENV GOFLAGS="-mod=vendor"
