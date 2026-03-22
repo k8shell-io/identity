@@ -4,8 +4,7 @@ go 1.24.5
 
 require (
 	github.com/jackc/pgx/v5 v5.7.6
-	github.com/k8shell-io/common v0.12.172
-	github.com/k8shell-io/identity/pkg/api v0.0.0-00010101000000-000000000000
+	github.com/k8shell-io/common v0.12.178
 	github.com/rs/zerolog v1.34.0
 	golang.org/x/crypto v0.44.0
 	google.golang.org/grpc v1.76.0
@@ -33,7 +32,6 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/golang-migrate/migrate/v4 v4.19.0 // indirect
-	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -80,5 +78,3 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
-
-replace github.com/k8shell-io/identity/pkg/api => ./pkg/api

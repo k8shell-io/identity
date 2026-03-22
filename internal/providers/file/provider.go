@@ -17,12 +17,11 @@ import (
 	"strings"
 	"sync"
 
+	commonv1 "github.com/k8shell-io/common/pkg/api/gen/go/common/v1"
+	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
 	"github.com/k8shell-io/common/pkg/gapi"
-	"github.com/k8shell-io/common/pkg/gapi/commonpb"
 	logger "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/common/pkg/models"
-	"github.com/k8shell-io/identity/pkg/api/idppb"
-	"github.com/k8shell-io/identity/pkg/api/typespb"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/ssh"
 	"google.golang.org/grpc"
@@ -98,6 +97,11 @@ func (f *FileUserProvider) Close() error {
 	return nil
 }
 
+func (f *FileUserProvider) OnboardUserCapability(ctx context.Context, in *identityv1.Username,
+	opts ...grpc.CallOption) (*commonv1.UserOnboardCapability, error) {
+	return nil, status.Errorf(codes.Unimplemented, "file user provider does not support onboarding via device flow")
+}
+
 // load reads configured user files and populates the in-memory user map.
 func (f *FileUserProvider) load(baseDir string) error {
 	f.mutex.Lock()
@@ -148,9 +152,9 @@ func (f *FileUserProvider) GetUsers() []*models.User {
 }
 
 // ProviderInfo returns provider metadata and capabilities.
-func (f *FileUserProvider) ProviderInfo(ctx context.Context, in *idppb.ProviderInfoRequest,
-	opts ...grpc.CallOption) (*idppb.ProviderInfoResponse, error) {
-	return &idppb.ProviderInfoResponse{
+func (f *FileUserProvider) ProviderInfo(ctx context.Context, in *identityv1.ProviderInfoRequest,
+	opts ...grpc.CallOption) (*identityv1.ProviderInfoResponse, error) {
+	return &identityv1.ProviderInfoResponse{
 		Name:         FILE_PROVIDER_NAME,
 		Capabilities: []string{"find_user", "auth_public_key"},
 		UserMaxAge:   0,
@@ -159,8 +163,8 @@ func (f *FileUserProvider) ProviderInfo(ctx context.Context, in *idppb.ProviderI
 }
 
 // FindUser returns a user by username.
-func (f *FileUserProvider) FindUser(ctx context.Context, in *typespb.FindUserRequest,
-	opts ...grpc.CallOption) (*commonpb.User, error) {
+func (f *FileUserProvider) FindUser(ctx context.Context, in *identityv1.FindUserRequest,
+	opts ...grpc.CallOption) (*commonv1.User, error) {
 	f.mutex.RLock()
 	defer f.mutex.RUnlock()
 
@@ -172,21 +176,21 @@ func (f *FileUserProvider) FindUser(ctx context.Context, in *typespb.FindUserReq
 }
 
 // OnboardCapability reports onboarding capability for the user.
-func (f *FileUserProvider) OnboardCapability(ctx context.Context, in *typespb.Username,
-	opts ...grpc.CallOption) (*commonpb.UserOnboardCapability, error) {
+func (f *FileUserProvider) OnboardCapability(ctx context.Context, in *identityv1.Username,
+	opts ...grpc.CallOption) (*commonv1.UserOnboardCapability, error) {
 	return nil, status.Errorf(codes.Unimplemented, "file user provider does not support onboarding via device flow")
 }
 
 // OnboardUserDeviceFlow starts device-flow onboarding for the user.
-func (f *FileUserProvider) OnboardUserDeviceFlow(ctx context.Context, in *typespb.Username,
-	opts ...grpc.CallOption) (*commonpb.OnboardUserDeviceFlow, error) {
+func (f *FileUserProvider) OnboardUserDeviceFlow(ctx context.Context, in *identityv1.Username,
+	opts ...grpc.CallOption) (*commonv1.OnboardUserDeviceFlow, error) {
 	return nil, status.Errorf(codes.Unimplemented, "file user provider does not support onboarding via device flow")
 }
 
 // AuthUserPublicKey authenticates a user by SSH public key.
-func (f *FileUserProvider) AuthUserPublicKey(ctx context.Context, in *typespb.AuthUserPublicKeyRequest,
-	opts ...grpc.CallOption) (*typespb.AuthUserResponse, error) {
-	user, err := f.FindUser(ctx, &typespb.FindUserRequest{Username: in.Username})
+func (f *FileUserProvider) AuthUserPublicKey(ctx context.Context, in *identityv1.AuthUserPublicKeyRequest,
+	opts ...grpc.CallOption) (*identityv1.AuthUserResponse, error) {
+	user, err := f.FindUser(ctx, &identityv1.FindUserRequest{Username: in.Username})
 	if err != nil {
 		return nil, err
 	}
@@ -225,42 +229,42 @@ func (f *FileUserProvider) AuthUserPublicKey(ctx context.Context, in *typespb.Au
 	provided := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshKey)))
 	for _, k := range keys {
 		if k == provided {
-			return &typespb.AuthUserResponse{Valid: true}, nil
+			return &identityv1.AuthUserResponse{Valid: true}, nil
 		}
 	}
 
-	return &typespb.AuthUserResponse{Valid: false}, nil
+	return &identityv1.AuthUserResponse{Valid: false}, nil
 }
 
 // GetUserToken returns a provider token for the user.
-func (f *FileUserProvider) GetUserToken(ctx context.Context, in *typespb.Username,
-	opts ...grpc.CallOption) (*idppb.UserToken, error) {
+func (f *FileUserProvider) GetUserToken(ctx context.Context, in *identityv1.Username,
+	opts ...grpc.CallOption) (*identityv1.UserToken, error) {
 	return nil, status.Errorf(codes.Unimplemented, "file user provider does not support user tokens")
 }
 
 // GetBlueprintByUserStr returns a blueprint for the provided user string.
-func (f *FileUserProvider) GetBlueprintByUserStr(ctx context.Context, in *typespb.UserStr,
-	opts ...grpc.CallOption) (*typespb.Blueprint, error) {
+func (f *FileUserProvider) GetBlueprintByUserStr(ctx context.Context, in *identityv1.UserStr,
+	opts ...grpc.CallOption) (*identityv1.Blueprint, error) {
 	return nil, status.Errorf(codes.Unimplemented, "file user provider does not support custom blueprints")
 }
 
 // ResolvePullRequestToRef resolves a pull request to a repository reference.
-func (f *FileUserProvider) ResolvePullRequestToRef(ctx context.Context, in *typespb.RepoPullRequestRequest,
-	opts ...grpc.CallOption) (*typespb.RepoRefResponse, error) {
+func (f *FileUserProvider) ResolvePullRequestToRef(ctx context.Context, in *identityv1.RepoPullRequestRequest,
+	opts ...grpc.CallOption) (*identityv1.RepoRefResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented,
 		"file user provider does not support resolving pull requests to refs")
 }
 
 // CompleteUserWebFlow completes web-flow onboarding and returns the user.
-func (f *FileUserProvider) CompleteUserWebFlow(ctx context.Context, in *typespb.CompleteUserWebFlowRequest,
-	opts ...grpc.CallOption) (*commonpb.User, error) {
+func (f *FileUserProvider) CompleteUserWebFlow(ctx context.Context, in *identityv1.CompleteUserWebFlowRequest,
+	opts ...grpc.CallOption) (*commonv1.User, error) {
 	return nil, status.Errorf(codes.Unimplemented,
 		"file user provider does not support onboarding via web flow")
 }
 
 // OnboardUserWebFlow starts web-flow onboarding for the user.
-func (f *FileUserProvider) OnboardUserWebFlow(ctx context.Context, in *typespb.OnboardUserWebFlowRequest,
-	opts ...grpc.CallOption) (*commonpb.OnboardUserWebFlow, error) {
+func (f *FileUserProvider) OnboardUserWebFlow(ctx context.Context, in *identityv1.OnboardUserWebFlowRequest,
+	opts ...grpc.CallOption) (*commonv1.OnboardUserWebFlow, error) {
 	return nil, status.Errorf(codes.Unimplemented,
 		"file user provider does not support onboarding via web flow")
 }

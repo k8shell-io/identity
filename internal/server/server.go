@@ -26,9 +26,8 @@ import (
 	natsc "github.com/k8shell-io/common/pkg/nats"
 	backend "github.com/k8shell-io/identity/internal/db"
 	"github.com/k8shell-io/identity/internal/providers/file"
-	"github.com/k8shell-io/identity/pkg/api"
-	"github.com/k8shell-io/identity/pkg/api/identitypb"
-	"github.com/k8shell-io/identity/pkg/api/typespb"
+	"github.com/k8shell-io/common/pkg/identity"
+	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
 	"k8s.io/client-go/kubernetes"
@@ -40,7 +39,7 @@ type Server struct {
 	DB *backend.DB
 
 	// IdentityProviders maps provider name to provider client.
-	IdentityProviders map[string]api.IdpClient
+	IdentityProviders map[string]identity.IdpClient
 
 	// JWT issues signed JWT tokens for authenticated users.
 	// It is nil when JWT issuance is disabled in config.
@@ -152,7 +151,7 @@ func NewServer(configFile string) (*Server, error) {
 	}
 
 	err = server.grpc.RegisterService(func(s *grpc.Server) error {
-		identitypb.RegisterIdentityServiceServer(s, NewIdentityService(server))
+		identityv1.RegisterIdentityServiceServer(s, NewIdentityService(server))
 		return nil
 	})
 	if err != nil {
@@ -186,7 +185,7 @@ func (s *Server) getLocalUsers() []*models.User {
 
 // loadProviders initializes identity providers from the loaded configuration.
 func (s *Server) loadProviders(config *Config) error {
-	s.IdentityProviders = make(map[string]api.IdpClient)
+	s.IdentityProviders = make(map[string]identity.IdpClient)
 
 	if config.LocalProviders.Enabled {
 		s.log.Info().Msg("Loading local file-based identity provider")
@@ -198,13 +197,13 @@ func (s *Server) loadProviders(config *Config) error {
 	}
 
 	for _, idpCfg := range config.RemoteProviders {
-		client, err := api.NewIdpClient(idpCfg)
+		client, err := identity.NewIdpClient(idpCfg)
 		if err != nil {
 			return fmt.Errorf("create identity provider client '%s': %w", idpCfg.Address, err)
 		}
 
 		if s.IdentityProviders == nil {
-			s.IdentityProviders = make(map[string]api.IdpClient)
+			s.IdentityProviders = make(map[string]identity.IdpClient)
 		}
 		if s.IdentityProviders[client.Name()] != nil {
 			return fmt.Errorf("duplicate identity provider name '%s' from address '%s'", client.Name(), idpCfg.Address)
@@ -250,7 +249,7 @@ func (s *Server) Serve() error {
 
 // orderedProviders returns identity providers in deterministic (name-sorted) order.
 // When source is non-empty only the provider matching that name is included.
-func (s *Server) orderedProviders(source string) []api.IdpClient {
+func (s *Server) orderedProviders(source string) []identity.IdpClient {
 	names := make([]string, 0, len(s.IdentityProviders))
 	for name := range s.IdentityProviders {
 		if source == "" || name == source {
@@ -258,7 +257,7 @@ func (s *Server) orderedProviders(source string) []api.IdpClient {
 		}
 	}
 	sort.Strings(names)
-	result := make([]api.IdpClient, 0, len(names))
+	result := make([]identity.IdpClient, 0, len(names))
 	for _, name := range names {
 		result = append(result, s.IdentityProviders[name])
 	}
@@ -275,7 +274,7 @@ func (s *Server) refreshUser(username string, user *models.User) (*models.User, 
 			source = user.Source
 		}
 		for _, provider := range s.orderedProviders(source) {
-			userpb, err := provider.FindUser(context.Background(), &typespb.FindUserRequest{
+			userpb, err := provider.FindUser(context.Background(), &identityv1.FindUserRequest{
 				Username: username,
 			})
 			if err != nil {
