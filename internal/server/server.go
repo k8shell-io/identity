@@ -66,6 +66,13 @@ type Server struct {
 	// the source of truth.
 	tokenCache sync.Map // map[string]time.Time
 
+	// providerMu guards IdentityProviders and pendingProviderCfgs.
+	providerMu sync.RWMutex
+
+	// pendingProviderCfgs holds remote provider configs that could not be
+	// connected at startup and are retried in the background.
+	pendingProviderCfgs []gapi.ClientConfig
+
 	grpc *gapi.Server
 	nats *natsc.NATSClient
 	log  *zerolog.Logger
@@ -199,11 +206,9 @@ func (s *Server) loadProviders(config *Config) error {
 	for _, idpCfg := range config.RemoteProviders {
 		client, err := identity.NewIdpClient(idpCfg)
 		if err != nil {
-			return fmt.Errorf("create identity provider client '%s': %w", idpCfg.Address, err)
-		}
-
-		if s.IdentityProviders == nil {
-			s.IdentityProviders = make(map[string]identity.IdpClient)
+			s.log.Warn().Msgf("Identity provider at '%s' unavailable at startup; will retry in background: %v", idpCfg.Address, err)
+			s.pendingProviderCfgs = append(s.pendingProviderCfgs, idpCfg)
+			continue
 		}
 		if s.IdentityProviders[client.Name()] != nil {
 			return fmt.Errorf("duplicate identity provider name '%s' from address '%s'", client.Name(), idpCfg.Address)
@@ -225,6 +230,7 @@ func (s *Server) Serve() error {
 	defer cancel()
 
 	s.startTokenRefreshLoop(ctx)
+	s.startProviderRetryLoop(ctx)
 
 	errChan := make(chan error, 1)
 	go func() {
@@ -247,9 +253,19 @@ func (s *Server) Serve() error {
 	}
 }
 
+// providerByName returns the named identity provider under a read lock.
+func (s *Server) providerByName(name string) (identity.IdpClient, bool) {
+	s.providerMu.RLock()
+	defer s.providerMu.RUnlock()
+	p, ok := s.IdentityProviders[name]
+	return p, ok
+}
+
 // orderedProviders returns identity providers in deterministic (name-sorted) order.
 // When source is non-empty only the provider matching that name is included.
 func (s *Server) orderedProviders(source string) []identity.IdpClient {
+	s.providerMu.RLock()
+	defer s.providerMu.RUnlock()
 	names := make([]string, 0, len(s.IdentityProviders))
 	for name := range s.IdentityProviders {
 		if source == "" || name == source {
@@ -262,6 +278,72 @@ func (s *Server) orderedProviders(source string) []identity.IdpClient {
 		result = append(result, s.IdentityProviders[name])
 	}
 	return result
+}
+
+// providerRetryInterval is how often unavailable providers are retried.
+const providerRetryInterval = 30 * time.Second
+
+// startProviderRetryLoop starts a background goroutine that retries connecting
+// to any remote identity providers that were unavailable at startup. It exits
+// once all providers have connected.
+func (s *Server) startProviderRetryLoop(ctx context.Context) {
+	s.providerMu.RLock()
+	pending := len(s.pendingProviderCfgs)
+	s.providerMu.RUnlock()
+	if pending == 0 {
+		return
+	}
+	go s.runProviderRetryLoop(ctx)
+}
+
+func (s *Server) runProviderRetryLoop(ctx context.Context) {
+	ticker := time.NewTicker(providerRetryInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.retryPendingProviders()
+			s.providerMu.RLock()
+			remaining := len(s.pendingProviderCfgs)
+			s.providerMu.RUnlock()
+			if remaining == 0 {
+				return
+			}
+		}
+	}
+}
+
+func (s *Server) retryPendingProviders() {
+	s.providerMu.RLock()
+	pending := make([]gapi.ClientConfig, len(s.pendingProviderCfgs))
+	copy(pending, s.pendingProviderCfgs)
+	s.providerMu.RUnlock()
+
+	var stillPending []gapi.ClientConfig
+	for _, cfg := range pending {
+		client, err := identity.NewIdpClient(cfg)
+		if err != nil {
+			s.log.Warn().Msgf("Identity provider at '%s' still unavailable: %v", cfg.Address, err)
+			stillPending = append(stillPending, cfg)
+			continue
+		}
+		s.providerMu.Lock()
+		if s.IdentityProviders[client.Name()] != nil {
+			s.providerMu.Unlock()
+			s.log.Warn().Msgf("Identity provider '%s' already registered; skipping duplicate from '%s'", client.Name(), cfg.Address)
+			_ = client.Close()
+			continue
+		}
+		s.IdentityProviders[client.Name()] = client
+		s.providerMu.Unlock()
+		s.log.Info().Msgf("Identity provider '%s' connected from address '%s'", client.Name(), cfg.Address)
+	}
+
+	s.providerMu.Lock()
+	s.pendingProviderCfgs = stillPending
+	s.providerMu.Unlock()
 }
 
 // refreshUser refreshes user data from configured identity providers when the

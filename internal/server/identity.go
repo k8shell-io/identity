@@ -149,7 +149,7 @@ func (s *IdentityService) AuthUserPublicKey(ctx context.Context,
 	}
 
 	// authenticate the user with the public key using the identity providers
-	provider, ok := s.server.IdentityProviders[user.Source]
+	provider, ok := s.server.providerByName(user.Source)
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "no suitable identity provider found for user '%s'", req.Username)
 	}
@@ -203,7 +203,7 @@ func (s *IdentityService) OnboardUserDeviceFlow(ctx context.Context,
 // OnboardUserWebFlow starts web-flow onboarding for the requested provider.
 func (s *IdentityService) OnboardUserWebFlow(ctx context.Context,
 	req *identityv1.OnboardUserWebFlowRequest) (*commonv1.OnboardUserWebFlow, error) {
-	provider, ok := s.server.IdentityProviders[req.Provider]
+	provider, ok := s.server.providerByName(req.Provider)
 	if !ok {
 		return nil, status.Errorf(codes.NotFound,
 			"no suitable identity provider found for onboarding via web flow with provider '%s'", req.Provider)
@@ -227,7 +227,7 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 		return nil, status.Errorf(codes.InvalidArgument, "failed to decode web flow state: %v", err)
 	}
 
-	p, ok := s.server.IdentityProviders[provider]
+	p, ok := s.server.providerByName(provider)
 	if !ok {
 		return nil, status.Errorf(codes.NotFound,
 			"no suitable identity provider found to complete web flow for provider '%s'", provider)
@@ -265,7 +265,7 @@ func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context,
 		return nil, status.Errorf(codes.Internal, "error occurred when getting user '%s': %v", userStr.Username, err)
 	}
 
-	provider, ok := s.server.IdentityProviders[user.Source]
+	provider, ok := s.server.providerByName(user.Source)
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "no suitable identity provider found for user '%s'", userStr.Username)
 	}
@@ -289,7 +289,7 @@ func (s *IdentityService) ResolvePullRequestToRef(ctx context.Context,
 		return nil, status.Errorf(codes.Internal, "error occurred when getting user '%s': %v", req.Username, err)
 	}
 
-	provider, ok := s.server.IdentityProviders[user.Source]
+	provider, ok := s.server.providerByName(user.Source)
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "no suitable identity provider found for user '%s'", req.Username)
 	}
@@ -320,7 +320,7 @@ func (s *IdentityService) GetUserCredentials(ctx context.Context,
 	}
 
 	var credentials []*models.ExternalCredential
-	if provider, ok := s.server.IdentityProviders[user.Source]; ok {
+	if provider, ok := s.server.providerByName(user.Source); ok {
 		token, err := provider.GetUserToken(context.Background(), &identityv1.Username{
 			Username: user.Username,
 		})
