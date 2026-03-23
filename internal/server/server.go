@@ -19,6 +19,8 @@ import (
 
 	"sync"
 
+	"github.com/k8shell-io/common/pkg/api/client/identity"
+	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
 	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/common/pkg/gapi"
 	log "github.com/k8shell-io/common/pkg/logger"
@@ -26,8 +28,6 @@ import (
 	natsc "github.com/k8shell-io/common/pkg/nats"
 	backend "github.com/k8shell-io/identity/internal/db"
 	"github.com/k8shell-io/identity/internal/providers/file"
-	"github.com/k8shell-io/common/pkg/identity"
-	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
 	"k8s.io/client-go/kubernetes"
