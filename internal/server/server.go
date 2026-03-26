@@ -232,6 +232,7 @@ func (s *Server) refreshUser(username string, user *models.User) (*models.User, 
 			source = user.Source
 		}
 		for _, provider := range s.orderedProviders(source) {
+			s.log.Debug().Msgf("Attempting to refresh user '%s' from provider '%s'", username, provider.Name())
 			userpb, err := provider.FindUser(context.Background(), &identityv1.FindUserRequest{
 				Username: username,
 			})

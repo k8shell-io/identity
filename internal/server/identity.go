@@ -173,7 +173,9 @@ func (s *IdentityService) GetUserOnboardCapability(ctx context.Context,
 		})
 		if err != nil && !errors.Is(err, models.ErrMethodNotSupported) &&
 			!errors.Is(err, models.ErrUserNotAllowedOnboard) {
-			return nil, status.Errorf(codes.Internal, "failed to get onboard capability for user '%s' from provider '%s': %v", req.Username, provider.Name(), err)
+			s.log.Error().Msgf("Failed to get onboard capability for user '%s' from provider '%s': %v",
+				req.Username, provider.Name(), err)
+			continue
 		}
 		if cap != nil {
 			return cap, nil
@@ -184,18 +186,24 @@ func (s *IdentityService) GetUserOnboardCapability(ctx context.Context,
 
 // OnboardUserDeviceFlow starts device-flow onboarding for a user.
 func (s *IdentityService) OnboardUserDeviceFlow(ctx context.Context,
-	req *identityv1.Username) (*commonv1.OnboardUserDeviceFlow, error) {
-	for _, provider := range s.server.orderedProviders("") {
-		onboardUserpb, err := provider.OnboardUserDeviceFlow(context.Background(), &identityv1.Username{
+	req *identityv1.OnboardUserDeviceFlowRequest) (*commonv1.OnboardUserDeviceFlow, error) {
+	provider, ok := s.server.providerByName(req.Provider)
+	if !ok {
+		return nil, status.Errorf(codes.NotFound,
+			"no suitable identity provider found for onboarding via device flow with provider '%s'", req.Provider)
+	}
+
+	onboardUserpb, err := provider.OnboardUserDeviceFlow(context.Background(),
+		&identityv1.OnboardUserDeviceFlowRequest{
+			Provider: req.Provider,
 			Username: req.Username,
 		})
-		if err != nil && !errors.Is(err, models.ErrMethodNotSupported) {
-			return nil, status.Errorf(codes.Internal, "failed to onboard user '%s' with provider '%s': %v",
-				req.Username, provider.Name(), err)
-		}
-		if onboardUserpb != nil {
-			return onboardUserpb, nil
-		}
+	if err != nil && !errors.Is(err, models.ErrMethodNotSupported) {
+		return nil, status.Errorf(codes.Internal, "failed to onboard user '%s' with provider '%s': %v",
+			req.Username, provider.Name(), err)
+	}
+	if onboardUserpb != nil {
+		return onboardUserpb, nil
 	}
 	return nil, status.Errorf(codes.NotFound, "no onboarding device flow found for user '%s'", req.Username)
 }

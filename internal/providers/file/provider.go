@@ -182,7 +182,7 @@ func (f *FileUserProvider) OnboardCapability(ctx context.Context, in *identityv1
 }
 
 // OnboardUserDeviceFlow starts device-flow onboarding for the user.
-func (f *FileUserProvider) OnboardUserDeviceFlow(ctx context.Context, in *identityv1.Username,
+func (f *FileUserProvider) OnboardUserDeviceFlow(ctx context.Context, in *identityv1.OnboardUserDeviceFlowRequest,
 	opts ...grpc.CallOption) (*commonv1.OnboardUserDeviceFlow, error) {
 	return nil, status.Errorf(codes.Unimplemented, "file user provider does not support onboarding via device flow")
 }

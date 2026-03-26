@@ -36,6 +36,7 @@ organizations:
   autoCreate:
     - default
     - ctu
+    - github
 
 # identity providers
 localProviders:
@@ -45,6 +46,10 @@ localProviders:
   
 remoteProviders:
   - address: bruckins-idp-usermap.k8shell-io:9030 #idp-usermap.k8shell-test:9030
+    tokenFilePath: /opt/shared/auth/identity/idp-token
+    #caCertPath: /opt/shared/auth/ca.crt
+    #serverName: idp-usermap.k8shell-test.svc  
+  - address: bruckins-idp-github.k8shell-io:9030 #idp-usermap.k8shell-test:9030
     tokenFilePath: /opt/shared/auth/identity/idp-token
     #caCertPath: /opt/shared/auth/ca.crt
     #serverName: idp-usermap.k8shell-test.svc  
