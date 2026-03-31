@@ -229,7 +229,7 @@ func (s *IdentityService) OnboardUserWebFlow(ctx context.Context,
 
 // CompleteUserWebFlow completes web-flow onboarding and returns the resolved user.
 func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
-	req *identityv1.CompleteUserWebFlowRequest) (*commonv1.User, error) {
+	req *identityv1.CompleteUserWebFlowRequest) (*identityv1.CompleteUserWebFlowResponse, error) {
 	provider, _, err := utils.DecodeState(req.State)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "failed to decode web flow state: %v", err)
@@ -256,7 +256,14 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 			username.GetUsername(), provider, err)
 	}
 
-	return gapi.UserToProto(user), nil
+	token, err := s.server.getTokenFromKubernetesSecret(user.Username)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to read token secret for user '%s'", user.Username)
+	}
+
+	return &identityv1.CompleteUserWebFlowResponse{
+		UserToken: token,
+	}, nil
 }
 
 // GetBlueprintByUserStr resolves and returns a blueprint for the provided user string.
@@ -338,7 +345,7 @@ func (s *IdentityService) GetUserCredentials(ctx context.Context,
 		}
 		if token != nil {
 			credentials = append(credentials, &models.ExternalCredential{
-				ServiceName:   provider.Name(),
+				ServiceName:   token.ServiceName,
 				Username:      user.Username,
 				ExternalID:    user.Username,
 				ExternalToken: token.Token,
