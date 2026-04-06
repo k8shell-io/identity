@@ -102,6 +102,53 @@ func (f *FileUserProvider) OnboardUserCapability(ctx context.Context, in *identi
 	return nil, status.Errorf(codes.Unimplemented, "file user provider does not support onboarding via device flow")
 }
 
+// resolveFileTags walks a yaml.Node tree and replaces any scalar node tagged with
+// !file with the content of the referenced file. Relative paths are resolved
+// against baseDir. If the file contains multiple lines the node is converted to
+// a YAML sequence so that []string fields (e.g. authKeys) decode correctly;
+// empty lines and comment lines are dropped. Single-line files remain scalars.
+func resolveFileTags(node *yaml.Node, baseDir string) error {
+	if node.Tag == "!file" && node.Kind == yaml.ScalarNode {
+		path := node.Value
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(baseDir, path)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("!file: read '%s': %w", path, err)
+		}
+		content := strings.TrimRight(string(data), "\r\n")
+
+		if strings.Contains(content, "\n") {
+			node.Kind = yaml.SequenceNode
+			node.Tag = "!!seq"
+			node.Value = ""
+			node.Content = nil
+			for _, line := range strings.Split(content, "\n") {
+				line = strings.TrimRight(line, "\r")
+				if line == "" || strings.HasPrefix(strings.TrimSpace(line), "#") {
+					continue
+				}
+				node.Content = append(node.Content, &yaml.Node{
+					Kind:  yaml.ScalarNode,
+					Tag:   "!!str",
+					Value: line,
+				})
+			}
+		} else {
+			node.Tag = "!!str"
+			node.Value = content
+		}
+		return nil
+	}
+	for _, child := range node.Content {
+		if err := resolveFileTags(child, baseDir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // load reads configured user files and populates the in-memory user map.
 func (f *FileUserProvider) load(baseDir string) error {
 	f.mutex.Lock()
@@ -114,14 +161,25 @@ func (f *FileUserProvider) load(baseDir string) error {
 
 		f.log.Debug().Msgf("Loading user file '%s'", filename)
 
-		var userFile UserFile
 		data, err := os.ReadFile(filename)
 		if err != nil {
 			return fmt.Errorf("read user file '%s': %w", filename, err)
 		}
 
-		if err := yaml.Unmarshal(data, &userFile); err != nil {
+		var doc yaml.Node
+		if err := yaml.Unmarshal(data, &doc); err != nil {
 			return fmt.Errorf("unmarshal user file '%s': %w", filename, err)
+		}
+
+		if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
+			if err := resolveFileTags(doc.Content[0], filepath.Dir(filename)); err != nil {
+				return fmt.Errorf("resolve !file tags in '%s': %w", filename, err)
+			}
+		}
+
+		var userFile UserFile
+		if err := doc.Decode(&userFile); err != nil {
+			return fmt.Errorf("decode user file '%s': %w", filename, err)
 		}
 
 		for i := range userFile.Users {
