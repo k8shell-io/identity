@@ -26,9 +26,7 @@ users:
       ["shell", "pty-req", "exec", "auth-agent-req", "env", "window-change"]
     blueprints: [am1, dev, tex, am2, awd, ddw]
     auths: [publickey, password]
-    authKeys:
-      - |
-        ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDD0WFyteR7SWAKgAtoiyRon96zG48ew52uXmlMK1nmY9Cb2ekwQWvgjTaF+AZ2ZjwS+BHrvCDsRDym/PMZ0SyHUyX9vLhKeIqZkNTpI0MB3RRQ8zY1IxdLQny7uSr5pZab5r7pEMsDmoEOHbZeeFKi1f3R4c4fgvqj2pBHIRiIMQUlVqeBbvVcOHVWddJMQAssV8sHjdq2upxr/SctM7qH9WMX8R1sh4npOVFI3zUkVDIO+4xmZpE0ihKf6vLZt7bTrXfP7db6jTcZX6BKCJA1CVuSnll+O+lYzunUNQyw8D++wrGvEkrXGowgHVotC2PS5JPVsnMzrNrCnG8vEgt3 Tomáš Vitvar (gitlab.fit.cvut.cz)
+    authKeys: !file /opt/shared/identity/secrets/vitvatom-key.pub
     # cvutfit95
     password: $2y$10$FJRWdVEBZRlPk8lW3qcEwejjbu18KM27P6l94.vHXbFPt7mH7DET2
     roles: [workspace-user]

@@ -102,49 +102,90 @@ func (f *FileUserProvider) OnboardUserCapability(ctx context.Context, in *identi
 	return nil, status.Errorf(codes.Unimplemented, "file user provider does not support onboarding via device flow")
 }
 
-// resolveFileTags walks a yaml.Node tree and replaces any scalar node tagged with
-// !file with the content of the referenced file. Relative paths are resolved
-// against baseDir. If the file contains multiple lines the node is converted to
-// a YAML sequence so that []string fields (e.g. authKeys) decode correctly;
-// empty lines and comment lines are dropped. Single-line files remain scalars.
+// resolveFileTags walks a yaml.Node tree and handles !file-tagged scalar nodes
+// on the "password" and "authKeys" fields. Any other use of !file returns an
+// error. "password" is replaced with the scalar file content. "authKeys" is
+// replaced with a YAML sequence (one entry per non-empty, non-comment line)
+// so it always decodes correctly into []string. Relative paths are resolved
+// against baseDir.
 func resolveFileTags(node *yaml.Node, baseDir string) error {
-	if node.Tag == "!file" && node.Kind == yaml.ScalarNode {
-		path := node.Value
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(baseDir, path)
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("!file: read '%s': %w", path, err)
-		}
-		content := strings.TrimRight(string(data), "\r\n")
-
-		if strings.Contains(content, "\n") {
-			node.Kind = yaml.SequenceNode
-			node.Tag = "!!seq"
-			node.Value = ""
-			node.Content = nil
-			for _, line := range strings.Split(content, "\n") {
-				line = strings.TrimRight(line, "\r")
-				if line == "" || strings.HasPrefix(strings.TrimSpace(line), "#") {
-					continue
+	if node.Kind == yaml.MappingNode {
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			key := node.Content[i].Value
+			val := node.Content[i+1]
+			if val.Tag == "!file" && val.Kind == yaml.ScalarNode {
+				switch key {
+				case "password":
+					if err := resolveFileTagScalar(val, baseDir); err != nil {
+						return err
+					}
+				case "authKeys":
+					if err := resolveFileTagSequence(val, baseDir); err != nil {
+						return err
+					}
+				default:
+					return fmt.Errorf("!file tag is not allowed on field %q", key)
 				}
-				node.Content = append(node.Content, &yaml.Node{
-					Kind:  yaml.ScalarNode,
-					Tag:   "!!str",
-					Value: line,
-				})
+			} else {
+				if err := resolveFileTags(val, baseDir); err != nil {
+					return err
+				}
 			}
-		} else {
-			node.Tag = "!!str"
-			node.Value = content
 		}
 		return nil
 	}
+
 	for _, child := range node.Content {
 		if err := resolveFileTags(child, baseDir); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// resolveFileTagScalar replaces a !file-tagged node with the trimmed file
+// content as a plain scalar string (used for the "password" field).
+func resolveFileTagScalar(node *yaml.Node, baseDir string) error {
+	path := node.Value
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(baseDir, path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("!file: read '%s': %w", path, err)
+	}
+	node.Tag = "!!str"
+	node.Value = strings.TrimRight(string(data), "\r\n")
+	return nil
+}
+
+// resolveFileTagSequence replaces a !file-tagged node with a YAML sequence
+// where each non-empty, non-comment line of the file becomes one element
+// (used for the "authKeys" field so it always decodes into []string).
+func resolveFileTagSequence(node *yaml.Node, baseDir string) error {
+	path := node.Value
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(baseDir, path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("!file: read '%s': %w", path, err)
+	}
+	content := strings.TrimRight(string(data), "\r\n")
+	node.Kind = yaml.SequenceNode
+	node.Tag = "!!seq"
+	node.Value = ""
+	node.Content = nil
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if line == "" || strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		node.Content = append(node.Content, &yaml.Node{
+			Kind:  yaml.ScalarNode,
+			Tag:   "!!str",
+			Value: line,
+		})
 	}
 	return nil
 }
