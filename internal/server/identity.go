@@ -50,13 +50,11 @@ func (s *IdentityService) GetUserAccessToken(ctx context.Context, req *identityv
 		if errors.Is(err, models.ErrUserNotFound) {
 			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
 		}
-		s.log.Error().Err(err).Msgf("GetUserAccessToken: failed to get user '%s'", req.Username)
 		return nil, status.Errorf(codes.Internal, "failed to get user '%s'", req.Username)
 	}
 
 	token, err := s.server.getTokenFromKubernetesSecret(req.Username)
 	if err != nil {
-		s.log.Error().Err(err).Msgf("GetUserAccessToken: failed to read k8s secret for user '%s'", req.Username)
 		return nil, status.Errorf(codes.Internal, "failed to read token secret for user '%s'", req.Username)
 	}
 	return &identityv1.GetUserAccessTokenResponse{AccessToken: token}, nil

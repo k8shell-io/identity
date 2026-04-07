@@ -126,8 +126,18 @@ func (s *Server) ensureToken(user *models.User, forceRefresh bool) (refreshed bo
 	return true, nil
 }
 
+// triggerRefresh sends a non-blocking signal on refreshNow to wake up
+// whichever token-refresh loop is running and start an immediate cycle.
+func (s *Server) triggerRefresh() {
+	select {
+	case s.refreshNow <- struct{}{}:
+	default:
+	}
+}
+
 // getTokenFromKubernetesSecret reads the JWT string from the user's managed
-// Kubernetes Secret. Returns an error if the secret does not exist.
+// Kubernetes Secret. When the Secret does not exist the token is invalidated
+// in the DB (when configured) and a refresh cycle is triggered immediately.
 func (s *Server) getTokenFromKubernetesSecret(username string) (string, error) {
 	prefix := s.k8sCfg.SecretPrefix
 	if prefix == "" {
@@ -138,7 +148,17 @@ func (s *Server) getTokenFromKubernetesSecret(username string) (string, error) {
 
 	secret, err := s.k8sClient.CoreV1().Secrets(namespace).Get(context.Background(), secretName, metav1.GetOptions{})
 	if err != nil {
-		return "", fmt.Errorf("get k8s secret '%s/%s': %w", namespace, secretName, err)
+		if k8serrors.IsNotFound(err) {
+			s.tokenCache.Delete(username)
+			if s.DB != nil {
+				if dbErr := s.DB.InvalidateUserToken(context.Background(), username); dbErr != nil {
+					s.log.Error().Err(dbErr).Msgf("failed to invalidate DB token for user '%s'", username)
+				}
+			}
+			s.log.Warn().Msgf("token secret '%s/%s' not found for user '%s'; token invalidated", namespace, secretName, username)
+			s.triggerRefresh()
+		}
+		return "", fmt.Errorf("get secret '%s/%s': %w", namespace, secretName, err)
 	}
 	return string(secret.Data["token"]), nil
 }
@@ -208,6 +228,7 @@ func (s *Server) startTokenRefreshLoop(ctx context.Context) {
 
 // runDBTokenRefreshLoop runs a ticker that continuously claims and refreshes
 // near-expiry user tokens using Postgres FOR UPDATE SKIP LOCKED.
+// An immediate cycle can be triggered by sending to s.refreshNow.
 func (s *Server) runDBTokenRefreshLoop(ctx context.Context) {
 	interval := s.k8sCfg.RefreshInterval
 	if interval == 0 {
@@ -226,6 +247,8 @@ func (s *Server) runDBTokenRefreshLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			s.refreshExpiredTokensFromDB(ctx)
+		case <-s.refreshNow:
 			s.refreshExpiredTokensFromDB(ctx)
 		}
 	}
@@ -325,6 +348,7 @@ func (s *Server) runLeaseTokenRefreshLoop(ctx context.Context) {
 
 // runFileProviderTokenRefreshLoop refreshes tokens for all local file-provider
 // users on a ticker. Called only by the leader instance.
+// An immediate cycle can be triggered by sending to s.refreshNow.
 func (s *Server) runFileProviderTokenRefreshLoop(ctx context.Context) {
 	interval := s.k8sCfg.RefreshInterval
 	if interval == 0 {
@@ -346,6 +370,8 @@ func (s *Server) runFileProviderTokenRefreshLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			s.refreshLocalUserTokens()
+		case <-s.refreshNow:
 			s.refreshLocalUserTokens()
 		}
 	}

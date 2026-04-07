@@ -65,6 +65,10 @@ type Server struct {
 	// the source of truth.
 	tokenCache sync.Map // map[string]time.Time
 
+	// refreshNow can be sent to in order to trigger an immediate token-refresh
+	// cycle without waiting for the next scheduled ticker tick.
+	refreshNow chan struct{}
+
 	// providerMu guards IdentityProviders and pendingProviderCfgs.
 	providerMu sync.RWMutex
 
@@ -82,7 +86,8 @@ type Server struct {
 // identity providers.
 func NewServer(configFile string) (*Server, error) {
 	server := &Server{
-		log: log.NewLogger("server"),
+		log:        log.NewLogger("server"),
+		refreshNow: make(chan struct{}, 1),
 	}
 
 	server.log.Info().Msgf("Loading server configuration from %s", configFile)

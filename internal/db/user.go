@@ -354,6 +354,19 @@ func (d *DB) SetUserToken(ctx context.Context, username, tokenID string, expires
 	return err
 }
 
+// InvalidateUserToken clears the token expiry for the given user so that the
+// background refresh loop picks the user up on its next cycle and re-issues a
+// fresh token. Any existing refresh claim is also cleared so the row is
+// immediately eligible for reclaiming.
+func (d *DB) InvalidateUserToken(ctx context.Context, username string) error {
+	_, err := d.Pool.Exec(ctx,
+		`UPDATE identity.users
+		 SET token_expires_at=NOW(), token_refresh_claimed_until=NULL
+		 WHERE username=$1`,
+		username)
+	return err
+}
+
 // ClaimUsersForTokenRefresh atomically claims a batch of valid users whose
 // tokens are absent or expiring before expiresBeforeTime for renewal.
 // It uses SELECT FOR UPDATE SKIP LOCKED so that multiple service instances
