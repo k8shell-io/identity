@@ -245,6 +245,10 @@ func (s *Server) refreshUser(username string, user *models.User) (*models.User, 
 				s.log.Warn().Msgf("Failed to look up user '%s' via provider '%s': %v", username, provider.Name(), err)
 				continue
 			}
+			if userpb == nil || userpb.Username == "" {
+				s.log.Debug().Msgf("Provider '%s' did not find user '%s'", provider.Name(), username)
+				continue
+			}
 			foundUser = gapi.ProtoToUser(userpb)
 
 			if foundUser != nil {
