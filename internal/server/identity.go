@@ -36,16 +36,13 @@ func NewIdentityService(server *Server) *IdentityService {
 
 // GetUserAccessToken returns the current JWT for the requested user.
 // Kubernetes must be configured; the Secret is the source of truth for the token.
-func (s *IdentityService) GetUserAccessToken(ctx context.Context, req *identityv1.GetUserAccessTokenRequest) (*identityv1.GetUserAccessTokenResponse, error) {
+func (s *IdentityService) GetUserAccessToken(ctx context.Context,
+	req *identityv1.GetUserAccessTokenRequest) (*identityv1.GetUserAccessTokenResponse, error) {
 	if req.Username == "" {
 		return nil, status.Error(codes.InvalidArgument, "username is required")
 	}
 
-	if s.server.k8sClient == nil {
-		return nil, status.Error(codes.FailedPrecondition, "Kubernetes is not configured")
-	}
-
-	_, _, err := s.server.GetUserByUsername(req.Username)
+	user, _, err := s.server.GetUserByUsername(req.Username)
 	if err != nil {
 		if errors.Is(err, models.ErrUserNotFound) {
 			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
@@ -53,9 +50,9 @@ func (s *IdentityService) GetUserAccessToken(ctx context.Context, req *identityv
 		return nil, status.Errorf(codes.Internal, "failed to get user '%s'", req.Username)
 	}
 
-	token, err := s.server.getTokenFromKubernetesSecret(req.Username)
+	token, err := s.server.getTokenFromKubernetesSecret(user)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to read token secret for user '%s'", req.Username)
+		return nil, status.Errorf(codes.Internal, "failed to get token secret for user '%s'", req.Username)
 	}
 	return &identityv1.GetUserAccessTokenResponse{AccessToken: token}, nil
 }
@@ -254,7 +251,7 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 			username.GetUsername(), provider, err)
 	}
 
-	token, err := s.server.getTokenFromKubernetesSecret(user.Username)
+	token, err := s.server.getTokenFromKubernetesSecret(user)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to read token secret for user '%s'", user.Username)
 	}

@@ -142,18 +142,14 @@ func NewServer(configFile string) (*Server, error) {
 		server.Verifier = nil
 	}
 
-	if config.Kubernetes.Enabled {
-		server.k8sCfg = config.Kubernetes
-		server.k8sClient, err = initKubernetesClient(config.Kubernetes)
-		if err != nil {
-			server.log.Warn().Err(err).Msg("failed to initialize Kubernetes client; token secret management will be disabled")
-			server.k8sClient = nil
-		} else {
-			server.log.Info().Msgf("Kubernetes client initialized; token secrets will be written to namespace '%s'",
-				config.Kubernetes.Namespace)
-		}
+	server.k8sCfg = config.Kubernetes
+	server.k8sClient, err = initKubernetesClient()
+	if err != nil {
+		server.log.Warn().Err(err).Msg("failed to initialize Kubernetes client; token secret management will be disabled")
+		server.k8sClient = nil
 	} else {
-		server.log.Warn().Msg("Kubernetes integration is disabled; token secrets will not be managed")
+		server.log.Info().Msgf("Kubernetes client initialized; token secrets will be written to namespace '%s'",
+			config.Kubernetes.Namespace)
 	}
 
 	server.grpc, err = gapi.NewServer(&config.GrpcConfig, true)
@@ -279,7 +275,7 @@ func (s *Server) refreshUser(username string, user *models.User) (*models.User, 
 			}
 
 			user = foundUser
-			refreshed, err := s.ensureToken(user, true)
+			refreshed, _, err := s.ensureToken(user, true)
 			if err != nil {
 				s.log.Error().Err(err).Msgf("failed to ensure token for new user '%s'", username)
 			}
@@ -308,7 +304,7 @@ func (s *Server) GetUserByUsername(username string) (*models.User, bool, error) 
 	if s.DB == nil {
 		for _, user := range s.getLocalUsers() {
 			if user.Username == username {
-				if refreshed, err := s.ensureToken(user, false); err != nil {
+				if refreshed, _, err := s.ensureToken(user, false); err != nil {
 					s.log.Error().Err(err).Msgf("failed to ensure token for user '%s'", username)
 				} else if refreshed {
 					return user, true, nil

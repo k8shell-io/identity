@@ -64,17 +64,14 @@ jwtIssuer:
   privateKeyFile: ${SECRET_FILES}/jwt_private.pem
 
 # Kubernetes secret management for user tokens.
-# When enabled, issued JWTs are written to per-user Secrets named
-# "<secretPrefix><username>" in <namespace>.
+# Issued JWTs are written to per-user Secrets named
+# "identity-token-<username>" in <namespace>.
 # When db is configured, distributed refresh uses SELECT FOR UPDATE SKIP LOCKED.
 # When db is disabled (file-provider only), Kubernetes Lease leader election
 # ensures only one identity instance runs the refresh loop.
 kubernetes:
-  enabled: true
   namespace: workspaces-x
-  secretPrefix: "identity-token-"
   leaseName: identity-token-refresh
-  leaseNamespace: k8shell-test
   refreshInterval: 1m
   refreshLookahead: 2m
 

@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/common/pkg/models"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -27,12 +28,15 @@ const (
 	defaultRefreshLookahead = 20 * time.Minute
 	// tokenRefreshClaimTTL is the maximum time an instance may hold a claim on
 	// a user's token refresh slot. If the instance crashes the claim expires
-	// automatically and another instance can reclaim the slot.
+	// automatically and another instance can reclaim the slot
 	tokenRefreshClaimTTL = 10 * time.Minute
-	// tokenRefreshBatchSize is the maximum number of users claimed per tick.
+	// tokenRefreshBatchSize is the maximum number of users claimed per tick
 	tokenRefreshBatchSize = 50
+	// tokenSecretWaitTimeout is how long getTokenFromKubernetesSecret waits for
+	// a missing Secret to be (re-)created after triggering an immediate refresh
+	tokenSecretWaitTimeout = 1 * time.Second
 
-	// Labels on managed Kubernetes Secrets.
+	// Labels on managed Kubernetes Secrets
 	labelManagedBy      = "app.kubernetes.io/managed-by"
 	labelManagedByVal   = "identity"
 	labelUsername       = "identity.k8shell.io/username"
@@ -42,21 +46,18 @@ const (
 // initKubernetesClient builds a Kubernetes client from the provided config.
 // When KubeconfigPath is empty it tries in-cluster config first, then falls
 // back to $KUBECONFIG / ~/.kube/config for local development.
-func initKubernetesClient(cfg KubernetesConfig) (*kubernetes.Clientset, error) {
-	restCfg, err := buildRestConfig(cfg.KubeconfigPath)
+func initKubernetesClient() (*kubernetes.Clientset, error) {
+	restCfg, err := buildRestConfig()
 	if err != nil {
 		return nil, fmt.Errorf("build kubeconfig: %w", err)
 	}
 	return kubernetes.NewForConfig(restCfg)
 }
 
-// buildRestConfig builds a Kubernetes REST config from the given kubeconfig path.
-// When kubeconfigPath is empty it tries in-cluster config first, then falls back
-// to $KUBECONFIG / ~/.kube/config for local development.
-func buildRestConfig(kubeconfigPath string) (*rest.Config, error) {
-	if kubeconfigPath != "" {
-		return clientcmd.BuildConfigFromFlags("", kubeconfigPath)
-	}
+// buildRestConfig builds a Kubernetes REST config using
+// in-cluster config first, then falls back to $KUBECONFIG / ~/.kube/config
+// for local development.
+func buildRestConfig() (*rest.Config, error) {
 	cfg, err := rest.InClusterConfig()
 	if err == nil {
 		return cfg, nil
@@ -70,60 +71,93 @@ func buildRestConfig(kubeconfigPath string) (*rest.Config, error) {
 }
 
 // issueAndStoreToken issues a JWT for the user, persists it to the DB (when
-// configured), and writes it to a Kubernetes Secret (when configured).
-// On success it records the token expiry in tokenCache so that ensureToken
-// can skip re-issuing while the token is still valid.
-// Errors are non-fatal at the call site: the background loop will retry.
-func (s *Server) issueAndStoreToken(user *models.User) error {
+// configured), and writes it to a Kubernetes Secret.
+func (s *Server) issueAndStoreToken(user *models.User) (string, error) {
 	if s.JWT == nil {
-		return nil
+		return "", fmt.Errorf("JWT issuer not configured")
 	}
 
-	jti, token, err := s.JWT.IssueToken(user)
+	claims, token, err := s.JWT.IssueToken(user)
 	if err != nil {
-		return fmt.Errorf("issue JWT for user '%s': %w", user.Username, err)
+		return "", fmt.Errorf("issue JWT for user '%s': %w", user.Username, err)
 	}
-	expiresAt := time.Now().Add(s.jwtExpiry)
 
 	if s.DB != nil {
-		if err := s.DB.SetUserToken(context.Background(), user.Username, jti, expiresAt); err != nil {
-			return fmt.Errorf("store token for user '%s': %w", user.Username, err)
+		if err := s.DB.SetUserToken(context.Background(), user.Username, claims.ID, claims.ExpiresAt.Time); err != nil {
+			return "", fmt.Errorf("store token for user '%s': %w", user.Username, err)
 		}
 	}
 
-	if s.k8sClient != nil {
-		if err := s.upsertKubernetesSecret(user.Username, token, expiresAt); err != nil {
-			return fmt.Errorf("upsert k8s secret for user '%s': %w", user.Username, err)
-		}
+	if err := s.upsertKubernetesSecret(user.Username, token, claims.ExpiresAt.Time); err != nil {
+		return "", fmt.Errorf("upsert k8s secret for user '%s': %w", user.Username, err)
 	}
 
-	s.log.Debug().Msgf("issued new token for user '%s', expires at %s", user.Username, expiresAt.Format(time.RFC3339))
-	s.tokenCache.Store(user.Username, expiresAt)
-	return nil
+	s.log.Debug().Msgf("issued new token for user '%s', expires at %s", user.Username, claims.ExpiresAt.Format(time.RFC3339))
+	s.tokenCache.Store(user.Username, claims)
+	return token, nil
 }
 
 // ensureToken issues and stores a token for the user only when one is absent
 // or approaching expiry. When forceRefresh is true it unconditionally issues a new token, ignoring the cache.
-func (s *Server) ensureToken(user *models.User, forceRefresh bool) (refreshed bool, err error) {
+func (s *Server) ensureToken(user *models.User, forceRefresh bool) (refreshed bool, token string, err error) {
 	if !forceRefresh {
 		lookahead := s.k8sCfg.RefreshLookahead
 		if lookahead == 0 {
 			lookahead = defaultRefreshLookahead
 		}
 		threshold := time.Now().Add(lookahead)
+		found := false
 
 		if v, ok := s.tokenCache.Load(user.Username); ok {
-			if expiresAt, ok := v.(time.Time); ok && expiresAt.After(threshold) {
-				return false, nil
+			found = true
+			if claims, ok := v.(*authz.UserClaims); ok && claims.ExpiresAt.After(threshold) {
+				return false, "", nil
+			}
+		}
+
+		if !found {
+			claims, err := s.refreshLocalCache(user)
+			if err != nil {
+				s.log.Debug().Err(err).Msgf("failed to refresh local cache for user '%s'", user.Username)
+			} else {
+				if claims.ExpiresAt.After(threshold) {
+					return false, "", nil
+				}
 			}
 		}
 	}
 
-	err = s.issueAndStoreToken(user)
+	token, err = s.issueAndStoreToken(user)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
-	return true, nil
+	return true, token, nil
+}
+
+// refreshLocalCache attempts to refresh the local token cache for the user by
+// reading the token from Kubernetes and verifying it. If successful it updates
+// the cache and returns the claims. If the token is missing or invalid it
+// evicts the cache entry and returns an error.
+func (s *Server) refreshLocalCache(user *models.User) (*authz.UserClaims, error) {
+	token, err := s.getTokenFromKubernetesSecret(user)
+	if err != nil {
+		s.tokenCache.Delete(user.Username)
+		return nil, err
+	}
+
+	if token == "" {
+		s.tokenCache.Delete(user.Username)
+		return nil, fmt.Errorf("no token found in Kubernetes secret for user '%s'", user.Username)
+	}
+
+	claims, err := s.Verifier.VerifyToken(token)
+	if err != nil {
+		s.tokenCache.Delete(user.Username)
+		return nil, fmt.Errorf("failed to verify token from Kubernetes secret for user '%s': %w", user.Username, err)
+	}
+
+	s.tokenCache.Store(user.Username, claims)
+	return claims, nil
 }
 
 // triggerRefresh sends a non-blocking signal on refreshNow to wake up
@@ -137,28 +171,45 @@ func (s *Server) triggerRefresh() {
 
 // getTokenFromKubernetesSecret reads the JWT string from the user's managed
 // Kubernetes Secret. When the Secret does not exist the token is invalidated
-// in the DB (when configured) and a refresh cycle is triggered immediately.
-func (s *Server) getTokenFromKubernetesSecret(username string) (string, error) {
-	prefix := s.k8sCfg.SecretPrefix
-	if prefix == "" {
-		prefix = defaultSecretPrefix
-	}
+// in the DB (when configured), the local cache entry is evicted, and a refresh
+// cycle is triggered immediately. The function then polls for the secret to
+// appear for up to tokenSecretWaitTimeout before returning an error.
+func (s *Server) getTokenFromKubernetesSecret(user *models.User) (string, error) {
 	namespace := s.k8sCfg.Namespace
-	secretName := prefix + username
+	secretName := defaultSecretPrefix + user.Username
 
-	secret, err := s.k8sClient.CoreV1().Secrets(namespace).Get(context.Background(), secretName, metav1.GetOptions{})
+	secret, err := s.k8sClient.CoreV1().Secrets(namespace).Get(context.Background(),
+		secretName, metav1.GetOptions{})
 	if err != nil {
-		if k8serrors.IsNotFound(err) {
-			s.tokenCache.Delete(username)
-			if s.DB != nil {
-				if dbErr := s.DB.InvalidateUserToken(context.Background(), username); dbErr != nil {
-					s.log.Error().Err(dbErr).Msgf("failed to invalidate DB token for user '%s'", username)
-				}
-			}
-			s.log.Warn().Msgf("token secret '%s/%s' not found for user '%s'; token invalidated", namespace, secretName, username)
-			s.triggerRefresh()
+		if !k8serrors.IsNotFound(err) {
+			return "", fmt.Errorf("get secret '%s/%s': %w", namespace, secretName, err)
 		}
-		return "", fmt.Errorf("get secret '%s/%s': %w", namespace, secretName, err)
+
+		s.tokenCache.Delete(user.Username)
+		if s.DB != nil {
+			if dbErr := s.DB.InvalidateUserToken(context.Background(), user.Username); dbErr != nil {
+				s.log.Error().Err(dbErr).Msgf("failed to invalidate DB token for user '%s'", user.Username)
+			}
+		}
+		s.log.Warn().Msgf("token secret '%s/%s' not found for user '%s'; invalidated and triggered refresh",
+			namespace, secretName, user.Username)
+		s.triggerRefresh()
+
+		deadline := time.Now().Add(tokenSecretWaitTimeout)
+		poll := time.NewTicker(100 * time.Millisecond)
+		defer poll.Stop()
+		for time.Now().Before(deadline) {
+			<-poll.C
+			secret, err = s.k8sClient.CoreV1().Secrets(namespace).Get(context.Background(),
+				secretName, metav1.GetOptions{})
+			if err == nil {
+				return string(secret.Data["token"]), nil
+			}
+			if !k8serrors.IsNotFound(err) {
+				return "", fmt.Errorf("get secret '%s/%s': %w", namespace, secretName, err)
+			}
+		}
+		return "", fmt.Errorf("token secret '%s/%s' not available after %s", namespace, secretName, tokenSecretWaitTimeout)
 	}
 	return string(secret.Data["token"]), nil
 }
@@ -166,13 +217,8 @@ func (s *Server) getTokenFromKubernetesSecret(username string) (string, error) {
 // upsertKubernetesSecret creates or updates the Kubernetes Secret that holds
 // the user's JWT token.
 func (s *Server) upsertKubernetesSecret(username, token string, expiresAt time.Time) error {
-	prefix := s.k8sCfg.SecretPrefix
-	if prefix == "" {
-		prefix = defaultSecretPrefix
-	}
-
 	namespace := s.k8sCfg.Namespace
-	secretName := prefix + username
+	secretName := defaultSecretPrefix + username
 
 	desired := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -281,7 +327,7 @@ func (s *Server) refreshExpiredTokensFromDB(ctx context.Context) {
 		if refreshed {
 			continue
 		}
-		if _, err := s.ensureToken(user, true); err != nil {
+		if _, _, err := s.ensureToken(user, true); err != nil {
 			s.log.Error().Err(err).Msgf("token refresh: failed to ensure token for user '%s'", username)
 		}
 	}
@@ -302,10 +348,7 @@ func (s *Server) runLeaseTokenRefreshLoop(ctx context.Context) {
 	if leaseName == "" {
 		leaseName = defaultLeaseName
 	}
-	leaseNamespace := s.k8sCfg.LeaseNamespace
-	if leaseNamespace == "" {
-		leaseNamespace = s.k8sCfg.Namespace
-	}
+	leaseNamespace := s.k8sCfg.Namespace
 
 	identity, err := os.Hostname()
 	if err != nil {
@@ -382,7 +425,7 @@ func (s *Server) runFileProviderTokenRefreshLoop(ctx context.Context) {
 // lookups so that tokens are not re-issued on every background tick.
 func (s *Server) refreshLocalUserTokens() {
 	for _, user := range s.getLocalUsers() {
-		if _, err := s.ensureToken(user, false); err != nil {
+		if _, _, err := s.ensureToken(user, false); err != nil {
 			s.log.Error().Err(err).Msgf("token refresh: failed to ensure token for local user '%s'", user.Username)
 		}
 	}
