@@ -19,13 +19,43 @@ A user record is cached in Postgres after the first login. On subsequent request
 
 ### JWT token lifecycle
 
-On login the service issues a JWT (RS256 by default) and stores:
-- The JTI (`current_token_id`) and expiry in Postgres.
-- The token string in a Kubernetes Secret named `<secretPrefix><username>`.
+On login the service issues a JWT and stores:
+- The JTI (`current_token_id`) and expiry in Postgres (when DB is configured).
+- The token string in a Kubernetes Secret named `identity-token-<username>`.
 
-A background loop continuously re-issues tokens for users whose tokens are near expiry:
-- **DB configured** — uses `SELECT FOR UPDATE SKIP LOCKED` so multiple instances share the work.
-- **File provider only** — uses Kubernetes Lease leader election so exactly one instance runs the loop.
+#### Background refresh
+
+A background loop continuously re-issues tokens for users whose tokens are near expiry. The coordination mechanism depends on whether a database is available:
+
+**DB path** (`db.enabled: true`)
+
+All instances run the refresh loop independently. Coordination uses `SELECT FOR UPDATE SKIP LOCKED` on the `identity.users` table:
+1. Each instance atomically claims a batch of users whose `token_expires_at < now + lookahead` and writes a short-lived `token_refresh_claimed_until` lease.
+2. Only the claiming instance processes each user - others skip locked rows.
+3. On success, `current_token_id` and `token_expires_at` are updated and the claim is cleared.
+
+This spreads refresh work across all instances with no coordination overhead beyond Postgres.
+
+**No-DB path** (file provider only)
+
+All user state is in memory. To prevent multiple instances from simultaneously issuing different tokens for the same user (last-writer-wins on the Secret, but callers holding the losing token would be invalidated), exactly one instance runs the refresh loop at a time using a **Kubernetes Lease** (leader election):
+- `LeaseDuration`: 60s — how long a lease is valid.
+- `RenewDeadline`: 30s — how long the leader tries to renew before giving up.
+- `RetryPeriod`: 5s — how often non-leaders attempt to acquire the lease.
+
+If the leader crashes (without graceful shutdown), the lease expires in up to ~65s before a new leader is elected.
+
+#### On-demand handling (missing secret)
+
+When a client requests a token and the Kubernetes Secret does not exist (e.g. manually deleted), the service recovers without waiting for the next scheduled tick:
+
+| Situation | Behaviour |
+|---|---|
+| **DB path — any instance** | Marks `token_expires_at = NOW()` in DB (clears any claim), evicts local cache, triggers immediate refresh cycle on this instance. Polls the Secret for up to 10s. |
+| **No-DB path — leader instance** | Issues and stores the token immediately. |
+| **No-DB path — non-leader instance** | Evicts local cache, signals the local refresh goroutine (no-op if this is not the leader). Polls the Secret for up to 10s while the leader re-issues it. |
+
+The 10s poll timeout is chosen to cover the worst-case leader response time (`RetryPeriod` + Kubernetes API latency).
 
 ### gRPC API
 
