@@ -38,7 +38,7 @@ const (
 	// applies to non-leader instances waiting for the remote leader to act, so
 	// it is set to match the worst-case leader response time (RetryPeriod of
 	// the lease election plus a Kubernetes API round-trip).
-	tokenSecretWaitTimeout = 10 * time.Second
+	tokenSecretWaitTimeout = 1 * time.Second
 
 	// Labels on managed Kubernetes Secrets
 	labelManagedBy      = "app.kubernetes.io/managed-by"
@@ -174,10 +174,12 @@ func (s *Server) triggerRefresh() {
 }
 
 // getTokenFromKubernetesSecret reads the JWT string from the user's managed
-// Kubernetes Secret. When the Secret does not exist the token is invalidated
-// in the DB (when configured), the local cache entry is evicted, and a refresh
-// cycle is triggered immediately. The function then polls for the secret to
-// appear for up to tokenSecretWaitTimeout before returning an error.
+// Kubernetes Secret. Behaviour when the Secret does not exist:
+//   - DB path: invalidates the token in the DB, evicts local cache, triggers an
+//     immediate refresh cycle, then polls for the Secret for up to tokenSecretWaitTimeout.
+//   - No-DB path, leader: issues and stores the token immediately.
+//   - No-DB path, non-leader: evicts local cache and returns an error; the leader
+//     will re-create the Secret on its next tick.
 func (s *Server) getTokenFromKubernetesSecret(user *models.User) (string, error) {
 	namespace := s.k8sCfg.Namespace
 	secretName := defaultSecretPrefix + user.Username
@@ -190,19 +192,10 @@ func (s *Server) getTokenFromKubernetesSecret(user *models.User) (string, error)
 		}
 
 		s.tokenCache.Delete(user.Username)
-		if s.DB != nil {
-			if dbErr := s.DB.InvalidateUserToken(context.Background(), user.Username); dbErr != nil {
-				s.log.Error().Err(dbErr).Msgf("failed to invalidate DB token for user '%s'", user.Username)
-			}
-		}
-		s.log.Warn().Msgf("token secret '%s/%s' not found for user '%s'; invalidated and triggered refresh",
-			namespace, secretName, user.Username)
 
-		// If this instance is the current lease leader, issue the token directly
-		// so the secret is available immediately. Non-leaders cannot issue tokens
-		// (triggerRefresh only signals the local channel, not the remote leader),
-		// so they poll and wait for the leader to re-create the secret.
+		// No-DB path, leader: issue immediately.
 		if s.DB == nil && s.isLeader.Load() == 1 {
+			s.log.Warn().Msgf("token secret '%s/%s' not found; re-issuing as leader", namespace, secretName)
 			token, issueErr := s.issueAndStoreToken(user)
 			if issueErr != nil {
 				return "", fmt.Errorf("failed to issue token for user '%s': %w", user.Username, issueErr)
@@ -210,8 +203,20 @@ func (s *Server) getTokenFromKubernetesSecret(user *models.User) (string, error)
 			return token, nil
 		}
 
-		// DB path or non-leader: trigger the refresh loop and poll for the secret.
+		// No-DB path, non-leader: return an error; the leader will refresh on next tick.
+		if s.DB == nil {
+			s.log.Warn().Msgf("token secret '%s/%s' not found; waiting for leader to re-issue", namespace, secretName)
+			return "", fmt.Errorf("token secret '%s/%s' not found", namespace, secretName)
+		}
+
+		// DB path: invalidate in DB, trigger immediate refresh, then poll.
+		if dbErr := s.DB.InvalidateUserToken(context.Background(), user.Username); dbErr != nil {
+			s.log.Error().Err(dbErr).Msgf("failed to invalidate DB token for user '%s'", user.Username)
+		}
+		s.log.Warn().Msgf("token secret '%s/%s' not found for user '%s'; invalidated and triggered refresh",
+			namespace, secretName, user.Username)
 		s.triggerRefresh()
+
 		deadline := time.Now().Add(tokenSecretWaitTimeout)
 		poll := time.NewTicker(100 * time.Millisecond)
 		defer poll.Stop()

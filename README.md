@@ -15,8 +15,6 @@ Identity is built around pluggable providers. A provider is the source of truth 
 | **Local** (`file`) | Users loaded from YAML files on disk. No onboarding. Good for development and testing. |
 | **Remote** (`idp`)  | gRPC-connected external provider (e.g. GitHub). Supports device-flow and web-flow onboarding. |
 
-A user record is cached in Postgres after the first login. On subsequent requests the cache is refreshed when `expires_at` has passed.
-
 ### JWT token lifecycle
 
 On login the service issues a JWT and stores:
@@ -38,7 +36,8 @@ This spreads refresh work across all instances with no coordination overhead bey
 
 **No-DB path** (file provider only)
 
-All user state is in memory. To prevent multiple instances from simultaneously issuing different tokens for the same user (last-writer-wins on the Secret, but callers holding the losing token would be invalidated), exactly one instance runs the refresh loop at a time using a **Kubernetes Lease** (leader election):
+To prevent multiple instances from simultaneously issuing different tokens for the same user, exactly one instance runs the refresh loop at a time using a **Kubernetes Lease** (leader election). The below are default values:
+
 - `LeaseDuration`: 60s — how long a lease is valid.
 - `RenewDeadline`: 30s — how long the leader tries to renew before giving up.
 - `RetryPeriod`: 5s — how often non-leaders attempt to acquire the lease.
@@ -51,18 +50,16 @@ When a client requests a token and the Kubernetes Secret does not exist (e.g. ma
 
 | Situation | Behaviour |
 |---|---|
-| **DB path — any instance** | Marks `token_expires_at = NOW()` in DB (clears any claim), evicts local cache, triggers immediate refresh cycle on this instance. Polls the Secret for up to 10s. |
-| **No-DB path — leader instance** | Issues and stores the token immediately. |
-| **No-DB path — non-leader instance** | Evicts local cache, signals the local refresh goroutine (no-op if this is not the leader). Polls the Secret for up to 10s while the leader re-issues it. |
-
-The 10s poll timeout is chosen to cover the worst-case leader response time (`RetryPeriod` + Kubernetes API latency).
+| **DB path** | Marks `token_expires_at = NOW()` in DB (clears any claim), evicts local cache, triggers immediate refresh cycle on this instance. Polls the Secret for up to 1s. |
+| **No-DB path — leader** | Issues and stores the token immediately. |
+| **No-DB path — non-leader** | Evicts local cache and returns an error. The token will be refreshed by a leader instance on the next tick. |
 
 ### gRPC API
 
-The service exposes two gRPC services defined in a separate common repository at `pkg/api/identity/v1`:
+The service defines two gRPC interfaces defined in a separate common repository at `pkg/api/identity/v1`:
 
-- `IdentityService` (`identity.proto`) — user lookup, authentication, onboarding, credential management. Consumed by other k8shell components.
-- `IdentityProviderService` (`idp.proto`) — implemented by remote identity providers. Identity connects to them as a client.
+- `IdentityService` (`identity.proto`) — user lookup, authentication, onboarding, credential management. Consumed by other k8shell services.
+- `IdentityProviderService` (`idp.proto`) — implemented by remote identity providers. Identity connects to them as a client. No other service accesses this interface directly. 
 
 ## Repository layout
 
