@@ -32,9 +32,13 @@ const (
 	tokenRefreshClaimTTL = 10 * time.Minute
 	// tokenRefreshBatchSize is the maximum number of users claimed per tick
 	tokenRefreshBatchSize = 50
-	// tokenSecretWaitTimeout is how long getTokenFromKubernetesSecret waits for
-	// a missing Secret to be (re-)created after triggering an immediate refresh
-	tokenSecretWaitTimeout = 1 * time.Second
+	// tokenSecretWaitTimeout is how long getTokenFromKubernetesSecret polls for
+	// a missing Secret after triggering a refresh. When this instance is the
+	// leader it issues the token directly and does not poll. This timeout only
+	// applies to non-leader instances waiting for the remote leader to act, so
+	// it is set to match the worst-case leader response time (RetryPeriod of
+	// the lease election plus a Kubernetes API round-trip).
+	tokenSecretWaitTimeout = 10 * time.Second
 
 	// Labels on managed Kubernetes Secrets
 	labelManagedBy      = "app.kubernetes.io/managed-by"
@@ -193,8 +197,21 @@ func (s *Server) getTokenFromKubernetesSecret(user *models.User) (string, error)
 		}
 		s.log.Warn().Msgf("token secret '%s/%s' not found for user '%s'; invalidated and triggered refresh",
 			namespace, secretName, user.Username)
-		s.triggerRefresh()
 
+		// If this instance is the current lease leader, issue the token directly
+		// so the secret is available immediately. Non-leaders cannot issue tokens
+		// (triggerRefresh only signals the local channel, not the remote leader),
+		// so they poll and wait for the leader to re-create the secret.
+		if s.DB == nil && s.isLeader.Load() == 1 {
+			token, issueErr := s.issueAndStoreToken(user)
+			if issueErr != nil {
+				return "", fmt.Errorf("failed to issue token for user '%s': %w", user.Username, issueErr)
+			}
+			return token, nil
+		}
+
+		// DB path or non-leader: trigger the refresh loop and poll for the secret.
+		s.triggerRefresh()
 		deadline := time.Now().Add(tokenSecretWaitTimeout)
 		poll := time.NewTicker(100 * time.Millisecond)
 		defer poll.Stop()
@@ -375,9 +392,11 @@ func (s *Server) runLeaseTokenRefreshLoop(ctx context.Context) {
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(ctx context.Context) {
 				s.log.Info().Msgf("acquired leader lease '%s/%s'; starting token refresh loop", leaseNamespace, leaseName)
+				s.isLeader.Store(1)
 				s.runFileProviderTokenRefreshLoop(ctx)
 			},
 			OnStoppedLeading: func() {
+				s.isLeader.Store(0)
 				s.log.Info().Msg("lost leader lease; token refresh loop stopped")
 			},
 			OnNewLeader: func(newIdentity string) {

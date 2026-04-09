@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"sync"
+	"sync/atomic"
 
 	"github.com/k8shell-io/common/pkg/api/client/identity"
 	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
@@ -68,6 +69,10 @@ type Server struct {
 	// refreshNow can be sent to in order to trigger an immediate token-refresh
 	// cycle without waiting for the next scheduled ticker tick.
 	refreshNow chan struct{}
+
+	// isLeader is 1 while this instance holds the Kubernetes Lease used to
+	// coordinate the no-DB token refresh loop, 0 otherwise.
+	isLeader atomic.Int32
 
 	// providerMu guards IdentityProviders and pendingProviderCfgs.
 	providerMu sync.RWMutex
