@@ -3,7 +3,7 @@
 # http server
 grpc:
   port: 9020
-  enableTLS: true
+  enableTLS: false
   certFile: /opt/shared/identity/tls/tls.crt
   keyFile: /opt/shared/identity/tls/tls.key
 
@@ -22,58 +22,56 @@ nats:
 
 # DB configuration
 db:
+  enabled: true
   username: !file ${SECRET_FILES}/postgres_username
   password: !file ${SECRET_FILES}/postgres_password
   database: ${POSTGRES_DATABASE}
   hostname: ${POSTGRES_HOSTNAME}
   port: !!int ${POSTGRES_PORT}
 
+# Organization management
+organizations:
+  # autoCreate lists organizations that are created automatically when a user
+  # with that organization is first seen. Use ["*"] to allow all organizations.
+  autoCreate:
+    - default
+    - ctu
+    - github
+
 # identity providers
-identityProviders:
-  # simple file-based identity provider
-  - id: file
-    files: 
-      - users.yaml
+localProviders:
+  enabled: true
+  files:
+    - users.yaml
+  
+remoteProviders:
+  - address: bruckins-idp-usermap.k8shell-io:9030 #idp-usermap.k8shell-test:9030
+    tokenFilePath: /opt/shared/auth/identity/idp-token
+    #caCertPath: /opt/shared/auth/ca.crt
+    #serverName: idp-usermap.k8shell-test.svc  
+  - address: bruckins-idp-github.k8shell-io:9030 #idp-usermap.k8shell-test:9030
+    tokenFilePath: /opt/shared/auth/identity/idp-token
+    #caCertPath: /opt/shared/auth/ca.crt
+    #serverName: idp-usermap.k8shell-test.svc  
 
-  # usermap identity provider
-  - id: usermap
-    grantType: client_credentials
-    clientId: !file ${SECRET_FILES}/usermap_client_id
-    clientSecret: !file ${SECRET_FILES}/usermap_client_secret
-    tokenUrl: "https://auth.fit.cvut.cz/oauth/token"
-    peopleUrl: "https://kosapi.fit.cvut.cz/usermap/v1/people"
-    gitlabUrl: "https://gitlab.fit.cvut.cz"
+# JWT token issuance for user tokens. 
+# These tokens are used for authentication to the API server and SSH proxy.
+jwtIssuer:
+  issuer: identity.k8shell
+  audience: k8shell
+  expiry: 10m
+  signingMethod: es256
+  privateKeyFile: ${SECRET_FILES}/jwt_private.pem
 
-    # time in secons the user data will be cached in memcache
-    # to disable cache, set to 0
-    cacheTimeout: 5000
-    
-    # time in seconds after which the user data will be refreshed from usermap 
-    userMaxAge: 43200 # 12 hours
-
-    # user template to map usermap peoplemodel to k8shell user
-    template: usermap-template.yaml
-
-    # extra fields for template evaluation
-    extra:
-      env: prod
-
-  # github identity provider
-  - id: "github"
-    clientId: !file ${SECRET_FILES}/k8shell_client_id
-    clientSecret: !file ${SECRET_FILES}/k8shell_client_secret
-    scopes:
-      - "read:user"
-      - "user:email"
-      - "read:public_key"
-      - "repo"
-    template: github-template.yaml
-    extra:
-      env: prod
-    allow:
-      - "bruckins"
-      - "tomvit"
-
-    defaultK8shellFile:   
-      filename: default-k8shell-file.yaml
+# Kubernetes secret management for user tokens.
+# Issued JWTs are written to per-user Secrets named
+# "identity-token-<username>" in <namespace>.
+# When db is configured, distributed refresh uses SELECT FOR UPDATE SKIP LOCKED.
+# When db is disabled (file-provider only), Kubernetes Lease leader election
+# ensures only one identity instance runs the refresh loop.
+kubernetes:
+  namespace: workspaces-x
+  leaseName: identity-token-refresh
+  refreshInterval: 1m
+  refreshLookahead: 2m
 

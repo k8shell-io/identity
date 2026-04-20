@@ -1,35 +1,79 @@
-// Copyright 2025 the k8Shell authors
+// Copyright 2025 the k8Shell authors.
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package server
 
 import (
 	"fmt"
 	"path/filepath"
+	"time"
 
+	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/common/pkg/config"
 	"github.com/k8shell-io/common/pkg/db"
 	"github.com/k8shell-io/common/pkg/gapi"
 	natsc "github.com/k8shell-io/common/pkg/nats"
 	"github.com/k8shell-io/identity/internal/providers/file"
-	"github.com/k8shell-io/identity/internal/providers/github"
-	"github.com/k8shell-io/identity/internal/providers/usermap"
-	"gopkg.in/yaml.v3"
 )
 
-// Config represents the server configuration structure.
-type Config struct {
-	GrpcConfig        gapi.ServerConfig      `yaml:"grpc"`
-	Nats              natsc.NATSClientConfig `yaml:"nats"`
-	DB                db.DBConfig            `yaml:"db"`
-	IdentityProviders []yaml.Node            `yaml:"identityProviders"`
+// KubernetesConfig contains configuration for Kubernetes secret management
+// and distributed leader election.
+type KubernetesConfig struct {
+	// Namespace is the Kubernetes namespace where user token secrets are created.
+	Namespace string `yaml:"namespace"`
 
-	// ConfigDir is the directory where the configuration file is located.
+	// LeaseName is the name of the Lease object used for leader election when
+	// the database is not configured. Defaults to "identity-token-refresh".
+	LeaseName string `yaml:"leaseName"`
+
+	// RefreshInterval is how often the background loop checks for near-expiry
+	// tokens. Defaults to 15 minutes.
+	RefreshInterval time.Duration `yaml:"refreshInterval"`
+
+	// RefreshLookahead is the remaining-lifetime threshold below which a token
+	// is considered due for renewal. Defaults to 20 minutes.
+	RefreshLookahead time.Duration `yaml:"refreshLookahead"`
+}
+
+// Config contains server configuration loaded from YAML.
+type Config struct {
+	// GrpcConfig configures the gRPC server.
+	GrpcConfig gapi.ServerConfig `yaml:"grpc"`
+
+	// Nats configures the NATS client.
+	Nats natsc.NATSClientConfig `yaml:"nats"`
+
+	// DB configures the database connection.
+	DB db.DBConfig `yaml:"db"`
+
+	// Organizations configures organization management.
+	Organizations OrganizationsConfig `yaml:"organizations"`
+
+	// LocalProviders configures local file-based identity providers.
+	LocalProviders file.FileUserProviderConfig `yaml:"localProviders"`
+
+	// RemoteProviders configures remote identity provider clients.
+	RemoteProviders []gapi.ClientConfig `yaml:"remoteProviders"`
+
+	// JWTIssuer configures JWT token issuance.
+	JWTIssuer authz.JWTIssuerConfig `yaml:"jwtIssuer"`
+
+	// Kubernetes configures Kubernetes secret management and distributed
+	// leader election for the token refresh loop.
+	Kubernetes KubernetesConfig `yaml:"kubernetes"`
+
+	// configDir is the directory containing the loaded configuration file.
 	configDir string
 }
 
-// LoadConfig loads the server configuration from the specified YAML file.
-// It processes environment variable substitutions and custom tags like !file.
-// It also validates the identity providers defined in the configuration.
+// OrganizationsConfig configures organization management.
+type OrganizationsConfig struct {
+	// AutoCreate lists organization names that are created automatically when a
+	// user with that organization is first seen. Use ["*"] to allow all organizations.
+	AutoCreate []string `yaml:"autoCreate"`
+}
+
+// LoadConfig loads server configuration from configFile.
 func LoadConfig(configFile string) (*Config, error) {
 	var cfg Config
 	err := config.LoadConfig(configFile, &cfg)
@@ -43,41 +87,5 @@ func LoadConfig(configFile string) (*Config, error) {
 	}
 	cfg.configDir = filepath.Dir(absPath)
 
-	// validate identity providers
-	for _, node := range cfg.IdentityProviders {
-		var raw map[string]any
-		if err := node.Decode(&raw); err != nil {
-			return nil, fmt.Errorf("decode raw provider map: %w", err)
-		}
-
-		id, ok := raw["id"].(string)
-		if !ok {
-			return nil, fmt.Errorf("missing or invalid provider 'id' field")
-		}
-
-		switch id {
-		case "file":
-			var fileProvCfg file.FileUserProviderConfig
-			if err := node.Decode(&fileProvCfg); err != nil {
-				return nil, fmt.Errorf("file provider config decode: %w", err)
-			}
-
-		case "usermap":
-			var usermapProvCfg usermap.UserMapProviderConfig
-			if err := node.Decode(&usermapProvCfg); err != nil {
-				return nil, fmt.Errorf("usermap provider config decode: %w", err)
-			}
-
-		case "github":
-			var githubProvCfg github.GitHubProviderConfig
-			if err := node.Decode(&githubProvCfg); err != nil {
-				return nil, fmt.Errorf("github provider config decode: %w", err)
-			}
-
-		default:
-			return nil, fmt.Errorf("unknown identity provider id: %s", id)
-		}
-
-	}
 	return &cfg, nil
 }

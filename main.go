@@ -1,3 +1,6 @@
+// Copyright 2025 the k8Shell authors.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package main
 
 import (
@@ -14,28 +17,26 @@ var (
 	COMMIT  = "0000000"
 )
 
-// Options represents the command line options
+// Options holds the parsed command-line options.
 type Options struct {
 	ConfigPath  string
 	LogText     bool
 	ShowVersion bool
 }
 
-// getOptions parses the command line options and returns the Options struct
-func getOptions(version string, commit_id string) (*Options, error) {
-	// Default options
+// getOptions parses command-line flags and returns the resulting Options.
+// When -v is passed it prints version information and exits immediately.
+func getOptions(version string, commitID string) (*Options, error) {
 	options := &Options{
 		ConfigPath:  "config/config.yaml",
 		LogText:     false,
 		ShowVersion: false,
 	}
 
-	// Parse command line flags
 	flag.StringVar(&options.ConfigPath, "config", options.ConfigPath, "Path to the configuration file")
 	flag.BoolVar(&options.LogText, "logtext", options.LogText, "Log in text format (default: JSON)")
 	flag.BoolVar(&options.ShowVersion, "v", false, "Show version information")
 
-	// Print usage
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage:\n  identity [options]\n")
 		fmt.Fprint(os.Stderr, "\n")
@@ -45,16 +46,16 @@ func getOptions(version string, commit_id string) (*Options, error) {
 		fmt.Fprint(os.Stderr, "  -v                 Show version and exit\n")
 	}
 
-	// Parse the flags
 	flag.Parse()
 	if options.ShowVersion {
-		fmt.Printf("identity version: %s (commit: %s)\n", version, commit_id)
+		fmt.Printf("identity version: %s (commit: %s)\n", version, commitID)
 		os.Exit(0)
 	}
 
 	return options, nil
 }
 
+// main is the entry point for the identity service.
 func main() {
 	opts, err := getOptions(VERSION, COMMIT)
 	if err != nil {
@@ -71,5 +72,8 @@ func main() {
 		return
 	}
 
-	server.Serve()
+	err = server.Serve()
+	if err != nil {
+		log.Error().Msgf("Error serving server: %v\n", err)
+	}
 }

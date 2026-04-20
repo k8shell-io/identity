@@ -6,9 +6,10 @@ user:
   uid: !cel "personalNumber"
   gid: !cel "personalNumber"
   email: !cel "preferredEmail"
-  channels:
-    [session, shell, pty, port_forward, sftp, scp, exec, forward_agent, system_exec]
   auths: [publickey]
+  shell: /bin/bash
+  sudo: !cel |
+    roles.exists(r, role.matches(".*-UCITEL.*"))
 
   # map usermap roles to blueprints that the user can use
   blueprints: !cel |
@@ -40,4 +41,4 @@ user:
       )
     ))
 
-  organization: "ctu"
+  organization: "default"
