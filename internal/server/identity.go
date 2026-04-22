@@ -411,3 +411,29 @@ func (s *IdentityService) DeleteUserCredential(ctx context.Context,
 
 	return &identityv1.DeleteUserCredentialResponse{Success: true}, nil
 }
+
+func (s *IdentityService) GetAvailableIdentityProviders(
+	ctx context.Context,
+	req *identityv1.GetAvailableIdentityProvidersRequest,
+) (*identityv1.GetAvailableIdentityProvidersResponse, error) {
+	_ = ctx
+	_ = req
+
+	// Only providers present in orderedProviders are active/connected.
+	activeProviders := s.server.orderedProviders("")
+	providerNames := make([]string, 0, len(activeProviders))
+	for _, provider := range activeProviders {
+		providerNames = append(providerNames, provider.Name())
+	}
+
+	resp := make([]*identityv1.IdentityProviderInfo, len(providerNames))
+	for i, name := range providerNames {
+		resp[i] = &identityv1.IdentityProviderInfo{
+			Name: name,
+		}
+	}
+
+	return &identityv1.GetAvailableIdentityProvidersResponse{
+		Providers: resp,
+	}, nil
+}
