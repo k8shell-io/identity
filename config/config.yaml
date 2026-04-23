@@ -17,14 +17,14 @@ grpc:
 nats:
   enabled: true
   url: nats://nats.k8shell-test:4222
-  username: identity
-  password: !file ${SECRET_FILES}/token_identity
+  username: k8shell-service
+  password: !file ${SECRET_FILES}/token_identity_test
 
 # DB configuration
 db:
   enabled: true
   username: !file ${SECRET_FILES}/postgres_username
-  password: !file ${SECRET_FILES}/postgres_password
+  password: !file ${SECRET_FILES}/postgres_password_test
   database: ${POSTGRES_DATABASE}
   hostname: ${POSTGRES_HOSTNAME}
   port: !!int ${POSTGRES_PORT}
@@ -37,6 +37,7 @@ organizations:
     - default
     - ctu
     - github
+    - gitlab
 
 # identity providers
 localProviders:
@@ -53,6 +54,10 @@ remoteProviders:
     tokenFilePath: /opt/shared/auth/identity/idp-token
     #caCertPath: /opt/shared/auth/ca.crt
     #serverName: idp-usermap.k8shell-test.svc  
+  - address: 10.42.1.73:9031 #idp-gitlab.k8shell-test:9031
+    tokenFilePath: /opt/shared/auth/identity/idp-token
+    #caCertPath: /opt/shared/auth/ca.crt
+    #serverName: idp-gitlab.k8shell-test.svc  
 
 # JWT token issuance for user tokens. 
 # These tokens are used for authentication to the API server and SSH proxy.
@@ -61,7 +66,7 @@ jwtIssuer:
   audience: k8shell
   expiry: 10m
   signingMethod: es256
-  privateKeyFile: ${SECRET_FILES}/jwt_private.pem
+  privateKeyFile: ${SECRET_FILES}/test-jwt-private-key.pem
 
 # Kubernetes secret management for user tokens.
 # Issued JWTs are written to per-user Secrets named
@@ -70,7 +75,7 @@ jwtIssuer:
 # When db is disabled (file-provider only), Kubernetes Lease leader election
 # ensures only one identity instance runs the refresh loop.
 kubernetes:
-  namespace: workspaces-x
+  namespace: workspaces-test
   leaseName: identity-token-refresh
   refreshInterval: 1m
   refreshLookahead: 2m

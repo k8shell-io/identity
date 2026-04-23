@@ -411,3 +411,20 @@ func (s *IdentityService) DeleteUserCredential(ctx context.Context,
 
 	return &identityv1.DeleteUserCredentialResponse{Success: true}, nil
 }
+
+func (s *IdentityService) GetAvailableIdentityProviders(
+	ctx context.Context,
+	req *identityv1.GetAvailableIdentityProvidersRequest,
+) (*identityv1.GetAvailableIdentityProvidersResponse, error) {
+	activeProviders := s.server.orderedProviders("")
+	resp := make([]*identityv1.IdentityProviderInfo, len(activeProviders))
+	for i, activeProvider := range activeProviders {
+		resp[i] = &identityv1.IdentityProviderInfo{
+			Name: activeProvider.Name(),
+		}
+	}
+
+	return &identityv1.GetAvailableIdentityProvidersResponse{
+		Providers: resp,
+	}, nil
+}
