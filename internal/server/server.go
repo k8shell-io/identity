@@ -30,6 +30,8 @@ import (
 	"github.com/k8shell-io/identity/internal/providers/file"
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -243,6 +245,10 @@ func (s *Server) refreshUser(username string, user *models.User) (*models.User, 
 				Username: username,
 			})
 			if err != nil {
+				switch status.Code(err) {
+				case codes.PermissionDenied, codes.Unauthenticated:
+					return nil, false, err
+				}
 				s.log.Warn().Msgf("Failed to look up user '%s' via provider '%s': %v", username, provider.Name(), err)
 				continue
 			}
@@ -329,6 +335,10 @@ func (s *Server) GetUserByUsername(username string) (*models.User, bool, error) 
 	var refreshed bool
 	user, refreshed, err = s.refreshUser(username, user)
 	if err != nil {
+		switch status.Code(err) {
+		case codes.PermissionDenied, codes.Unauthenticated:
+			return nil, false, err
+		}
 		return nil, false, fmt.Errorf("error occured when refreshing user '%s': %w", username, err)
 	}
 

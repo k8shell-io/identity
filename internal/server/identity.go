@@ -19,6 +19,18 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// propagateOrInternal returns the error unchanged when its gRPC status code is
+// PermissionDenied or Unauthenticated (so upstream IDP rejections are forwarded
+// to the caller). All other errors are returned as codes.Internal with the
+// supplied message format.
+func propagateOrInternal(err error, format string, args ...interface{}) error {
+	switch status.Code(err) {
+	case codes.PermissionDenied, codes.Unauthenticated:
+		return err
+	}
+	return status.Errorf(codes.Internal, format, args...)
+}
+
 // IdentityService implements the identity gRPC service.
 type IdentityService struct {
 	server *Server
@@ -47,7 +59,7 @@ func (s *IdentityService) GetUserAccessToken(ctx context.Context,
 		if errors.Is(err, models.ErrUserNotFound) {
 			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
 		}
-		return nil, status.Errorf(codes.Internal, "failed to get user '%s'", req.Username)
+		return nil, propagateOrInternal(err, "failed to get user '%s'", req.Username)
 	}
 
 	token, err := s.server.getTokenFromKubernetesSecret(user)
@@ -104,7 +116,7 @@ func (s *IdentityService) FindUser(ctx context.Context, req *identityv1.FindUser
 				return nil, status.Error(codes.NotFound, "user not found")
 			}
 			s.log.Error().Err(err).Msg("failed to get user")
-			return nil, status.Error(codes.Internal, "failed to get user")
+			return nil, propagateOrInternal(err, "failed to get user")
 		}
 		return gapi.UserToProto(user), nil
 	}
@@ -133,7 +145,7 @@ func (s *IdentityService) AuthUserPublicKey(ctx context.Context,
 
 	user, _, err := s.server.GetUserByUsername(req.Username)
 	if err != nil && !errors.Is(err, models.ErrUserNotFound) {
-		return nil, status.Errorf(codes.Internal, "error occured when finding user '%s': %s",
+		return nil, propagateOrInternal(err, "error occured when finding user '%s': %s",
 			req.Username, err.Error())
 	}
 
@@ -153,7 +165,7 @@ func (s *IdentityService) AuthUserPublicKey(ctx context.Context,
 		PublicKey: string(ssh.MarshalAuthorizedKey(parsedKey)),
 	})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to authenticate user '%s' with provider '%s': %s",
+		return nil, propagateOrInternal(err, "failed to authenticate user '%s' with provider '%s': %s",
 			req.Username, provider.Name(), err.Error())
 	}
 	return authpb, nil
@@ -166,11 +178,16 @@ func (s *IdentityService) GetUserOnboardCapability(ctx context.Context,
 		cap, err := provider.OnboardUserCapability(context.Background(), &identityv1.Username{
 			Username: req.Username,
 		})
-		if err != nil && !errors.Is(err, models.ErrMethodNotSupported) &&
-			!errors.Is(err, models.ErrUserNotAllowedOnboard) {
-			s.log.Error().Msgf("Failed to get onboard capability for user '%s' from provider '%s': %v",
-				req.Username, provider.Name(), err)
-			continue
+		if err != nil {
+			switch status.Code(err) {
+			case codes.PermissionDenied, codes.Unauthenticated:
+				return nil, err
+			}
+			if !errors.Is(err, models.ErrMethodNotSupported) && !errors.Is(err, models.ErrUserNotAllowedOnboard) {
+				s.log.Error().Msgf("Failed to get onboard capability for user '%s' from provider '%s': %v",
+					req.Username, provider.Name(), err)
+				continue
+			}
 		}
 		if cap != nil {
 			return cap, nil
@@ -194,7 +211,7 @@ func (s *IdentityService) OnboardUserDeviceFlow(ctx context.Context,
 			Username: req.Username,
 		})
 	if err != nil && !errors.Is(err, models.ErrMethodNotSupported) {
-		return nil, status.Errorf(codes.Internal, "failed to onboard user '%s' with provider '%s': %v",
+		return nil, propagateOrInternal(err, "failed to onboard user '%s' with provider '%s': %v",
 			req.Username, provider.Name(), err)
 	}
 	if onboardUserpb != nil {
@@ -216,7 +233,7 @@ func (s *IdentityService) OnboardUserWebFlow(ctx context.Context,
 		RedirectUri: req.RedirectUri,
 	})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to onboard user via web flow with provider '%s': %v",
+		return nil, propagateOrInternal(err, "failed to onboard user via web flow with provider '%s': %v",
 			req.Provider, err)
 	}
 	return authInfo, nil
@@ -240,14 +257,12 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 		Code:  req.Code,
 	})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal,
-			"failed to complete web flow for provider '%s': %v", provider, err)
+		return nil, propagateOrInternal(err, "failed to complete web flow for provider '%s': %v", provider, err)
 	}
 
 	user, _, err := s.server.GetUserByUsername(username.GetUsername())
 	if err != nil {
-		return nil, status.Errorf(codes.Internal,
-			"failed to get user '%s' after completing web flow for provider '%s': %v",
+		return nil, propagateOrInternal(err, "failed to get user '%s' after completing web flow for provider '%s': %v",
 			username.GetUsername(), provider, err)
 	}
 
@@ -272,7 +287,7 @@ func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context,
 
 	user, _, err := s.server.GetUserByUsername(userStr.Username)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "error occurred when getting user '%s': %v", userStr.Username, err)
+		return nil, propagateOrInternal(err, "error occurred when getting user '%s': %v", userStr.Username, err)
 	}
 
 	provider, ok := s.server.providerByName(user.Source)
@@ -283,8 +298,7 @@ func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context,
 		Userstr: userStr.Raw,
 	})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal,
-			"failed to get custom blueprint for '%s' with provider '%s': %v",
+		return nil, propagateOrInternal(err, "failed to get custom blueprint for '%s' with provider '%s': %v",
 			userStr.Username, provider.Name(), err)
 	}
 	return blueprintpb, nil
@@ -296,7 +310,7 @@ func (s *IdentityService) ResolvePullRequestToRef(ctx context.Context,
 
 	user, _, err := s.server.GetUserByUsername(req.Username)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "error occurred when getting user '%s': %v", req.Username, err)
+		return nil, propagateOrInternal(err, "error occurred when getting user '%s': %v", req.Username, err)
 	}
 
 	provider, ok := s.server.providerByName(user.Source)
@@ -310,8 +324,7 @@ func (s *IdentityService) ResolvePullRequestToRef(ctx context.Context,
 		PullRequestNumber: int32(req.PullRequestNumber),
 	})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal,
-			"failed to resolve pull request to ref for '%s' with provider '%s': %v",
+		return nil, propagateOrInternal(err, "failed to resolve pull request to ref for '%s' with provider '%s': %v",
 			req.Username, provider.Name(), err)
 	}
 	return repoRef, nil
@@ -326,7 +339,7 @@ func (s *IdentityService) GetUserCredentials(ctx context.Context,
 
 	user, _, err := s.server.GetUserByUsername(req.Username)
 	if err != nil {
-		return nil, fmt.Errorf("error occurred when getting user '%s': %w", req.Username, err)
+		return nil, propagateOrInternal(err, "error occurred when getting user '%s': %v", req.Username, err)
 	}
 
 	var credentials []*models.ExternalCredential
@@ -335,7 +348,7 @@ func (s *IdentityService) GetUserCredentials(ctx context.Context,
 			Username: user.Username,
 		})
 		if err != nil && !errors.Is(err, models.ErrMethodNotSupported) {
-			return nil, fmt.Errorf("failed to get user token for '%s' with provider '%s': %w",
+			return nil, propagateOrInternal(err, "failed to get user token for '%s' with provider '%s': %v",
 				req.Username, provider.Name(), err)
 		}
 		if token != nil {
