@@ -33,6 +33,11 @@ type KubernetesConfig struct {
 	// RefreshLookahead is the remaining-lifetime threshold below which a token
 	// is considered due for renewal. Defaults to 20 minutes.
 	RefreshLookahead time.Duration `yaml:"refreshLookahead"`
+
+	// ClusterAudiences lists the audiences embedded in service-account tokens
+	// issued for Kubernetes cluster access via GetKubernetesServiceAccountToken.
+	// Defaults to ["https://kubernetes.default.svc"] when empty.
+	ClusterAudiences []string `yaml:"clusterAudiences"`
 }
 
 // Config contains server configuration loaded from YAML.

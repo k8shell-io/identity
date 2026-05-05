@@ -6,7 +6,6 @@ package server
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	commonv1 "github.com/k8shell-io/common/pkg/api/gen/go/common/v1"
 	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
@@ -271,9 +270,35 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 		return nil, status.Errorf(codes.Internal, "failed to read token secret for user '%s'", user.Username)
 	}
 
+	if s.server.DB != nil {
+		s.server.provisionGitCredential(ctx, username.GetUsername(), p)
+	}
+
 	return &identityv1.CompleteUserWebFlowResponse{
 		UserToken: token,
 	}, nil
+}
+
+// CompleteUserDeviceFlow is called by the client after the user has completed
+// device-flow authorization on the provider side. It provisions the dynamic git
+// credential for the user and returns an empty response.
+func (s *IdentityService) CompleteUserDeviceFlow(ctx context.Context,
+	req *identityv1.CompleteUserDeviceFlowRequest) (*identityv1.CompleteUserDeviceFlowResponse, error) {
+	if req.Username == "" || req.Provider == "" {
+		return nil, status.Error(codes.InvalidArgument, "username and provider are required")
+	}
+
+	provider, ok := s.server.providerByName(req.Provider)
+	if !ok {
+		return nil, status.Errorf(codes.NotFound,
+			"no suitable identity provider found to complete device flow for provider '%s'", req.Provider)
+	}
+
+	if s.server.DB != nil {
+		s.server.provisionGitCredential(ctx, req.Username, provider)
+	}
+
+	return &identityv1.CompleteUserDeviceFlowResponse{}, nil
 }
 
 // GetBlueprintByUserStr resolves and returns a blueprint for the provided user string.
@@ -330,62 +355,64 @@ func (s *IdentityService) ResolvePullRequestToRef(ctx context.Context,
 	return repoRef, nil
 }
 
-// GetUserCredentials returns external credentials for a user.
-func (s *IdentityService) GetUserCredentials(ctx context.Context,
-	req *identityv1.Username) (*identityv1.GetUserCredentialsResponse, error) {
+// ListUserCredentials returns all stored credentials for a user.
+func (s *IdentityService) ListUserCredentials(ctx context.Context,
+	req *identityv1.Username) (*identityv1.ListUserCredentialsResponse, error) {
 	if s.server.DB == nil {
 		return nil, status.Errorf(codes.Unavailable, "database is not configured, cannot retrieve user credentials")
 	}
 
-	user, _, err := s.server.GetUserByUsername(req.Username)
+	_, _, err := s.server.GetUserByUsername(req.Username)
 	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
+		}
 		return nil, propagateOrInternal(err, "error occurred when getting user '%s': %v", req.Username, err)
 	}
 
-	var credentials []*models.ExternalCredential
-	if provider, ok := s.server.providerByName(user.Source); ok {
-		token, err := provider.GetUserToken(context.Background(), &identityv1.Username{
-			Username: user.Username,
-		})
-		if err != nil && !errors.Is(err, models.ErrMethodNotSupported) {
-			return nil, propagateOrInternal(err, "failed to get user token for '%s' with provider '%s': %v",
-				req.Username, provider.Name(), err)
-		}
-		if token != nil {
-			credentials = append(credentials, &models.ExternalCredential{
-				ServiceName:   token.ServiceName,
-				Username:      user.Username,
-				ExternalID:    user.Username,
-				ExternalToken: token.Token,
-				ServiceURL:    provider.Address(),
-			})
-		}
-	}
-
-	externalCreds, err := s.server.DB.GetExternalCredentials(req.Username)
+	creds, err := s.server.DB.ListUserCredentials(req.Username)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get external credentials for user '%s': %w", req.Username, err)
-	}
-	credentials = append(credentials, externalCreds...)
-
-	pbCredentials := make([]*commonv1.ExternalCredential, len(credentials))
-	for i, cred := range credentials {
-		pbCredentials[i] = gapi.ExternalCredentialToProto(cred)
+		return nil, status.Errorf(codes.Internal, "failed to get credentials for user '%s': %v", req.Username, err)
 	}
 
-	return &identityv1.GetUserCredentialsResponse{Credentials: pbCredentials}, nil
+	pbCredentials := make([]*commonv1.UserCredential, len(creds))
+	for i, cred := range creds {
+		pbCredentials[i] = gapi.UserCredentialToProto(cred)
+	}
+
+	return &identityv1.ListUserCredentialsResponse{Credentials: pbCredentials}, nil
+}
+
+// GetUserCredential resolves a single credential for a user by service name and scope.
+// For kubernetes credentials a fresh service account token is issued on the fly.
+func (s *IdentityService) GetUserCredential(ctx context.Context,
+	req *identityv1.GetUserCredentialRequest) (*commonv1.UserCredential, error) {
+	if s.server.DB == nil {
+		return nil, status.Errorf(codes.Unavailable, "database is not configured, cannot retrieve user credential")
+	}
+
+	cred, err := s.server.ResolveCredential(ctx, req.Username, req.ServiceName, req.ServiceScope)
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Errorf(codes.NotFound, "credential not found for user '%s', service '%s', scope '%s'",
+				req.Username, req.ServiceName, req.ServiceScope)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to resolve credential: %v", err)
+	}
+
+	return gapi.UserCredentialToProto(cred), nil
 }
 
 // AddUserCredential adds an external credential for a user.
 func (s *IdentityService) AddUserCredential(ctx context.Context,
-	req *commonv1.ExternalCredential) (*identityv1.AddUserCredentialResponse, error) {
+	req *commonv1.UserCredential) (*identityv1.AddUserCredentialResponse, error) {
 	if s.server.DB == nil {
 		return nil, status.Errorf(codes.Unavailable, "database is not configured, cannot add user credential")
 	}
 
-	credential := gapi.ProtoToExternalCredential(req)
+	credential := gapi.ProtoToUserCredential(req)
 
-	err := s.server.DB.AddExternalCredential(credential)
+	err := s.server.DB.AddUserCredential(credential)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to add user credential: %v", err)
 	}
@@ -395,14 +422,14 @@ func (s *IdentityService) AddUserCredential(ctx context.Context,
 
 // UpdateUserCredential updates an existing external credential.
 func (s *IdentityService) UpdateUserCredential(ctx context.Context,
-	req *commonv1.ExternalCredential) (*identityv1.UpdateUserCredentialResponse, error) {
+	req *commonv1.UserCredential) (*identityv1.UpdateUserCredentialResponse, error) {
 	if s.server.DB == nil {
 		return nil, status.Errorf(codes.Unavailable, "database is not configured, cannot update user credential")
 	}
 
-	credential := gapi.ProtoToExternalCredential(req)
+	credential := gapi.ProtoToUserCredential(req)
 
-	err := s.server.DB.UpdateExternalCredential(credential)
+	err := s.server.DB.UpdateUserCredential(credential)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to update user credential: %v", err)
 	}
@@ -417,7 +444,7 @@ func (s *IdentityService) DeleteUserCredential(ctx context.Context,
 		return nil, status.Errorf(codes.Unavailable, "database is not configured, cannot delete user credential")
 	}
 
-	err := s.server.DB.DeleteExternalCredential(req.Id)
+	err := s.server.DB.DeleteUserCredential(req.Id)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to delete user credential: %v", err)
 	}

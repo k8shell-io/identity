@@ -51,24 +51,64 @@ CREATE TABLE identity.users (
 CREATE INDEX idx_users_token_expires_at ON identity.users (token_expires_at)
     WHERE token_expires_at IS NOT NULL;
 
--- external_credentials stores credentials for external services (e.g. Docker).
--- A user may have multiple credentials, but only one per service URL
-CREATE TABLE identity.external_credentials (
-    id             SERIAL PRIMARY KEY,
-    username       VARCHAR     NOT NULL REFERENCES identity.users(username) ON DELETE CASCADE,
-    service_name   VARCHAR     NOT NULL,
-    service_url    VARCHAR     NOT NULL,  -- base URL of the external service
-    external_id    VARCHAR     NOT NULL,  -- user identifier on the external service
-    external_token VARCHAR     NOT NULL,  -- OAuth or API token
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    is_active      BOOLEAN     NOT NULL DEFAULT TRUE,
+-- user_credentials stores credentials for external services.
+--
+-- Two credential modes are supported:
+--
+--   Static  (registry, git)  — secret holds the stored token/password.
+--                               service_scope is the registry or host URL.
+--                               subject is the login name on that service.
+--
+--   Dynamic (kubernetes)     — secret is NULL; the secret is issued
+--                               fresh on every request (Kubernetes TokenRequest API).
+--                               service_scope is the Kubernetes namespace.
+--                               subject is the service account name.
+--
+--   Dynamic (git)            — secret is NULL; the token is fetched live
+--                               from the identity provider via GetUserGitToken.
+--                               service_scope is the provider address (URL, e.g. github.com)
+--                               so the git credentials helper can match by URL.
+--                               subject is the username on that provider.
+--
+CREATE TABLE identity.user_credentials (
+    id                SERIAL PRIMARY KEY,
+    username          VARCHAR     NOT NULL REFERENCES identity.users(username) ON DELETE CASCADE,
 
-    UNIQUE(username, service_url)
+    -- service identification
+    service_name      VARCHAR     NOT NULL,  -- one of: 'registry', 'git', 'kubernetes'
+    service_scope     VARCHAR     NOT NULL,  -- registry/git URL (static); namespace (k8s dynamic); provider address/URL (git dynamic)
+
+    -- credential subject (maps to JWT sub claim)
+    subject           VARCHAR     NOT NULL,  -- login name (static) or service account name (dynamic)
+
+    -- stored secret — NULL for dynamic credentials
+    secret            VARCHAR,               -- OAuth token, API key, password; NULL = dynamic
+
+    -- lifecycle
+    is_active         BOOLEAN     NOT NULL DEFAULT TRUE,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    -- a user may have at most one credential per (service, scope, identity) tuple
+    UNIQUE (username, service_name, service_scope, subject),
+
+    -- only known service types are accepted
+    CONSTRAINT chk_service_name
+        CHECK (service_name IN ('registry', 'git', 'kubernetes')),
+
+    -- static services must have a secret; dynamic services must not
+    CONSTRAINT chk_credential_secret_presence
+        CHECK (
+            (service_name = 'registry' AND secret IS NOT NULL)
+            OR
+            (service_name = 'git')                               
+            OR
+            (service_name = 'kubernetes' AND secret IS NULL)
+        )
 );
 
-CREATE INDEX idx_external_creds_username ON identity.external_credentials (username);
-CREATE INDEX idx_external_creds_service  ON identity.external_credentials (service_name);
+CREATE INDEX idx_user_creds_username ON identity.user_credentials (username);
+CREATE INDEX idx_user_creds_service  ON identity.user_credentials (service_name);
 
 -- Seed the built-in organizations.
 INSERT INTO identity.organizations (name, description) VALUES

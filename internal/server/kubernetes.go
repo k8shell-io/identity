@@ -11,6 +11,7 @@ import (
 
 	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/common/pkg/models"
+	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -453,4 +454,43 @@ func (s *Server) refreshLocalUserTokens() {
 			s.log.Error().Err(err).Msgf("token refresh: failed to ensure token for local user '%s'", user.Username)
 		}
 	}
+}
+
+// issueKubernetesServiceAccountToken requests a short-lived bound service-account
+// token from the Kubernetes TokenRequest API. The token audience is set to
+// s.k8sCfg.ClusterAudiences (defaulting to ["https://kubernetes.default.svc"]).
+// When namespace is empty the server's configured default namespace is used.
+// expirationSeconds controls the token TTL; values ≤ 0 use a 1-hour default.
+func (s *Server) issueKubernetesServiceAccountToken(ctx context.Context, namespace, serviceAccountName string, expirationSeconds int64) (string, time.Time, error) {
+	if s.k8sClient == nil {
+		return "", time.Time{}, fmt.Errorf("kubernetes client not configured")
+	}
+	if namespace == "" {
+		namespace = s.k8sCfg.Namespace
+	}
+
+	audiences := s.k8sCfg.ClusterAudiences
+	if len(audiences) == 0 {
+		audiences = []string{"https://kubernetes.default.svc"}
+	}
+
+	expSec := expirationSeconds
+	if expSec <= 0 {
+		expSec = 3600
+	}
+
+	tokenReq := &authenticationv1.TokenRequest{
+		Spec: authenticationv1.TokenRequestSpec{
+			Audiences:         audiences,
+			ExpirationSeconds: &expSec,
+		},
+	}
+
+	result, err := s.k8sClient.CoreV1().ServiceAccounts(namespace).CreateToken(
+		ctx, serviceAccountName, tokenReq, metav1.CreateOptions{})
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("create token for service account '%s/%s': %w", namespace, serviceAccountName, err)
+	}
+
+	return result.Status.Token, result.Status.ExpirationTimestamp.Time, nil
 }
