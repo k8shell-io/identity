@@ -64,7 +64,7 @@ func (s *Server) ResolveCredential(ctx context.Context, username, serviceName, s
 	}
 	switch {
 	case serviceName == "kubernetes":
-		token, _, err := s.issueKubernetesServiceAccountToken(ctx, serviceScope, cred.Subject, 0)
+		token, _, err := s.issueKubernetesServiceAccountToken(ctx, serviceScope, cred.Subject, 300)
 		if err != nil {
 			return nil, fmt.Errorf("issue SA token for '%s/%s': %w", serviceScope, cred.Subject, err)
 		}
