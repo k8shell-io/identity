@@ -24,7 +24,7 @@ import (
 // supplied message format.
 func propagateOrInternal(err error, format string, args ...interface{}) error {
 	switch status.Code(err) {
-	case codes.PermissionDenied, codes.Unauthenticated:
+	case codes.PermissionDenied, codes.Unauthenticated, codes.NotFound:
 		return err
 	}
 	return status.Errorf(codes.Internal, format, args...)
