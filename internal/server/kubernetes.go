@@ -471,7 +471,7 @@ func (s *Server) issueKubernetesServiceAccountToken(ctx context.Context, namespa
 
 	audiences := s.k8sCfg.ClusterAudiences
 	if len(audiences) == 0 {
-		audiences = []string{"https://kubernetes.default.svc"}
+		audiences = []string{"https://kubernetes.default.svc.cluster.local", "rke2"}
 	}
 
 	expSec := expirationSeconds
