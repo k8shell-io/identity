@@ -52,34 +52,22 @@ CREATE INDEX idx_users_token_expires_at ON identity.users (token_expires_at)
     WHERE token_expires_at IS NOT NULL;
 
 -- user_credentials stores credentials for external services.
---
--- Two credential modes are supported:
---
---   Static  (registry, git)  — secret holds the stored token/password.
---                               service_scope is the registry or host URL.
---                               subject is the login name on that service.
---
---   Dynamic (kubernetes)     — secret is NULL; the secret is issued
---                               fresh on every request (Kubernetes TokenRequest API).
---                               service_scope is the Kubernetes namespace.
---                               subject is the service account name.
---
---   Dynamic (git)            — secret is NULL; the token is fetched live
---                               from the identity provider via GetUserGitToken.
---                               service_scope is the provider address (URL, e.g. github.com)
---                               so the git credentials helper can match by URL.
---                               subject is the username on that provider.
---
+-- credential_source controls how the secret is resolved at request time
+-- values are: stored, kubernetes, or a named identity provider for dynamic git credentials.
 CREATE TABLE identity.user_credentials (
     id                SERIAL PRIMARY KEY,
     username          VARCHAR     NOT NULL REFERENCES identity.users(username) ON DELETE CASCADE,
 
     -- service identification
     service_name      VARCHAR     NOT NULL,  -- one of: 'registry', 'git', 'kubernetes'
-    service_scope     VARCHAR     NOT NULL,  -- registry/git URL (static); namespace (k8s dynamic); provider address/URL (git dynamic)
+    service_scope     VARCHAR     NOT NULL,  -- registry/git URL (static); namespace (k8s); provider URL (git dynamic)
 
-    -- credential subject (maps to JWT sub claim)
-    subject           VARCHAR     NOT NULL,  -- login name (static) or service account name (dynamic)
+    -- credential subject identifies the principal for which the credential is valid 
+    subject           VARCHAR     NOT NULL,  -- login name (static) or service account name (k8s)
+
+    -- how to resolve the secret at request time
+    credential_source VARCHAR     NOT NULL DEFAULT 'stored',
+                                            -- 'stored' | 'kubernetes' | <idp-name>
 
     -- stored secret — NULL for dynamic credentials
     secret            VARCHAR,               -- OAuth token, API key, password; NULL = dynamic
@@ -96,15 +84,21 @@ CREATE TABLE identity.user_credentials (
     CONSTRAINT chk_service_name
         CHECK (service_name IN ('registry', 'git', 'kubernetes')),
 
-    -- static services must have a secret; dynamic services must not
-    CONSTRAINT chk_credential_secret_presence
+    -- secret must be present for stored credentials and absent for dynamic ones
+    CONSTRAINT chk_credential_source_secret
         CHECK (
-            (service_name = 'registry' AND secret IS NOT NULL)
+            (credential_source = 'stored'  AND secret IS NOT NULL)
             OR
-            (service_name = 'git')                               
-            OR
-            (service_name = 'kubernetes' AND secret IS NULL)
-        )
+            (credential_source != 'stored' AND secret IS NULL)
+        ),
+
+    -- kubernetes rows must always be dynamic via TokenRequest
+    CONSTRAINT chk_kubernetes_credential_source
+        CHECK (service_name != 'kubernetes' OR credential_source = 'kubernetes'),
+
+    -- registry rows must always be static
+    CONSTRAINT chk_registry_credential_source
+        CHECK (service_name != 'registry' OR credential_source = 'stored')
 );
 
 CREATE INDEX idx_user_creds_username ON identity.user_credentials (username);
@@ -113,3 +107,4 @@ CREATE INDEX idx_user_creds_service  ON identity.user_credentials (service_name)
 -- Seed the built-in organizations.
 INSERT INTO identity.organizations (name, description) VALUES
     ('default', 'Default organization');
+

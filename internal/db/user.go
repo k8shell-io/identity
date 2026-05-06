@@ -251,12 +251,12 @@ var validServiceNames = map[string]bool{
 }
 
 // AddUserCredential inserts a new credential for a user.
-// registry: Secret must be non-empty.
-// git: Secret may be empty (dynamic, resolved via provider on demand) or non-empty (static).
-// kubernetes: Secret must be empty (token issued via TokenRequest API on demand).
 func (d *DB) AddUserCredential(cred *models.UserCredential) error {
 	if cred.Username == "" || cred.ServiceName == "" || cred.ServiceScope == "" || cred.Subject == "" {
 		return fmt.Errorf("required field: username, service_name, service_scope, subject")
+	}
+	if cred.CredentialSource == "" {
+		return fmt.Errorf("required field: credential_source")
 	}
 	if !validServiceNames[cred.ServiceName] {
 		return fmt.Errorf("unknown service_name '%s': must be one of registry, git, kubernetes", cred.ServiceName)
@@ -271,11 +271,11 @@ func (d *DB) AddUserCredential(cred *models.UserCredential) error {
 	}
 
 	query := `INSERT INTO identity.user_credentials (
-		username, service_name, service_scope, subject, secret
-	) VALUES ($1, $2, $3, $4, $5)`
+		username, service_name, service_scope, subject, secret, credential_source
+	) VALUES ($1, $2, $3, $4, $5, $6)`
 
 	_, err := d.Pool.Exec(context.Background(), query,
-		cred.Username, cred.ServiceName, cred.ServiceScope, cred.Subject, secret)
+		cred.Username, cred.ServiceName, cred.ServiceScope, cred.Subject, secret, cred.CredentialSource)
 
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -292,8 +292,12 @@ func (d *DB) AddUserCredential(cred *models.UserCredential) error {
 				switch pgErr.ConstraintName {
 				case "chk_service_name":
 					return fmt.Errorf("unknown service_name '%s': must be one of registry, git, kubernetes", cred.ServiceName)
-				case "chk_credential_secret_presence":
-					return fmt.Errorf("secret must be set for '%s' and must be NULL for 'kubernetes'", cred.ServiceName)
+				case "chk_credential_source_secret":
+					return fmt.Errorf("secret must be present when credential_source='stored' and absent otherwise")
+				case "chk_kubernetes_credential_source":
+					return fmt.Errorf("kubernetes credentials must have credential_source='kubernetes'")
+				case "chk_registry_credential_source":
+					return fmt.Errorf("registry credentials must have credential_source='stored'")
 				}
 			}
 		}
@@ -308,7 +312,7 @@ func (d *DB) AddUserCredential(cred *models.UserCredential) error {
 // matching active credential exists.
 func (d *DB) GetUserCredential(username, serviceName, serviceScope string) (*models.UserCredential, error) {
 	query := `SELECT id, username, service_name, service_scope, subject,
-			COALESCE(secret, '') AS secret
+			COALESCE(secret, '') AS secret, credential_source
 		FROM identity.user_credentials
 			WHERE username=$1 AND service_name=$2 AND service_scope=$3 AND is_active=true
 		LIMIT 1`
@@ -321,6 +325,7 @@ func (d *DB) GetUserCredential(username, serviceName, serviceScope string) (*mod
 		&cred.ServiceScope,
 		&cred.Subject,
 		&cred.Secret,
+		&cred.CredentialSource,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, models.ErrUserNotFound
@@ -332,11 +337,9 @@ func (d *DB) GetUserCredential(username, serviceName, serviceScope string) (*mod
 }
 
 // ListUserCredentials retrieves all credentials for the given username.
-// For dynamic credentials (kubernetes) ExternalToken will be empty string — the
-// caller is responsible for issuing the token at request time.
 func (d *DB) ListUserCredentials(username string) ([]*models.UserCredential, error) {
 	query := `SELECT id, username, service_name, service_scope, subject,
-			COALESCE(secret, '') AS secret
+			COALESCE(secret, '') AS secret, credential_source
 		FROM identity.user_credentials
 			WHERE username=$1 AND is_active=true`
 
@@ -356,6 +359,7 @@ func (d *DB) ListUserCredentials(username string) ([]*models.UserCredential, err
 			&cred.ServiceScope,
 			&cred.Subject,
 			&cred.Secret,
+			&cred.CredentialSource,
 		); err != nil {
 			return nil, err
 		}
@@ -366,17 +370,16 @@ func (d *DB) ListUserCredentials(username string) ([]*models.UserCredential, err
 
 // UpsertDynamicGitCredential inserts a dynamic git credential row for a user if one does not
 // already exist for the given provider. serviceScope must be the provider address (URL) so that
-// the git credentials helper can match credentials by URL, and ResolveCredential can look up
-// the live token via providerByAddress.
+// the git credentials helper can match credentials by URL. providerName is stored as
+// credential_source so that ResolveCredential can route directly to the right IDP by name.
 // The secret is NULL — the live token is fetched on demand from the provider via GetUserGitToken.
-// Safe to call concurrently: ON CONFLICT DO NOTHING makes it idempotent.
-func (d *DB) UpsertDynamicGitCredential(username, serviceScope string) error {
+func (d *DB) UpsertDynamicGitCredential(username, providerName, serviceScope string) error {
 	query := `INSERT INTO identity.user_credentials
-		(username, service_name, service_scope, subject, secret)
-	VALUES ($1, 'git', $2, $1, NULL)
+		(username, service_name, service_scope, subject, secret, credential_source)
+	VALUES ($1, 'git', $2, $1, NULL, $3)
 	ON CONFLICT (username, service_name, service_scope, subject) DO NOTHING`
 
-	_, err := d.Pool.Exec(context.Background(), query, username, serviceScope)
+	_, err := d.Pool.Exec(context.Background(), query, username, serviceScope, providerName)
 	return err
 }
 
@@ -396,10 +399,14 @@ func (d *DB) DeleteUserCredential(id uint32) error {
 }
 
 // UpdateUserCredential updates an existing user credential record.
-// For dynamic credentials (kubernetes) Secret is ignored (secret stays NULL).
+// For dynamic credentials (kubernetes, dynamic git) Secret is ignored — the
+// secret column stays NULL and is resolved live at request time.
 func (d *DB) UpdateUserCredential(cred *models.UserCredential) error {
 	if cred.Username == "" || cred.ServiceName == "" || cred.ServiceScope == "" || cred.Subject == "" {
 		return fmt.Errorf("required field: username, service_name, service_scope, subject")
+	}
+	if cred.CredentialSource == "" {
+		return fmt.Errorf("required field: credential_source")
 	}
 	if !validServiceNames[cred.ServiceName] {
 		return fmt.Errorf("unknown service_name '%s': must be one of registry, git, kubernetes", cred.ServiceName)
@@ -418,11 +425,12 @@ func (d *DB) UpdateUserCredential(cred *models.UserCredential) error {
 		service_scope=$2,
 		subject=$3,
 		secret=$4,
+		credential_source=$5,
 		updated_at=NOW()
-	WHERE id=$5 AND username=$6`
+	WHERE id=$6 AND username=$7`
 
 	_, err := d.Pool.Exec(context.Background(), query,
-		cred.ServiceName, cred.ServiceScope, cred.Subject, secret, cred.ID, cred.Username)
+		cred.ServiceName, cred.ServiceScope, cred.Subject, secret, cred.CredentialSource, cred.ID, cred.Username)
 	return err
 }
 

@@ -119,18 +119,6 @@ func (s *Server) providerByName(name string) (identity.IdpClient, bool) {
 	return p, ok
 }
 
-// providerByAddress returns the identity provider whose Address() matches addr.
-func (s *Server) providerByAddress(addr string) (identity.IdpClient, bool) {
-	s.providerMu.RLock()
-	defer s.providerMu.RUnlock()
-	for _, p := range s.IdentityProviders {
-		if p.Address() == addr {
-			return p, true
-		}
-	}
-	return nil, false
-}
-
 // orderedProviders returns identity providers in deterministic (name-sorted) order.
 // When source is non-empty only the provider matching that name is included.
 func (s *Server) orderedProviders(source string) []identity.IdpClient {

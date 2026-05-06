@@ -35,7 +35,7 @@ func (s *Server) provisionGitCredential(ctx context.Context, username string, pr
 		return // provider does not support git tokens or user not yet authorized
 	}
 
-	if upsertErr := s.DB.UpsertDynamicGitCredential(username, provider.Address()); upsertErr != nil {
+	if upsertErr := s.DB.UpsertDynamicGitCredential(username, provider.Name(), provider.Address()); upsertErr != nil {
 		s.log.Warn().Err(upsertErr).Msgf("provisionGitCredential: failed to upsert git credential for user '%s'", username)
 	}
 }
@@ -46,12 +46,11 @@ func isNotFound(err error) bool {
 }
 
 // ResolveCredential looks up the stored credential for the given user,
-// service_name and service_scope, then resolves it:
-//   - Static credentials (registry, git with secret): returned as stored.
-//   - Dynamic git credentials (secret empty): token fetched live from the
-//     provider whose address matches service_scope (the provider URL, e.g. github.com).
-//   - Dynamic kubernetes credentials: a fresh bound service-account token
-//     is issued via the TokenRequest API.
+// service_name and service_scope, then resolves it according to credential_source:
+//   - "stored": secret returned as-is (registry, static git).
+//   - "kubernetes": fresh bound SA token issued via the TokenRequest API.
+//   - any other value: treated as an IDP name; token fetched live via GetUserGitToken
+//     (dynamic git provisioned by CompleteUserWebFlow / CompleteUserDeviceFlow).
 //
 // Returns models.ErrUserNotFound when no active credential exists.
 func (s *Server) ResolveCredential(ctx context.Context, username, serviceName, serviceScope string) (*models.UserCredential, error) {
@@ -62,19 +61,27 @@ func (s *Server) ResolveCredential(ctx context.Context, username, serviceName, s
 	if err != nil {
 		return nil, err
 	}
-	switch {
-	case serviceName == "kubernetes":
-		token, expiresAt, err := s.issueKubernetesServiceAccountToken(ctx, serviceScope, cred.Subject, 0)
+	switch cred.CredentialSource {
+	case "kubernetes":
+		if s.k8sCfg.SAToken.Enabled != nil && !*s.k8sCfg.SAToken.Enabled {
+			return nil, fmt.Errorf("kubernetes service-account token issuance is disabled")
+		}
+		ttl := int64(s.k8sCfg.SAToken.TTL.Seconds())
+		token, expiresAt, err := s.issueKubernetesServiceAccountToken(ctx, serviceScope, cred.Subject, ttl)
 		if err != nil {
 			return nil, fmt.Errorf("issue SA token for '%s/%s': %w", serviceScope, cred.Subject, err)
 		}
 		cred.Secret = token
 		cred.ExpiresAt = &expiresAt
 
-	case serviceName == "git" && cred.Secret == "":
-		provider, ok := s.providerByAddress(serviceScope)
+	case "stored":
+		// secret already populated from DB — nothing to do
+
+	default:
+		// credential_source holds the IDP name (e.g. "github", "gitlab")
+		provider, ok := s.providerByName(cred.CredentialSource)
 		if !ok {
-			return nil, fmt.Errorf("provider with address '%s' not found for dynamic git credential", serviceScope)
+			return nil, fmt.Errorf("provider '%s' not found for dynamic git credential", cred.CredentialSource)
 		}
 		gitToken, err := provider.GetUserGitToken(ctx, &identityv1.Username{Username: username})
 		if err != nil {

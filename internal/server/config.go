@@ -16,15 +16,11 @@ import (
 	"github.com/k8shell-io/identity/internal/providers/file"
 )
 
-// KubernetesConfig contains configuration for Kubernetes secret management
-// and distributed leader election.
-type KubernetesConfig struct {
-	// Namespace is the Kubernetes namespace where user token secrets are created.
-	Namespace string `yaml:"namespace"`
-
-	// LeaseName is the name of the Lease object used for leader election when
-	// the database is not configured. Defaults to "identity-token-refresh".
-	LeaseName string `yaml:"leaseName"`
+// KubernetesLeaseConfig controls distributed leader election for the JWT
+// token refresh loop (used when the database is not configured).
+type KubernetesLeaseConfig struct {
+	// Name is the Lease object name. Defaults to "identity-token-refresh".
+	Name string `yaml:"name"`
 
 	// RefreshInterval is how often the background loop checks for near-expiry
 	// tokens. Defaults to 15 minutes.
@@ -33,11 +29,34 @@ type KubernetesConfig struct {
 	// RefreshLookahead is the remaining-lifetime threshold below which a token
 	// is considered due for renewal. Defaults to 20 minutes.
 	RefreshLookahead time.Duration `yaml:"refreshLookahead"`
+}
 
-	// ClusterAudiences lists the audiences embedded in service-account tokens
-	// issued for Kubernetes cluster access via GetKubernetesServiceAccountToken.
-	// Defaults to ["https://kubernetes.default.svc"] when empty.
-	ClusterAudiences []string `yaml:"clusterAudiences"`
+// KubernetesSATokenConfig controls on-demand service-account token issuance
+// via the Kubernetes TokenRequest API.
+type KubernetesSATokenConfig struct {
+	// Enabled controls whether SA token issuance is enabled. Defaults to true.
+	Enabled *bool `yaml:"enabled"`
+
+	// TTL is the requested token lifetime. Must be >= 10 minutes (Kubernetes
+	// enforced minimum). Defaults to 1 hour when unset or zero.
+	TTL time.Duration `yaml:"ttl"`
+
+	// Audiences lists the audiences embedded in issued tokens.
+	// Defaults to ["https://kubernetes.default.svc.cluster.local"] when empty.
+	Audiences []string `yaml:"audiences"`
+}
+
+// KubernetesConfig contains configuration for Kubernetes secret management
+// and distributed leader election.
+type KubernetesConfig struct {
+	// Namespace is the Kubernetes namespace where user token secrets are created.
+	Namespace string `yaml:"namespace"`
+
+	// Lease configures distributed leader election for the token refresh loop.
+	Lease KubernetesLeaseConfig `yaml:"lease"`
+
+	// SAToken configures on-demand service-account token issuance.
+	SAToken KubernetesSATokenConfig `yaml:"saToken"`
 }
 
 // Config contains server configuration loaded from YAML.

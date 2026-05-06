@@ -106,7 +106,7 @@ func (s *Server) issueAndStoreToken(user *models.User) (string, error) {
 // or approaching expiry. When forceRefresh is true it unconditionally issues a new token, ignoring the cache.
 func (s *Server) ensureToken(user *models.User, forceRefresh bool) (refreshed bool, token string, err error) {
 	if !forceRefresh {
-		lookahead := s.k8sCfg.RefreshLookahead
+		lookahead := s.k8sCfg.Lease.RefreshLookahead
 		if lookahead == 0 {
 			lookahead = defaultRefreshLookahead
 		}
@@ -299,7 +299,7 @@ func (s *Server) startTokenRefreshLoop(ctx context.Context) {
 // near-expiry user tokens using Postgres FOR UPDATE SKIP LOCKED.
 // An immediate cycle can be triggered by sending to s.refreshNow.
 func (s *Server) runDBTokenRefreshLoop(ctx context.Context) {
-	interval := s.k8sCfg.RefreshInterval
+	interval := s.k8sCfg.Lease.RefreshInterval
 	if interval == 0 {
 		interval = defaultRefreshInterval
 	}
@@ -326,7 +326,7 @@ func (s *Server) runDBTokenRefreshLoop(ctx context.Context) {
 // refreshExpiredTokensFromDB claims a batch of near-expiry users from the DB
 // and re-issues their tokens.
 func (s *Server) refreshExpiredTokensFromDB(ctx context.Context) {
-	lookahead := s.k8sCfg.RefreshLookahead
+	lookahead := s.k8sCfg.Lease.RefreshLookahead
 	if lookahead == 0 {
 		lookahead = defaultRefreshLookahead
 	}
@@ -367,7 +367,7 @@ func (s *Server) runLeaseTokenRefreshLoop(ctx context.Context) {
 		return
 	}
 
-	leaseName := s.k8sCfg.LeaseName
+	leaseName := s.k8sCfg.Lease.Name
 	if leaseName == "" {
 		leaseName = defaultLeaseName
 	}
@@ -418,13 +418,13 @@ func (s *Server) runLeaseTokenRefreshLoop(ctx context.Context) {
 // users on a ticker. Called only by the leader instance.
 // An immediate cycle can be triggered by sending to s.refreshNow.
 func (s *Server) runFileProviderTokenRefreshLoop(ctx context.Context) {
-	interval := s.k8sCfg.RefreshInterval
+	interval := s.k8sCfg.Lease.RefreshInterval
 	if interval == 0 {
 		interval = defaultRefreshInterval
 	}
 
 	s.log.Info().Msgf("starting file-provider token refresh loop, interval: %s, lookahead: %s",
-		interval.String(), s.k8sCfg.RefreshLookahead.String())
+		interval.String(), s.k8sCfg.Lease.RefreshLookahead.String())
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -458,7 +458,7 @@ func (s *Server) refreshLocalUserTokens() {
 
 // issueKubernetesServiceAccountToken requests a short-lived bound service-account
 // token from the Kubernetes TokenRequest API. The token audience is set to
-// s.k8sCfg.ClusterAudiences (defaulting to ["https://kubernetes.default.svc"]).
+// s.k8sCfg.SAToken.Audiences (defaulting to ["https://kubernetes.default.svc.cluster.local"]).
 // When namespace is empty the server's configured default namespace is used.
 // expirationSeconds controls the token TTL; values ≤ 0 use a 1-hour default.
 func (s *Server) issueKubernetesServiceAccountToken(ctx context.Context, namespace, serviceAccountName string, expirationSeconds int64) (string, time.Time, error) {
@@ -469,9 +469,9 @@ func (s *Server) issueKubernetesServiceAccountToken(ctx context.Context, namespa
 		namespace = s.k8sCfg.Namespace
 	}
 
-	audiences := s.k8sCfg.ClusterAudiences
+	audiences := s.k8sCfg.SAToken.Audiences
 	if len(audiences) == 0 {
-		audiences = []string{"https://kubernetes.default.svc.cluster.local", "rke2"}
+		audiences = []string{"https://kubernetes.default.svc.cluster.local"}
 	}
 
 	expSec := expirationSeconds
