@@ -25,8 +25,9 @@
             "type": "go",
             "request": "attach",
             "mode": "local",
-            "processId": 0,
-            "showLog": true
+            "processId": 73,
+            "showLog": true,
+            "asRoot": true,
         },
         {
             "name": "Connect to Delve server",
