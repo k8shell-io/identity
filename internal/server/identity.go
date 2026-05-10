@@ -11,6 +11,7 @@ import (
 	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
 	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
+	"github.com/k8shell-io/common/pkg/userstr"
 	"github.com/k8shell-io/common/pkg/utils"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/ssh"
@@ -47,25 +48,27 @@ func NewIdentityService(server *Server) *IdentityService {
 
 // GetUserAccessToken returns the current JWT for the requested user.
 // Kubernetes must be configured; the Secret is the source of truth for the token.
-func (s *IdentityService) GetUserAccessToken(ctx context.Context,
-	req *identityv1.GetUserAccessTokenRequest) (*identityv1.GetUserAccessTokenResponse, error) {
+func (s *IdentityService) IssueUserToken(ctx context.Context,
+	req *identityv1.IssueUserTokenRequest) (*identityv1.IssueUserTokenResponse, error) {
 	if req.Username == "" {
 		return nil, status.Error(codes.InvalidArgument, "username is required")
 	}
 
-	user, _, err := s.server.GetUserByUsername(req.Username)
+	user, err := s.server.GetUserByUsername(req.Username)
 	if err != nil {
 		if errors.Is(err, models.ErrUserNotFound) {
 			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
 		}
-		return nil, propagateOrInternal(err, "failed to get user '%s'", req.Username)
+		return nil, propagateOrInternal(err, "error occurred when getting user '%s': %v", req.Username, err)
 	}
 
-	token, err := s.server.getTokenFromKubernetesSecret(user)
+	token, err := s.server.issueUserToken(user)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get token secret for user '%s'", req.Username)
+		return nil, status.Errorf(codes.Internal, "failed to issue token for user '%s': %v",
+			req.Username, err)
 	}
-	return &identityv1.GetUserAccessTokenResponse{AccessToken: token}, nil
+
+	return &identityv1.IssueUserTokenResponse{UserToken: token}, nil
 }
 
 // GetUsers retrieves users with pagination support.
@@ -109,7 +112,7 @@ func (s *IdentityService) FindUser(ctx context.Context, req *identityv1.FindUser
 	}
 
 	if req.Username != "" {
-		user, _, err := s.server.GetUserByUsername(req.Username)
+		user, err := s.server.GetUserByUsername(req.Username)
 		if err != nil {
 			if errors.Is(err, models.ErrUserNotFound) {
 				return nil, status.Error(codes.NotFound, "user not found")
@@ -142,7 +145,7 @@ func (s *IdentityService) FindUser(ctx context.Context, req *identityv1.FindUser
 func (s *IdentityService) AuthUserPublicKey(ctx context.Context,
 	req *identityv1.AuthUserPublicKeyRequest) (*identityv1.AuthUserResponse, error) {
 
-	user, _, err := s.server.GetUserByUsername(req.Username)
+	user, err := s.server.GetUserByUsername(req.Username)
 	if err != nil && !errors.Is(err, models.ErrUserNotFound) {
 		return nil, propagateOrInternal(err, "error occured when finding user '%s': %s",
 			req.Username, err.Error())
@@ -259,15 +262,15 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 		return nil, propagateOrInternal(err, "failed to complete web flow for provider '%s': %v", provider, err)
 	}
 
-	user, _, err := s.server.GetUserByUsername(username.GetUsername())
+	user, err := s.server.GetUserByUsername(username.GetUsername())
 	if err != nil {
 		return nil, propagateOrInternal(err, "failed to get user '%s' after completing web flow for provider '%s': %v",
 			username.GetUsername(), provider, err)
 	}
 
-	token, err := s.server.getTokenFromKubernetesSecret(user)
+	token, err := s.server.issueUserToken(user)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to read token secret for user '%s'", user.Username)
+		return nil, status.Errorf(codes.Internal, "failed to issue token for user '%s'", user.Username)
 	}
 
 	if s.server.DB != nil {
@@ -305,26 +308,26 @@ func (s *IdentityService) CompleteUserDeviceFlow(ctx context.Context,
 func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context,
 	req *identityv1.UserStr) (*identityv1.Blueprint, error) {
 
-	userStr, err := models.NewUserStr(req.Userstr, false)
+	userStr, err := userstr.ParseUserStr(req.Userstr)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid user string: %v", err)
 	}
 
-	user, _, err := s.server.GetUserByUsername(userStr.Username)
+	user, err := s.server.GetUserByUsername(userStr.Username())
 	if err != nil {
-		return nil, propagateOrInternal(err, "error occurred when getting user '%s': %v", userStr.Username, err)
+		return nil, propagateOrInternal(err, "error occurred when getting user '%s': %v", userStr.Username(), err)
 	}
 
 	provider, ok := s.server.providerByName(user.Source)
 	if !ok {
-		return nil, status.Errorf(codes.NotFound, "no suitable identity provider found for user '%s'", userStr.Username)
+		return nil, status.Errorf(codes.NotFound, "no suitable identity provider found for user '%s'", userStr.Username())
 	}
 	blueprintpb, err := provider.GetBlueprintByUserStr(context.Background(), &identityv1.UserStr{
-		Userstr: userStr.Raw,
+		Userstr: userStr.Raw(),
 	})
 	if err != nil {
 		return nil, propagateOrInternal(err, "failed to get custom blueprint for '%s' with provider '%s': %v",
-			userStr.Username, provider.Name(), err)
+			userStr.Username(), provider.Name(), err)
 	}
 	return blueprintpb, nil
 }
@@ -333,7 +336,7 @@ func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context,
 func (s *IdentityService) ResolvePullRequestToRef(ctx context.Context,
 	req *identityv1.RepoPullRequestRequest) (*identityv1.RepoRefResponse, error) {
 
-	user, _, err := s.server.GetUserByUsername(req.Username)
+	user, err := s.server.GetUserByUsername(req.Username)
 	if err != nil {
 		return nil, propagateOrInternal(err, "error occurred when getting user '%s': %v", req.Username, err)
 	}
@@ -362,7 +365,7 @@ func (s *IdentityService) ListUserCredentials(ctx context.Context,
 		return nil, status.Errorf(codes.Unavailable, "database is not configured, cannot retrieve user credentials")
 	}
 
-	_, _, err := s.server.GetUserByUsername(req.Username)
+	_, err := s.server.GetUserByUsername(req.Username)
 	if err != nil {
 		if errors.Is(err, models.ErrUserNotFound) {
 			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)

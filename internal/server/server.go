@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"sync"
-	"sync/atomic"
 
 	"github.com/k8shell-io/common/pkg/api/client/identity"
 	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
@@ -62,20 +61,6 @@ type Server struct {
 	// k8sCfg holds the resolved Kubernetes configuration.
 	k8sCfg KubernetesConfig
 
-	// tokenCache tracks expiry times for issued tokens keyed by username.
-	// Used so that ensureToken can skip re-issuing a token that is still valid.
-	// The token string itself is never held in memory; Kubernetes Secrets are
-	// the source of truth.
-	tokenCache sync.Map // map[string]time.Time
-
-	// refreshNow can be sent to in order to trigger an immediate token-refresh
-	// cycle without waiting for the next scheduled ticker tick.
-	refreshNow chan struct{}
-
-	// isLeader is 1 while this instance holds the Kubernetes Lease used to
-	// coordinate the no-DB token refresh loop, 0 otherwise.
-	isLeader atomic.Int32
-
 	// providerMu guards IdentityProviders and pendingProviderCfgs.
 	providerMu sync.RWMutex
 
@@ -93,8 +78,7 @@ type Server struct {
 // identity providers.
 func NewServer(configFile string) (*Server, error) {
 	server := &Server{
-		log:        log.NewLogger("server"),
-		refreshNow: make(chan struct{}, 1),
+		log: log.NewLogger("server"),
 	}
 
 	server.log.Info().Msgf("Loading server configuration from %s", configFile)
@@ -152,11 +136,10 @@ func NewServer(configFile string) (*Server, error) {
 	server.k8sCfg = config.Kubernetes
 	server.k8sClient, err = initKubernetesClient()
 	if err != nil {
-		server.log.Warn().Err(err).Msg("failed to initialize Kubernetes client; token secret management will be disabled")
+		server.log.Warn().Err(err).Msg("failed to initialize Kubernetes client")
 		server.k8sClient = nil
 	} else {
-		server.log.Info().Msgf("Kubernetes client initialized; token secrets will be written to namespace '%s'",
-			config.Kubernetes.Namespace)
+		server.log.Info().Msgf("Kubernetes client initialized.")
 	}
 
 	server.grpc, err = gapi.NewServer(&config.GrpcConfig, true)
@@ -189,7 +172,6 @@ func (s *Server) Serve() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	s.startTokenRefreshLoop(ctx)
 	s.startProviderRetryLoop(ctx)
 
 	errChan := make(chan error, 1)
@@ -232,7 +214,7 @@ func (s *Server) getLocalUsers() []*models.User {
 
 // refreshUser refreshes user data from configured identity providers when the
 // user is missing, expired, or invalid.
-func (s *Server) refreshUser(username string, user *models.User) (*models.User, bool, error) {
+func (s *Server) refreshUser(username string, user *models.User) (*models.User, error) {
 	if user == nil || time.Now().After(user.ExpiresAt) || !user.IsValid {
 		var foundUser *models.User
 		source := ""
@@ -247,7 +229,7 @@ func (s *Server) refreshUser(username string, user *models.User) (*models.User, 
 			if err != nil {
 				switch status.Code(err) {
 				case codes.PermissionDenied, codes.Unauthenticated:
-					return nil, false, err
+					return nil, err
 				}
 				s.log.Warn().Msgf("Failed to look up user '%s' via provider '%s': %v", username, provider.Name(), err)
 				continue
@@ -273,7 +255,7 @@ func (s *Server) refreshUser(username string, user *models.User) (*models.User, 
 			if createUser {
 				err := s.DB.CreateUser(foundUser)
 				if err != nil {
-					return nil, false, fmt.Errorf("failed to create user '%s' in database: %w", username, err)
+					return nil, fmt.Errorf("failed to create user '%s' in database: %w", username, err)
 				}
 			} else if updateUser {
 				foundUser.Shell = user.Shell
@@ -281,17 +263,11 @@ func (s *Server) refreshUser(username string, user *models.User) (*models.User, 
 				foundUser.Locked = user.Locked
 				err := s.DB.UpdateUser(foundUser)
 				if err != nil {
-					return nil, false, fmt.Errorf("failed to update user '%s' in database: %w", username, err)
+					return nil, fmt.Errorf("failed to update user '%s' in database: %w", username, err)
 				}
 			}
 
-			user = foundUser
-			refreshed, _, err := s.ensureToken(user, true)
-			if err != nil {
-				s.log.Error().Err(err).Msgf("failed to ensure token for new user '%s'", username)
-			}
-
-			return user, refreshed, nil
+			return user, nil
 
 		}
 
@@ -299,58 +275,67 @@ func (s *Server) refreshUser(username string, user *models.User) (*models.User, 
 			user.IsValid = false
 			err := s.DB.UpdateUser(user)
 			if err != nil {
-				return nil, false, fmt.Errorf("failed to mark user '%s' as invalid in database: %w", username, err)
+				return nil, fmt.Errorf("failed to mark user '%s' as invalid in database: %w", username, err)
 			}
 			s.log.Warn().Msgf("User '%s' marked as invalid because it could not be found in any provider", username)
-			return user, false, nil
+			return user, nil
 		}
 	}
 
-	return user, false, nil
+	return user, nil
+}
+
+// issueUserToken issues a JWT for the user
+func (s *Server) issueUserToken(user *models.User) (string, error) {
+	if s.JWT == nil {
+		return "", fmt.Errorf("JWT issuer not configured")
+	}
+
+	claims, token, err := s.JWT.IssueToken(user)
+	if err != nil {
+		return "", fmt.Errorf("issue JWT for user '%s': %w", user.Username, err)
+	}
+
+	s.log.Debug().Msgf("issued new token for user '%s', expires at %s", user.Username, claims.ExpiresAt.Format(time.RFC3339))
+	return token, nil
 }
 
 // GetUserByUsername retrieves a user by username from the database.
 // It refreshes the user data when needed by querying configured identity providers.
-func (s *Server) GetUserByUsername(username string) (*models.User, bool, error) {
+func (s *Server) GetUserByUsername(username string) (*models.User, error) {
 	if s.DB == nil {
 		for _, user := range s.getLocalUsers() {
 			if user.Username == username {
-				if refreshed, _, err := s.ensureToken(user, false); err != nil {
-					s.log.Error().Err(err).Msgf("failed to ensure token for user '%s'", username)
-				} else if refreshed {
-					return user, true, nil
-				}
-				return user, false, nil
+				return user, nil
 			}
 		}
-		return nil, false, fmt.Errorf("user '%s' not found: %w", username, models.ErrUserNotFound)
+		return nil, fmt.Errorf("user '%s' not found: %w", username, models.ErrUserNotFound)
 	}
 
 	user, err := s.DB.FindUser(username)
 	if err != nil && !errors.Is(err, models.ErrUserNotFound) {
-		return nil, false, fmt.Errorf("error occured when finding user '%s': %w", username, err)
+		return nil, fmt.Errorf("error occured when finding user '%s': %w", username, err)
 	}
 
 	// refresh user in the database
-	var refreshed bool
-	user, refreshed, err = s.refreshUser(username, user)
+	user, err = s.refreshUser(username, user)
 	if err != nil {
 		switch status.Code(err) {
 		case codes.PermissionDenied, codes.Unauthenticated:
-			return nil, false, err
+			return nil, err
 		}
-		return nil, false, fmt.Errorf("error occured when refreshing user '%s': %w", username, err)
+		return nil, fmt.Errorf("error occured when refreshing user '%s': %w", username, err)
 	}
 
 	if user == nil {
-		return nil, false, fmt.Errorf("user '%s' not found: %w", username, models.ErrUserNotFound)
+		return nil, fmt.Errorf("user '%s' not found: %w", username, models.ErrUserNotFound)
 	}
 
 	if !user.IsValid {
-		return nil, false, fmt.Errorf("user '%s' is not valid: %w", username, models.ErrUserIsNotValid)
+		return nil, fmt.Errorf("user '%s' is not valid: %w", username, models.ErrUserIsNotValid)
 	}
 
-	return user, refreshed, nil
+	return user, nil
 }
 
 // GetUserByAccessToken retrieves a user by verifying the provided JWT access token.
@@ -376,8 +361,7 @@ func (s *Server) GetUserByAccessToken(token string) (*models.User, error) {
 		return nil, fmt.Errorf("user '%s' not found: %w", claims.Subject, models.ErrUserNotFound)
 	}
 
-	// DB path: match JTI against current_token_id to support revocation.
-	user, err := s.DB.FindUserByTokenID(context.Background(), claims.ID)
+	user, err := s.DB.FindUserByUsernameAndSource(context.Background(), claims.Subject, claims.Source)
 	if err != nil {
 		return nil, fmt.Errorf("token not recognized: %w", err)
 	}

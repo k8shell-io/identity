@@ -40,11 +40,6 @@ CREATE TABLE identity.users (
     source         varchar,                      -- owning identity provider name
     roles          character varying[],          -- RBAC roles
     blueprints     character varying[],          -- available k8shell blueprints
-
-    -- JWT token refresh coordination
-    current_token_id            TEXT,            -- JTI of the last issued JWT
-    token_expires_at            TIMESTAMPTZ,     -- expiry of current_token_id
-    token_refresh_claimed_until TIMESTAMPTZ      -- refresh lease expiry
 );
 
 -- Speeds up the background token-refresh loop (finds near-expiry tokens).

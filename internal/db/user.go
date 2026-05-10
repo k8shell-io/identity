@@ -54,21 +54,18 @@ func (d *DB) FindUser(username string) (*models.User, error) {
 	return &user, nil
 }
 
-// FindUserByTokenID looks up a user by the JTI stored in current_token_id.
-// Only returns a user if the token has not yet expired, enabling revocation
-// by overwriting current_token_id on re-issuance.
-func (d *DB) FindUserByTokenID(ctx context.Context, tokenID string) (*models.User, error) {
+// FindUserByUsernameAndSource retrieves a user by username and source.
+func (d *DB) FindUserByUsernameAndSource(ctx context.Context, username string, source string) (*models.User, error) {
 	query := `
 		SELECT username, is_valid, expires_at, uid, gid, fullname,
 		       email, COALESCE(password, '') AS password, shell, sudo, locked,
 		       auths, auth_keys, roles, blueprints, source, organization
 		FROM identity.users
-		WHERE current_token_id=$1
-		  AND token_expires_at > NOW()
+		WHERE username=$1 and source=$2
 	`
 
 	var user models.User
-	err := d.Pool.QueryRow(ctx, query, tokenID).Scan(
+	err := d.Pool.QueryRow(ctx, query, username, source).Scan(
 		&user.Username,
 		&user.IsValid,
 		&user.ExpiresAt,
