@@ -42,10 +42,6 @@ CREATE TABLE identity.users (
     blueprints     character varying[],          -- available k8shell blueprints
 );
 
--- Speeds up the background token-refresh loop (finds near-expiry tokens).
-CREATE INDEX idx_users_token_expires_at ON identity.users (token_expires_at)
-    WHERE token_expires_at IS NOT NULL;
-
 -- user_credentials stores credentials for external services.
 -- credential_source controls how the secret is resolved at request time
 -- values are: stored, kubernetes, or a named identity provider for dynamic git credentials.
