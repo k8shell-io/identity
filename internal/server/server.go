@@ -214,10 +214,9 @@ func (s *Server) getLocalUsers() []*models.User {
 
 // refreshUser refreshes user data from configured identity providers when the
 // user is missing, expired, or invalid.
-func (s *Server) refreshUser(username string, user *models.User) (*models.User, error) {
+func (s *Server) refreshUser(username string, source string, user *models.User) (*models.User, error) {
 	if user == nil || time.Now().After(user.ExpiresAt) || !user.IsValid {
 		var foundUser *models.User
-		source := ""
 		if user != nil {
 			source = user.Source
 		}
@@ -302,7 +301,7 @@ func (s *Server) issueUserToken(user *models.User) (string, error) {
 
 // GetUserByUsername retrieves a user by username from the database.
 // It refreshes the user data when needed by querying configured identity providers.
-func (s *Server) GetUserByUsername(username string) (*models.User, error) {
+func (s *Server) GetUserByUsername(username string, source string) (*models.User, error) {
 	if s.DB == nil {
 		for _, user := range s.getLocalUsers() {
 			if user.Username == username {
@@ -312,13 +311,13 @@ func (s *Server) GetUserByUsername(username string) (*models.User, error) {
 		return nil, fmt.Errorf("user '%s' not found: %w", username, models.ErrUserNotFound)
 	}
 
-	user, err := s.DB.FindUser(username)
+	user, err := s.DB.FindUser(username, source)
 	if err != nil && !errors.Is(err, models.ErrUserNotFound) {
 		return nil, fmt.Errorf("error occured when finding user '%s': %w", username, err)
 	}
 
 	// refresh user in the database
-	user, err = s.refreshUser(username, user)
+	user, err = s.refreshUser(username, source, user)
 	if err != nil {
 		switch status.Code(err) {
 		case codes.PermissionDenied, codes.Unauthenticated:

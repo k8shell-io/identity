@@ -54,7 +54,7 @@ func (s *IdentityService) IssueUserToken(ctx context.Context,
 		return nil, status.Error(codes.InvalidArgument, "username is required")
 	}
 
-	user, err := s.server.GetUserByUsername(req.Username)
+	user, err := s.server.GetUserByUsername(req.Username, req.Source)
 	if err != nil {
 		if errors.Is(err, models.ErrUserNotFound) {
 			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
@@ -112,7 +112,7 @@ func (s *IdentityService) FindUser(ctx context.Context, req *identityv1.FindUser
 	}
 
 	if req.Username != "" {
-		user, err := s.server.GetUserByUsername(req.Username)
+		user, err := s.server.GetUserByUsername(req.Username, "")
 		if err != nil {
 			if errors.Is(err, models.ErrUserNotFound) {
 				return nil, status.Error(codes.NotFound, "user not found")
@@ -145,7 +145,7 @@ func (s *IdentityService) FindUser(ctx context.Context, req *identityv1.FindUser
 func (s *IdentityService) AuthUserPublicKey(ctx context.Context,
 	req *identityv1.AuthUserPublicKeyRequest) (*identityv1.AuthUserResponse, error) {
 
-	user, err := s.server.GetUserByUsername(req.Username)
+	user, err := s.server.GetUserByUsername(req.Username, "")
 	if err != nil && !errors.Is(err, models.ErrUserNotFound) {
 		return nil, propagateOrInternal(err, "error occured when finding user '%s': %s",
 			req.Username, err.Error())
@@ -262,7 +262,7 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 		return nil, propagateOrInternal(err, "failed to complete web flow for provider '%s': %v", provider, err)
 	}
 
-	user, err := s.server.GetUserByUsername(username.GetUsername())
+	user, err := s.server.GetUserByUsername(username.GetUsername(), provider)
 	if err != nil {
 		return nil, propagateOrInternal(err, "failed to get user '%s' after completing web flow for provider '%s': %v",
 			username.GetUsername(), provider, err)
@@ -313,7 +313,7 @@ func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context,
 		return nil, status.Errorf(codes.InvalidArgument, "invalid user string: %v", err)
 	}
 
-	user, err := s.server.GetUserByUsername(userStr.Username())
+	user, err := s.server.GetUserByUsername(userStr.Username(), "")
 	if err != nil {
 		return nil, propagateOrInternal(err, "error occurred when getting user '%s': %v", userStr.Username(), err)
 	}
@@ -332,32 +332,6 @@ func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context,
 	return blueprintpb, nil
 }
 
-// ResolvePullRequestToRef resolves a repository pull request to its reference.
-func (s *IdentityService) ResolvePullRequestToRef(ctx context.Context,
-	req *identityv1.RepoPullRequestRequest) (*identityv1.RepoRefResponse, error) {
-
-	user, err := s.server.GetUserByUsername(req.Username)
-	if err != nil {
-		return nil, propagateOrInternal(err, "error occurred when getting user '%s': %v", req.Username, err)
-	}
-
-	provider, ok := s.server.providerByName(user.Source)
-	if !ok {
-		return nil, status.Errorf(codes.NotFound, "no suitable identity provider found for user '%s'", req.Username)
-	}
-	repoRef, err := provider.ResolvePullRequestToRef(context.Background(), &identityv1.RepoPullRequestRequest{
-		Username:          req.Username,
-		RepoOwner:         req.RepoOwner,
-		RepoName:          req.RepoName,
-		PullRequestNumber: int32(req.PullRequestNumber),
-	})
-	if err != nil {
-		return nil, propagateOrInternal(err, "failed to resolve pull request to ref for '%s' with provider '%s': %v",
-			req.Username, provider.Name(), err)
-	}
-	return repoRef, nil
-}
-
 // ListUserCredentials returns all stored credentials for a user.
 func (s *IdentityService) ListUserCredentials(ctx context.Context,
 	req *identityv1.Username) (*identityv1.ListUserCredentialsResponse, error) {
@@ -365,7 +339,7 @@ func (s *IdentityService) ListUserCredentials(ctx context.Context,
 		return nil, status.Errorf(codes.Unavailable, "database is not configured, cannot retrieve user credentials")
 	}
 
-	_, err := s.server.GetUserByUsername(req.Username)
+	_, err := s.server.GetUserByUsername(req.Username, "")
 	if err != nil {
 		if errors.Is(err, models.ErrUserNotFound) {
 			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)

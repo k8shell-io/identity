@@ -15,18 +15,34 @@ import (
 	"github.com/k8shell-io/common/pkg/models"
 )
 
-// FindUser retrieves a user by username.
-func (d *DB) FindUser(username string) (*models.User, error) {
-	query := `
-		SELECT username, is_valid, expires_at, uid, gid, fullname,
-		       email, password, shell, sudo, locked,
-		       auths, auth_keys, roles, blueprints, source, organization
-		FROM identity.users
-		WHERE username=$1
-	`
+// FindUser retrieves a user by username. If source is empty, the search is not filtered by source.
+func (d *DB) FindUser(username string, source string) (*models.User, error) {
+	var (
+		query string
+		args  []any
+	)
+	if source == "" {
+		query = `
+			SELECT username, is_valid, expires_at, uid, gid, fullname,
+			       email, password, shell, sudo, locked,
+			       auths, auth_keys, roles, blueprints, source, organization
+			FROM identity.users
+			WHERE username=$1
+		`
+		args = []any{username}
+	} else {
+		query = `
+			SELECT username, is_valid, expires_at, uid, gid, fullname,
+			       email, password, shell, sudo, locked,
+			       auths, auth_keys, roles, blueprints, source, organization
+			FROM identity.users
+			WHERE username=$1 AND source=$2
+		`
+		args = []any{username, source}
+	}
 
 	var user models.User
-	err := d.Pool.QueryRow(context.Background(), query, username).Scan(
+	err := d.Pool.QueryRow(context.Background(), query, args...).Scan(
 		&user.Username,
 		&user.IsValid,
 		&user.ExpiresAt,
