@@ -39,7 +39,7 @@ CREATE TABLE identity.users (
     -- provider metadata
     source         varchar,                      -- owning identity provider name
     roles          character varying[],          -- RBAC roles
-    blueprints     character varying[],          -- available k8shell blueprints
+    blueprints     character varying[]           -- available k8shell blueprints
 );
 
 -- user_credentials stores credentials for external services.
