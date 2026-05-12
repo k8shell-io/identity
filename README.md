@@ -2,7 +2,7 @@
 
 [![Self-Tests](https://github.com/k8shell-io/identity/actions/workflows/self-tests.yaml/badge.svg)](https://github.com/k8shell-io/identity/actions/workflows/self-tests.yaml)
 
-The k8Shell Identity service. Manages user identities, authenticates users via SSH public key or password, issues JWTs, and stores per-user tokens as Kubernetes Secrets so other k8shell components can verify access without hitting the database.
+The k8Shell Identity service. Manages user identities, authenticates users via SSH public key or password, issues JWTs, and provides on-demand Kubernetes service-account tokens via the TokenRequest API.
 
 ## Concepts
 
@@ -17,42 +17,11 @@ Identity is built around pluggable providers. A provider is the source of truth 
 
 ### JWT token lifecycle
 
-On login the service issues a JWT and stores:
-- The JTI (`current_token_id`) and expiry in Postgres (when DB is configured).
-- The token string in a Kubernetes Secret named `identity-token-<username>`.
+On login the service issues a signed JWT for the authenticated user. Tokens are issued on demand — there is no background refresh loop and no token state is stored.
 
-#### Background refresh
+### Kubernetes service-account tokens
 
-A background loop continuously re-issues tokens for users whose tokens are near expiry. The coordination mechanism depends on whether a database is available:
-
-**DB path** (`db.enabled: true`)
-
-All instances run the refresh loop independently. Coordination uses `SELECT FOR UPDATE SKIP LOCKED` on the `identity.users` table:
-1. Each instance atomically claims a batch of users whose `token_expires_at < now + lookahead` and writes a short-lived `token_refresh_claimed_until` lease.
-2. Only the claiming instance processes each user - others skip locked rows.
-3. On success, `current_token_id` and `token_expires_at` are updated and the claim is cleared.
-
-This spreads refresh work across all instances with no coordination overhead beyond Postgres.
-
-**No-DB path** (file provider only)
-
-To prevent multiple instances from simultaneously issuing different tokens for the same user, exactly one instance runs the refresh loop at a time using a **Kubernetes Lease** (leader election). The below are default values:
-
-- `LeaseDuration`: 60s — how long a lease is valid.
-- `RenewDeadline`: 30s — how long the leader tries to renew before giving up.
-- `RetryPeriod`: 5s — how often non-leaders attempt to acquire the lease.
-
-If the leader crashes (without graceful shutdown), the lease expires in up to ~65s before a new leader is elected.
-
-#### On-demand handling (missing secret)
-
-When a client requests a token and the Kubernetes Secret does not exist (e.g. manually deleted), the service recovers without waiting for the next scheduled tick:
-
-| Situation | Behaviour |
-|---|---|
-| **DB path** | Marks `token_expires_at = NOW()` in DB (clears any claim), evicts local cache, triggers immediate refresh cycle on this instance. Polls the Secret for up to 1s. |
-| **No-DB path — leader** | Issues and stores the token immediately. |
-| **No-DB path — non-leader** | Evicts local cache and returns an error. The token will be refreshed by a leader instance on the next tick. |
+The identity service acts as a credential helper for k8shell workspace components that need to authenticate to Kubernetes. When a credential with source `kubernetes` is resolved, the service issues a fresh, short-lived bound service-account token on demand via the Kubernetes TokenRequest API. No token is stored — every request results in a new token issued directly from the cluster. The token TTL is controlled by `kubernetes.saToken.ttl` in the service configuration.
 
 ### gRPC API
 
@@ -65,10 +34,10 @@ The service defines two gRPC interfaces defined in a separate common repository 
 
 ```
 internal/
-  db/          # Postgres access (users, external credentials, token refresh)
+  db/          # Postgres access (users, external credentials)
   providers/
     file/      # File-backed identity provider
-  server/      # gRPC server, JWT issuance, Kubernetes secret management
+  server/      # gRPC server, JWT issuance, Kubernetes SA token issuance
 db/migrations/ # SQL migrations (golang-migrate)
 config/        # Example configuration and user files
 docker/        # Dockerfile (alpine + distroless stages)
