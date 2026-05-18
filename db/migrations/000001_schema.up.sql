@@ -39,37 +39,63 @@ CREATE TABLE identity.users (
     -- provider metadata
     source         varchar,                      -- owning identity provider name
     roles          character varying[],          -- RBAC roles
-    blueprints     character varying[],          -- available k8shell blueprints
-
-    -- JWT token refresh coordination
-    current_token_id            TEXT,            -- JTI of the last issued JWT
-    token_expires_at            TIMESTAMPTZ,     -- expiry of current_token_id
-    token_refresh_claimed_until TIMESTAMPTZ      -- refresh lease expiry
+    blueprints     character varying[]           -- available k8shell blueprints
 );
 
--- Speeds up the background token-refresh loop (finds near-expiry tokens).
-CREATE INDEX idx_users_token_expires_at ON identity.users (token_expires_at)
-    WHERE token_expires_at IS NOT NULL;
+-- user_credentials stores credentials for external services.
+-- credential_source controls how the secret is resolved at request time
+-- values are: stored, kubernetes, or a named identity provider for dynamic git credentials.
+CREATE TABLE identity.user_credentials (
+    id                SERIAL PRIMARY KEY,
+    username          VARCHAR     NOT NULL REFERENCES identity.users(username) ON DELETE CASCADE,
 
--- external_credentials stores credentials for external services (e.g. Docker).
--- A user may have multiple credentials, but only one per service URL
-CREATE TABLE identity.external_credentials (
-    id             SERIAL PRIMARY KEY,
-    username       VARCHAR     NOT NULL REFERENCES identity.users(username) ON DELETE CASCADE,
-    service_name   VARCHAR     NOT NULL,
-    service_url    VARCHAR     NOT NULL,  -- base URL of the external service
-    external_id    VARCHAR     NOT NULL,  -- user identifier on the external service
-    external_token VARCHAR     NOT NULL,  -- OAuth or API token
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    is_active      BOOLEAN     NOT NULL DEFAULT TRUE,
+    -- service identification
+    service_name      VARCHAR     NOT NULL,  -- one of: 'registry', 'git', 'kubernetes'
+    service_scope     VARCHAR     NOT NULL,  -- registry/git URL (static); namespace (k8s); provider URL (git dynamic)
 
-    UNIQUE(username, service_url)
+    -- credential subject identifies the principal for which the credential is valid 
+    subject           VARCHAR     NOT NULL,  -- login name (static) or service account name (k8s)
+
+    -- how to resolve the secret at request time
+    credential_source VARCHAR     NOT NULL DEFAULT 'stored',
+                                            -- 'stored' | 'kubernetes' | <idp-name>
+
+    -- stored secret — NULL for dynamic credentials
+    secret            VARCHAR,               -- OAuth token, API key, password; NULL = dynamic
+
+    -- lifecycle
+    is_active         BOOLEAN     NOT NULL DEFAULT TRUE,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    -- a user may have at most one credential per (service, scope, identity) tuple
+    UNIQUE (username, service_name, service_scope, subject),
+
+    -- only known service types are accepted
+    CONSTRAINT chk_service_name
+        CHECK (service_name IN ('registry', 'git', 'kubernetes')),
+
+    -- secret must be present for stored credentials and absent for dynamic ones
+    CONSTRAINT chk_credential_source_secret
+        CHECK (
+            (credential_source = 'stored'  AND secret IS NOT NULL)
+            OR
+            (credential_source != 'stored' AND secret IS NULL)
+        ),
+
+    -- kubernetes rows must always be dynamic via TokenRequest
+    CONSTRAINT chk_kubernetes_credential_source
+        CHECK (service_name != 'kubernetes' OR credential_source = 'kubernetes'),
+
+    -- registry rows must always be static
+    CONSTRAINT chk_registry_credential_source
+        CHECK (service_name != 'registry' OR credential_source = 'stored')
 );
 
-CREATE INDEX idx_external_creds_username ON identity.external_credentials (username);
-CREATE INDEX idx_external_creds_service  ON identity.external_credentials (service_name);
+CREATE INDEX idx_user_creds_username ON identity.user_credentials (username);
+CREATE INDEX idx_user_creds_service  ON identity.user_credentials (service_name);
 
 -- Seed the built-in organizations.
 INSERT INTO identity.organizations (name, description) VALUES
     ('default', 'Default organization');
+

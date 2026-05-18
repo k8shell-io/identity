@@ -76,7 +76,21 @@ jwtIssuer:
 # ensures only one identity instance runs the refresh loop.
 kubernetes:
   namespace: workspaces-test
-  leaseName: identity-token-refresh
-  refreshInterval: 1m
-  refreshLookahead: 2m
+
+  # lease configures distributed leader election for the JWT token refresh loop.
+  lease:
+    name: identity-token-refresh
+    refreshInterval: 1m
+    refreshLookahead: 2m
+
+  # saToken configures on-demand service-account token issuance via the
+  # Kubernetes TokenRequest API.
+  saToken:
+    # enabled: false to disable GetUserCredential for kubernetes service accounts.
+    enabled: true
+    # ttl is the requested token lifetime (min 10m, Kubernetes enforced).
+    ttl: 1h
+    # audiences embedded in issued tokens.
+    audiences:
+      - https://kubernetes.default.svc.cluster.local
 
