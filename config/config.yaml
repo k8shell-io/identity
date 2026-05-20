@@ -68,21 +68,8 @@ jwtIssuer:
   signingMethod: es256
   privateKeyFile: ${SECRET_FILES}/test-jwt-private-key.pem
 
-# Kubernetes secret management for user tokens.
-# Issued JWTs are written to per-user Secrets named
-# "identity-token-<username>" in <namespace>.
-# When db is configured, distributed refresh uses SELECT FOR UPDATE SKIP LOCKED.
-# When db is disabled (file-provider only), Kubernetes Lease leader election
-# ensures only one identity instance runs the refresh loop.
+# Kubernetes integration configuration
 kubernetes:
-  namespace: workspaces-test
-
-  # lease configures distributed leader election for the JWT token refresh loop.
-  lease:
-    name: identity-token-refresh
-    refreshInterval: 1m
-    refreshLookahead: 2m
-
   # saToken configures on-demand service-account token issuance via the
   # Kubernetes TokenRequest API.
   saToken:

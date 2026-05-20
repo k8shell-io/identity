@@ -53,7 +53,7 @@ func (s *Server) issueKubernetesServiceAccountToken(ctx context.Context, namespa
 		return "", time.Time{}, fmt.Errorf("kubernetes client not configured")
 	}
 	if namespace == "" {
-		namespace = s.k8sCfg.Namespace
+		return "", time.Time{}, fmt.Errorf("namespace must be specified for service account token issuance")
 	}
 
 	audiences := s.k8sCfg.SAToken.Audiences

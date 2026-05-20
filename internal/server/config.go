@@ -17,21 +17,6 @@ import (
 	"github.com/k8shell-io/identity/internal/providers/file"
 )
 
-// KubernetesLeaseConfig controls distributed leader election for the JWT
-// token refresh loop (used when the database is not configured).
-type KubernetesLeaseConfig struct {
-	// Name is the Lease object name. Defaults to "identity-token-refresh".
-	Name string `yaml:"name" validate:"omitempty,min=1,max=253"`
-
-	// RefreshInterval is how often the background loop checks for near-expiry
-	// tokens. Defaults to 15 minutes.
-	RefreshInterval time.Duration `yaml:"refreshInterval" validate:"omitempty,gt=0"`
-
-	// RefreshLookahead is the remaining-lifetime threshold below which a token
-	// is considered due for renewal. Defaults to 20 minutes.
-	RefreshLookahead time.Duration `yaml:"refreshLookahead" validate:"omitempty,gt=0"`
-}
-
 // KubernetesSATokenConfig controls on-demand service-account token issuance
 // via the Kubernetes TokenRequest API.
 type KubernetesSATokenConfig struct {
@@ -50,12 +35,6 @@ type KubernetesSATokenConfig struct {
 // KubernetesConfig contains configuration for Kubernetes secret management
 // and distributed leader election.
 type KubernetesConfig struct {
-	// Namespace is the Kubernetes namespace where user token secrets are created.
-	Namespace string `yaml:"namespace" validate:"required,min=1,max=63"`
-
-	// Lease configures distributed leader election for the token refresh loop.
-	Lease KubernetesLeaseConfig `yaml:"lease"`
-
 	// SAToken configures on-demand service-account token issuance.
 	SAToken KubernetesSATokenConfig `yaml:"saToken"`
 }
