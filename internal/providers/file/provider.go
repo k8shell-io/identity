@@ -335,10 +335,10 @@ func (f *FileUserProvider) AuthUserPublicKey(ctx context.Context, in *identityv1
 	return &identityv1.AuthUserResponse{Valid: false}, nil
 }
 
-// GetUserToken returns a provider token for the user.
-func (f *FileUserProvider) GetUserToken(ctx context.Context, in *identityv1.Username,
+// GetUserGitToken returns a git provider token for the user.
+func (f *FileUserProvider) GetUserGitToken(ctx context.Context, in *identityv1.Username,
 	opts ...grpc.CallOption) (*identityv1.UserToken, error) {
-	return nil, status.Errorf(codes.Unimplemented, "file user provider does not support user tokens")
+	return nil, status.Errorf(codes.Unimplemented, "file user provider does not support git tokens")
 }
 
 // GetBlueprintByUserStr returns a blueprint for the provided user string.
