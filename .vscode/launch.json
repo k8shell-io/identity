@@ -25,17 +25,30 @@
             "type": "go",
             "request": "attach",
             "mode": "local",
-            "processId": 0,
-            "showLog": true
+            "processId": 3502,
+            "showLog": true,
+            "asRoot": true,
+            "substitutePath": [
+                {
+                    "from": "${workspaceFolder}",
+                    "to": "/go/src/identity"
+                }
+            ]
         },
         {
             "name": "Connect to Delve server",
             "type": "go",
             "request": "attach",
             "mode": "remote",
-            "remotePath": "${workspaceFolder}",
+            "remotePath": "/home/bruckins/identity",
             "port": 2345,
-            "host": "127.0.0.1"
+            "host": "127.0.0.1",
+            "substitutePath": [
+                {
+                    "from": "${workspaceFolder}",
+                    "to": "/go/src/identity"
+                }
+            ]
         }
     ]
 }

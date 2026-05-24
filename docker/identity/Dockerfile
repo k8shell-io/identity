@@ -28,9 +28,13 @@ COPY db ./db
 
 ENV GOFLAGS="-mod=vendor"
 
-RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.VERSION=$VERSION -X main.COMMIT=$COMMIT_ID" \
-    -o /go/bin/identity main.go
+# RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.VERSION=$VERSION -X main.COMMIT=$COMMIT_ID" \
+#     -o /go/bin/identity main.go
 
+RUN CGO_ENABLED=0 go build -gcflags="all=-N -l" \
+    -ldflags="-X main.VERSION=$VERSION -X main.COMMIT=$COMMIT_ID" \
+    -o /go/bin/identity main.go
+    
 # -- Runtime stage (Alpine) ----------------------------------------------------
 # Default runtime: minimal Alpine image with a shell and basic tools, useful
 # for debugging. The db/ directory is included so the service can run database
