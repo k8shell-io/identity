@@ -1,6 +1,5 @@
 # identity
 
-[![CI](https://github.com/k8shell-io/identity/actions/workflows/ci.yaml/badge.svg)](https://github.com/k8shell-io/identity/actions/workflows/ci.yaml)
 [![Build](https://github.com/k8shell-io/identity/actions/workflows/build.yaml/badge.svg)](https://github.com/k8shell-io/identity/actions/workflows/build.yaml)
 
 The k8Shell Identity service. Manages user identities, authenticates users via SSH public key or password, issues JWTs, and provides on-demand Kubernetes service-account tokens via the TokenRequest API.

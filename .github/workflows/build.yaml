@@ -5,15 +5,6 @@ on:
   push:
     tags:
       - "v*"
-    paths:
-      - "docker/**"
-      - "internal/**"
-      - "pkg/**"
-      - "tests/**"
-      - "go.mod"
-      - "go.sum"
-      - "Makefile"
-      - ".github/workflows/build.yaml"
 
   pull_request:
     branches:
@@ -26,7 +17,7 @@ on:
       - "go.mod"
       - "go.sum"
       - "Makefile"
-      - ".github/workflows/build.yaml"
+      - ".github/workflows/*.yaml"
 
   workflow_dispatch:
 
@@ -35,11 +26,16 @@ env:
 
 permissions:
   contents: read
+  checks: write
+  pull-requests: write
 
 jobs:
-  Build:
+  CI:
     runs-on: k8shell-runner
     if: github.event_name == 'push' || github.event.pull_request.draft == false
+
+    env:
+      GO111MODULE: on
 
     steps:
       - name: Checkout code
@@ -51,8 +47,58 @@ jobs:
         run: |
           git config --global url."https://${{ secrets.GH_PAT_TOKEN }}:x-oauth-basic@github.com/".insteadOf "https://github.com/"
 
-      # Calculate version and image tag based on PR or push context.
-      # Also sets RUNTIME: PRs get the alpine (debug) image, tag pushes get distroless (release).
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build binaries
+        run: make build
+
+      - name: Run binary smoke tests (test-self)
+        run: make test-self
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: self-test-reports-go${{ env.GO_VERSION }}
+          path: reports/
+          retention-days: 30
+
+      - name: Publish test results
+        if: always()
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        with:
+          files: reports/**/*-junit.xml
+          check_name: Self-Tests (Go ${{ env.GO_VERSION }})
+
+      - name: Upload vendor directory
+        uses: actions/upload-artifact@v4
+        with:
+          name: vendor
+          path: vendor/
+          retention-days: 1
+
+  Build:
+    runs-on: k8shell-runner
+    needs: CI
+    if: |
+      needs.CI.result == 'success' &&
+      (startsWith(github.ref, 'refs/tags/') ||
+       (github.event_name == 'pull_request' && github.event.pull_request.draft == false))
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Git for private modules
+        run: |
+          git config --global url."https://${{ secrets.GH_PAT_TOKEN }}:x-oauth-basic@github.com/".insteadOf "https://github.com/"
+
       - name: Determine image tag, version and runtime
         run: |
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
@@ -77,14 +123,11 @@ jobs:
           echo "IMAGE_TAG_LATEST=$IMAGE_TAG_LATEST" >> $GITHUB_ENV
           echo "RUNTIME=$RUNTIME" >> $GITHUB_ENV
 
-      - name: Install Go
-        uses: actions/setup-go@v5
+      - name: Download vendor directory
+        uses: actions/download-artifact@v4
         with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-
-      - name: Prepare Docker build context
-        run: make vendor
+          name: vendor
+          path: vendor/
 
       - name: Login to Docker Registry
         uses: docker/login-action@v3
@@ -109,7 +152,7 @@ jobs:
 
       - name: Add image info to job summary
         run: |
-          echo "## 🐳 Docker Image Built" >> $GITHUB_STEP_SUMMARY
+          echo "## Docker Image Built" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Image:** \`registry.k8shell.io/${{ env.REPO_NAME }}:${{ env.IMAGE_TAG }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Runtime:** \`${{ env.RUNTIME }}\`" >> $GITHUB_STEP_SUMMARY
@@ -120,3 +163,4 @@ jobs:
           echo '```bash' >> $GITHUB_STEP_SUMMARY
           echo "docker pull registry.k8shell.io/${{ env.REPO_NAME }}:${{ env.IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+
