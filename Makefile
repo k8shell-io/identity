@@ -2,6 +2,9 @@
 REPO=registry.k8shell.io
 REPORTS_DIR := reports
 SERVICE_NAME := identity
+RUNTIME ?= alpine
+
+.PHONY: all init install-test-deps test-static test build test-binary test-self vendor image image-debug image-release coverage clean help
 
 # Default target
 all: build
@@ -75,15 +78,17 @@ image:  ##@ Build Docker image
         ##@ Builds container image with version tagging
         ##@ Accepts VERSION, COMMIT_ID, IMAGE_TAG, RUNTIME from environment or auto-detects from git
         ##@ RUNTIME selects the runtime stage: alpine (default) or distroless
+        ##@ Loads into local docker by default; set PUSH=1 to push to registry instead
 image: vendor
 	@echo "Building $(SERVICE_NAME) docker image..."
 	@if ! command -v git >/dev/null 2>&1; then echo "Git not found. Please install Git."; exit 1; fi
 	@VERSION=$${VERSION:-$$(git describe --tags --match 'v*' | sed 's/-g.*//')} && \
 	COMMIT_ID=$${COMMIT_ID:-$$(git rev-parse --short HEAD)} && \
 	IMAGE_TAG=$${IMAGE_TAG:-$$VERSION} && \
-	RUNTIME=$${RUNTIME:-alpine} && \
-	docker build \
-		--target $$RUNTIME \
+	OUTPUT_FLAG=$$(if [ "$${PUSH:-0}" = "1" ]; then echo "--push"; else echo "--load"; fi) && \
+	docker buildx build \
+		$$OUTPUT_FLAG \
+		--target $(RUNTIME) \
 		--build-arg VERSION=$$VERSION \
 		--build-arg COMMIT_ID=$$COMMIT_ID \
 		-t $(REPO)/$$(grep -v '^#' docker/$(SERVICE_NAME)/BUILD | tail -1):$$IMAGE_TAG \
