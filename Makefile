@@ -1,7 +1,6 @@
 # Variables
 REPO=registry.k8shell.io
 REPORTS_DIR := reports
-VENV := .venv
 SERVICE_NAME := identity
 
 # Default target
@@ -57,7 +56,7 @@ test-binary: build
 
 test-self:  ##@ Run all self-tests
             ##@ Executes static analysis, unit tests, build, and binary smoke tests
-            ##@ Validation of code quality and functionality (ran by self-tests CI workflow)
+            ##@ Validation of code quality and functionality (ran by CI workflow)
 test-self: test-static build test-binary
 	@echo "All self-tests passed!"
 
@@ -65,6 +64,12 @@ vendor:  ##@ Vendor Go modules
          ##@ Downloads and vendors all Go module dependencies into the vendor/ directory
 	@echo "Vendoring Go modules..."
 	@go mod vendor
+
+image-debug: RUNTIME=alpine   ##@ Build debug image (alpine, with debug symbols, while-loop entrypoint)
+image-debug: image            ##@ Shorthand for: RUNTIME=alpine make image
+
+image-release: RUNTIME=distroless  ##@ Build release image (distroless, stripped binary)
+image-release: image               ##@ Shorthand for: RUNTIME=distroless make image
 
 image:  ##@ Build Docker image
         ##@ Builds container image with version tagging
@@ -92,41 +97,11 @@ coverage:  ##@ Calculate test coverage percentage from coverage.out
 ##@ Misc commands
 ##@
 
-COMMON_DIR := $(shell go list -m -f '{{.Dir}}' github.com/k8shell-io/common)
-
-proto-setup:
-	mkdir -p .proto_deps
-	@rm -f .proto_deps/common
-	ln -s $(COMMON_DIR) .proto_deps/common
-	
-protoc:
-	@echo "Generating Go code from proto files..."
-	rm -rf pkg/api/typespb
-	protoc -I . -I .proto_deps \
-	  --go_out=. --go_opt=module=github.com/k8shell-io/identity \
-	  --go-grpc_out=. --go-grpc_opt=module=github.com/k8shell-io/identity \
-	  pkg/api/types.proto
-	rm -rf pkg/api/identitypb
-	protoc -I . -I .proto_deps \
-	  --go_out=. --go_opt=module=github.com/k8shell-io/identity \
-	  --go-grpc_out=. --go-grpc_opt=module=github.com/k8shell-io/identity \
-	  pkg/api/identity.proto
-	rm -rf pkg/api/idppb
-	protoc -I . -I .proto_deps \
-	  --go_out=. --go_opt=module=github.com/k8shell-io/identity \
-	  --go-grpc_out=. --go-grpc_opt=module=github.com/k8shell-io/identity \
-	  pkg/api/idp.proto
-##@
-##@ Misc commands
-##@
-
 clean: ##@ Clean up generated files
 	rm -rf $(REPORTS_DIR)
 	rm -f bin/$(SERVICE_NAME)
 	rm -rf vendor/
 
-clean-all: ##@ Remove all generated files
-clean-all: clean
 
 help: ##@ (Default) Print listing of key targets with their descriptions
 	@printf "\nUsage: make <command>\n"
