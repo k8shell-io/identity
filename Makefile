@@ -1,7 +1,8 @@
 # Variables
 REPO=registry.k8shell.io
 REPORTS_DIR := reports
-SERVICE_NAME := identity
+# Auto-derived from the repo directory name. Override if needed: make SERVICE_NAME=myservice
+SERVICE_NAME ?= $(shell basename $(CURDIR))
 RUNTIME ?= alpine
 
 .PHONY: all init install-test-deps test-static test build test-binary test-self vendor image image-debug image-release coverage clean help
