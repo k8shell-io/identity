@@ -30,7 +30,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  CI:
+  Tests:
     runs-on: k8shell-runner
     if: github.event_name == 'push' || github.event.pull_request.draft == false
 
@@ -76,9 +76,9 @@ jobs:
 
   Build:
     runs-on: k8shell-runner
-    needs: CI
+    needs: Tests
     if: |
-      needs.CI.result == 'success' &&
+      needs.Tests.result == 'success' &&
       (startsWith(github.ref, 'refs/tags/') ||
        (github.event_name == 'pull_request' && github.event.pull_request.draft == false))
 
