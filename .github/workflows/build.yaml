@@ -74,13 +74,6 @@ jobs:
           files: reports/**/*-junit.xml
           check_name: Self-Tests (Go ${{ env.GO_VERSION }})
 
-      - name: Upload vendor directory
-        uses: actions/upload-artifact@v4
-        with:
-          name: vendor
-          path: vendor/
-          retention-days: 1
-
   Build:
     runs-on: k8shell-runner
     needs: CI
@@ -123,11 +116,14 @@ jobs:
           echo "IMAGE_TAG_LATEST=$IMAGE_TAG_LATEST" >> $GITHUB_ENV
           echo "RUNTIME=$RUNTIME" >> $GITHUB_ENV
 
-      - name: Download vendor directory
-        uses: actions/download-artifact@v4
+      - name: Install Go
+        uses: actions/setup-go@v5
         with:
-          name: vendor
-          path: vendor/
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Prepare Docker build context
+        run: make vendor
 
       - name: Login to Docker Registry
         uses: docker/login-action@v3
