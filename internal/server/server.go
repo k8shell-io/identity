@@ -333,6 +333,9 @@ func (s *Server) applyOnboardPolicy(user *models.User) error {
 	if sudo, ok := authz.ParseSudoObligation(result.Obligations); ok {
 		user.Sudo = sudo.Granted
 	}
+	if roles, ok := authz.ParseRolesObligation(result.Obligations); ok {
+		user.Roles = roles.Roles
+	}
 	return nil
 }
 
