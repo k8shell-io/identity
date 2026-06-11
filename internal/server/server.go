@@ -274,6 +274,7 @@ func (s *Server) refreshUser(username string, source string, user *models.User) 
 				foundUser.Shell = user.Shell
 				foundUser.Sudo = user.Sudo
 				foundUser.Locked = user.Locked
+				foundUser.Roles = user.Roles
 				err := s.DB.UpdateUser(foundUser)
 				if err != nil {
 					return nil, fmt.Errorf("failed to update user '%s' in database: %w", username, err)
@@ -335,6 +336,39 @@ func (s *Server) applyOnboardPolicy(user *models.User) error {
 	}
 	if roles, ok := authz.ParseRolesObligation(result.Obligations); ok {
 		user.Roles = roles.Roles
+	}
+	return nil
+}
+
+// applyAuthPolicy evaluates the user:auth action against the authz service.
+// It is a no-op when the authz client or JWT issuer is not configured.
+func (s *Server) applyAuthPolicy(user *models.User, authCtx authz.UserAuthContext) error {
+	if s.authzClient == nil || s.JWT == nil {
+		return nil
+	}
+
+	token, err := s.issueUserToken(user)
+	if err != nil {
+		return fmt.Errorf("applyAuthPolicy: failed to issue token for user '%s': %w", user.Username, err)
+	}
+
+	evalReq, err := authz.NewUserEvalRequest(authz.UserActionAuth, user.Username).
+		WithIDP(user.Source).
+		WithAuthMethod(authCtx.Method).
+		WithFingerprint(authCtx.Fingerprint).
+		Build()
+	if err != nil {
+		return fmt.Errorf("applyAuthPolicy: failed to build eval request for user '%s': %w", user.Username, err)
+	}
+
+	resp, err := s.authzClient.Evaluate(context.Background(), evalReq.ToProto(token))
+	if err != nil {
+		return fmt.Errorf("applyAuthPolicy: authz evaluation failed for user '%s': %w", user.Username, err)
+	}
+
+	result := authz.PolicyResultFromProto(resp)
+	if !result.Allowed {
+		return fmt.Errorf("applyAuthPolicy: auth denied for user '%s': %s", user.Username, result.Reason)
 	}
 	return nil
 }

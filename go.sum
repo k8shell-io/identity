@@ -96,6 +96,8 @@ github.com/k8shell-io/common v0.22.5 h1:qQ8mAbORouv8SGrFAI++0RHflbSC/IYKd/nF7zgi
 github.com/k8shell-io/common v0.22.5/go.mod h1:E8dsb9ta4v3ne61AJgtRyTTbTkMMmKeCMAcXD+/9+cY=
 github.com/k8shell-io/common v0.22.6 h1:Api18cdrY8B7BmJgJn3Ttdi6ViNUzyVf+GfG+NCKPDo=
 github.com/k8shell-io/common v0.22.6/go.mod h1:E8dsb9ta4v3ne61AJgtRyTTbTkMMmKeCMAcXD+/9+cY=
+github.com/k8shell-io/common v0.22.7 h1:NEwdwrf3NB7z4tJS85shkEolnlTKj/YT2bmbBf8a+WE=
+github.com/k8shell-io/common v0.22.7/go.mod h1:E8dsb9ta4v3ne61AJgtRyTTbTkMMmKeCMAcXD+/9+cY=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=
 github.com/kisielk/gotool v1.0.0/go.mod h1:XhKaO+MFFWcvkIS/tQcRk01m1F5IRFswLeQ+oQHNcck=
 github.com/klauspost/compress v1.18.0 h1:c/Cqfb0r+Yi+JtIEq73FWXVkRonBlf0CRNYc8Zttxdo=

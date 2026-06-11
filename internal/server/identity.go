@@ -9,6 +9,7 @@ import (
 
 	commonv1 "github.com/k8shell-io/common/pkg/api/gen/go/common/v1"
 	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
+	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
 	"github.com/k8shell-io/common/pkg/userstr"
@@ -152,6 +153,14 @@ func (s *IdentityService) AuthUserPublicKey(ctx context.Context,
 	if err != nil {
 		return nil, propagateOrInternal(err, "failed to authenticate user '%s' with provider '%s': %s",
 			req.Username, provider.Name(), err.Error())
+	}
+	if authpb != nil {
+		if err := s.server.applyAuthPolicy(user, authz.UserAuthContext{
+			Method:      authz.UserAuthMethodPublicKey,
+			Fingerprint: ssh.FingerprintSHA256(parsedKey),
+		}); err != nil {
+			return nil, status.Errorf(codes.PermissionDenied, "%v", err)
+		}
 	}
 	return authpb, nil
 }
