@@ -321,7 +321,9 @@ func (s *Server) applyOnboardPolicy(user *models.User) error {
 		return fmt.Errorf("applyOnboardPolicy: failed to build eval request for user '%s': %w", user.Username, err)
 	}
 
-	resp, err := s.authzClient.Evaluate(context.Background(), evalReq.ToProto(token))
+	evalProto := evalReq.ToProto(token)
+	evalProto.Package = "user"
+	resp, err := s.authzClient.Evaluate(context.Background(), evalProto)
 	if err != nil {
 		return fmt.Errorf("applyOnboardPolicy: authz evaluation failed for user '%s': %w", user.Username, err)
 	}
@@ -361,7 +363,9 @@ func (s *Server) applyAuthPolicy(user *models.User, authCtx authz.UserAuthContex
 		return fmt.Errorf("applyAuthPolicy: failed to build eval request for user '%s': %w", user.Username, err)
 	}
 
-	resp, err := s.authzClient.Evaluate(context.Background(), evalReq.ToProto(token))
+	evalProto := evalReq.ToProto(token)
+	evalProto.Package = "user"
+	resp, err := s.authzClient.Evaluate(context.Background(), evalProto)
 	if err != nil {
 		return fmt.Errorf("applyAuthPolicy: authz evaluation failed for user '%s': %w", user.Username, err)
 	}
