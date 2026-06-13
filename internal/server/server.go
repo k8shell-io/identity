@@ -314,7 +314,7 @@ func (s *Server) applyOnboardPolicy(user *models.User) error {
 		return fmt.Errorf("applyOnboardPolicy: failed to issue token for user '%s': %w", user.Username, err)
 	}
 
-	evalReq, err := authz.NewUserEvalRequest(authz.UserActionOnboard, user.Username).
+	evalReq, err := authz.NewUserOnboardEvalRequest(user.Username).
 		WithIDP(user.Source).
 		Build()
 	if err != nil {
@@ -354,7 +354,7 @@ func (s *Server) applyAuthPolicy(user *models.User, authCtx authz.UserAuthContex
 		return fmt.Errorf("applyAuthPolicy: failed to issue token for user '%s': %w", user.Username, err)
 	}
 
-	evalReq, err := authz.NewUserEvalRequest(authz.UserActionAuth, user.Username).
+	evalReq, err := authz.NewUserAuthEvalRequest(user.Username).
 		WithIDP(user.Source).
 		WithAuthMethod(authCtx.Method).
 		WithFingerprint(authCtx.Fingerprint).
