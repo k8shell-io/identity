@@ -299,6 +299,43 @@ func (s *Server) refreshUser(username string, source string, user *models.User) 
 	return user, nil
 }
 
+// applyPreonboardPolicy evaluates the user:preonboard action against the authz
+// service before a new user is created in the database. It returns an error
+// when the policy denies onboarding. There are no obligations — the result is
+// allow/deny only. The subject is empty because the user does not yet exist.
+// It is a no-op when the authz client is not configured.
+func (s *Server) applyPreonboardPolicy(username, idp string) error {
+	if s.authzClient == nil || s.JWT == nil {
+		return nil
+	}
+
+	token, err := s.JWT.IssueEphemeralToken(username, idp, time.Duration(30)*time.Second)
+	if err != nil {
+		return fmt.Errorf("applyPreonboardPolicy: failed to issue ephemeral token for user '%s': %w", username, err)
+	}
+
+	evalReq, err := authz.NewUserPreonboardEvalRequest(username).
+		WithIDP(idp).
+		Build()
+	if err != nil {
+		return fmt.Errorf("applyPreonboardPolicy: failed to build eval request for user '%s': %w", username, err)
+	}
+
+	evalProto := evalReq.ToProto(token)
+	evalProto.Package = "user"
+	resp, err := s.authzClient.Evaluate(context.Background(), evalProto)
+	if err != nil {
+		return fmt.Errorf("applyPreonboardPolicy: authz evaluation failed for user '%s': %w", username, err)
+	}
+
+	result := authz.PolicyResultFromProto(resp)
+	if !result.Allowed {
+		return fmt.Errorf("applyPreonboardPolicy: preonboarding denied for user '%s': %s", username, result.Reason)
+	}
+
+	return nil
+}
+
 // applyOnboardPolicy evaluates the user:onboard action against the authz
 // service. It returns an error when the policy denies onboarding. On allow it
 // applies any resulting obligations (e.g. sudo) to the user before it is

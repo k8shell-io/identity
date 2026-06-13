@@ -199,6 +199,10 @@ func (s *IdentityService) OnboardUserDeviceFlow(ctx context.Context,
 			"no suitable identity provider found for onboarding via device flow with provider '%s'", req.Provider)
 	}
 
+	if err := s.server.applyPreonboardPolicy(req.Username, req.Provider); err != nil {
+		return nil, status.Errorf(codes.PermissionDenied, "%v", err)
+	}
+
 	onboardUserpb, err := provider.OnboardUserDeviceFlow(context.Background(),
 		&identityv1.OnboardUserDeviceFlowRequest{
 			Provider: req.Provider,
@@ -252,6 +256,10 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 	})
 	if err != nil {
 		return nil, propagateOrInternal(err, "failed to complete web flow for provider '%s': %v", provider, err)
+	}
+
+	if err := s.server.applyPreonboardPolicy(username.GetUsername(), provider); err != nil {
+		return nil, status.Errorf(codes.PermissionDenied, "%v", err)
 	}
 
 	user, err := s.server.GetUserByUsername(username.GetUsername(), provider)
