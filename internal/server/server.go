@@ -302,20 +302,20 @@ func (s *Server) refreshUser(username string, source string, user *models.User) 
 // applyPreonboardPolicy evaluates the user:preonboard action against the authz
 // service before a new user is created in the database. It returns an error
 // when the policy denies onboarding. There are no obligations — the result is
-// allow/deny only. The subject is empty because the user does not yet exist.
-// It is a no-op when the authz client is not configured.
-func (s *Server) applyPreonboardPolicy(username, idp string) error {
+// allow/deny only. It is a no-op when the authz client or JWT issuer is not configured.
+func (s *Server) applyPreonboardPolicy(username, idp string, flow authz.UserPreonboardFlow) error {
 	if s.authzClient == nil || s.JWT == nil {
 		return nil
 	}
 
-	token, err := s.JWT.IssueEphemeralToken(username, idp, time.Duration(30)*time.Second)
+	token, err := s.JWT.IssueEphemeralToken(username, idp, 30*time.Second)
 	if err != nil {
 		return fmt.Errorf("applyPreonboardPolicy: failed to issue ephemeral token for user '%s': %w", username, err)
 	}
 
 	evalReq, err := authz.NewUserPreonboardEvalRequest(username).
 		WithIDP(idp).
+		WithFlow(flow).
 		Build()
 	if err != nil {
 		return fmt.Errorf("applyPreonboardPolicy: failed to build eval request for user '%s': %w", username, err)
