@@ -339,6 +339,9 @@ func (s *Server) applyOnboardPolicy(user *models.User) error {
 	if roles, ok := authz.ParseRolesObligation(result.Obligations); ok {
 		user.Roles = roles.Roles
 	}
+	if blueprints, ok := authz.ParseBlueprintsObligation(result.Obligations); ok {
+		user.Blueprints = blueprints.Blueprints
+	}
 	return nil
 }
 
