@@ -6,6 +6,7 @@ package server
 import (
 	"context"
 	"errors"
+	"time"
 
 	commonv1 "github.com/k8shell-io/common/pkg/api/gen/go/common/v1"
 	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
@@ -18,6 +19,7 @@ import (
 	"golang.org/x/crypto/ssh"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // propagateOrInternal returns the error unchanged when its gRPC status code is
@@ -435,5 +437,133 @@ func (s *IdentityService) GetAvailableIdentityProviders(
 
 	return &identityv1.GetAvailableIdentityProvidersResponse{
 		Providers: resp,
+	}, nil
+}
+
+// CreateAccessToken issues a new Personal Access Token for a user.
+// The raw token is returned once in the response and is not recoverable after that.
+func (s *IdentityService) CreateAccessToken(ctx context.Context,
+	req *identityv1.CreateAccessTokenRequest) (*identityv1.CreateAccessTokenResponse, error) {
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured, cannot create access token")
+	}
+	if req.Username == "" {
+		return nil, status.Error(codes.InvalidArgument, "username is required")
+	}
+	if req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+	if len(req.GetScopes()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "at least one scope is required")
+	}
+
+	if _, err := s.server.GetUserByUsername(req.Username, ""); err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
+		}
+		return nil, propagateOrInternal(err, "error occurred when getting user '%s': %v", req.Username, err)
+	}
+
+	var expiresAt *time.Time
+	if ts := req.GetExpiresAt(); ts != nil {
+		t := ts.AsTime()
+		expiresAt = &t
+	}
+
+	id, raw, err := s.server.DB.CreateAccessToken(req.Username, req.Name, req.GetScopes(), expiresAt)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to create access token: %v", err)
+	}
+
+	return &identityv1.CreateAccessTokenResponse{Id: id, Token: raw}, nil
+}
+
+// ListAccessTokens returns access token metadata (no raw tokens or hashes) for a user.
+func (s *IdentityService) ListAccessTokens(ctx context.Context,
+	req *identityv1.Username) (*identityv1.ListAccessTokensResponse, error) {
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured, cannot list access tokens")
+	}
+	if req.Username == "" {
+		return nil, status.Error(codes.InvalidArgument, "username is required")
+	}
+
+	tokens, err := s.server.DB.ListAccessTokens(req.Username)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to list access tokens: %v", err)
+	}
+
+	infos := make([]*identityv1.AccessTokenInfo, len(tokens))
+	for i, t := range tokens {
+		info := &identityv1.AccessTokenInfo{
+			Id:        t.ID,
+			Username:  t.Username,
+			Name:      t.Name,
+			Scopes:    t.Scopes,
+			CreatedAt: timestamppb.New(t.CreatedAt),
+			IsActive:  t.IsActive,
+		}
+		if t.ExpiresAt != nil {
+			info.ExpiresAt = timestamppb.New(*t.ExpiresAt)
+		}
+		if t.LastUsedAt != nil {
+			info.LastUsedAt = timestamppb.New(*t.LastUsedAt)
+		}
+		infos[i] = info
+	}
+
+	return &identityv1.ListAccessTokensResponse{Tokens: infos}, nil
+}
+
+// RevokeAccessToken soft-deletes an access token by ID, enforcing username ownership.
+func (s *IdentityService) RevokeAccessToken(ctx context.Context,
+	req *identityv1.RevokeAccessTokenRequest) (*identityv1.RevokeAccessTokenResponse, error) {
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured, cannot revoke access token")
+	}
+	if req.Username == "" {
+		return nil, status.Error(codes.InvalidArgument, "username is required")
+	}
+
+	if err := s.server.DB.RevokeAccessToken(req.Id, req.Username); err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Errorf(codes.NotFound, "access token %d not found for user '%s'", req.Id, req.Username)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to revoke access token: %v", err)
+	}
+
+	return &identityv1.RevokeAccessTokenResponse{Success: true}, nil
+}
+
+// ResolveAccessToken looks up a raw k8sh_ token, updates last_used_at, and returns
+// the owning user and the token's scopes. Called by API gateways on every k8sh_ request.
+func (s *IdentityService) ResolveAccessToken(ctx context.Context,
+	req *identityv1.ResolveAccessTokenRequest) (*identityv1.ResolveAccessTokenResponse, error) {
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured, cannot resolve access token")
+	}
+	if req.Token == "" {
+		return nil, status.Error(codes.InvalidArgument, "token is required")
+	}
+
+	token, err := s.server.DB.ResolveAccessToken(req.Token)
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Error(codes.Unauthenticated, "invalid or expired access token")
+		}
+		return nil, status.Errorf(codes.Internal, "failed to resolve access token: %v", err)
+	}
+
+	user, err := s.server.GetUserByUsername(token.Username, "")
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) || errors.Is(err, models.ErrUserIsNotValid) {
+			return nil, status.Error(codes.Unauthenticated, "invalid or expired access token")
+		}
+		return nil, propagateOrInternal(err, "error occurred when getting user '%s': %v", token.Username, err)
+	}
+
+	return &identityv1.ResolveAccessTokenResponse{
+		User:   gapi.UserToProto(user),
+		Scopes: token.Scopes,
 	}, nil
 }
