@@ -453,8 +453,8 @@ func (s *IdentityService) CreateAccessToken(ctx context.Context,
 	if req.Name == "" {
 		return nil, status.Error(codes.InvalidArgument, "name is required")
 	}
-	if len(req.GetScopes()) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "at least one scope is required")
+	if err := authz.ValidateScopes(req.GetScopes()); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
 	if _, err := s.server.GetUserByUsername(req.Username, ""); err != nil {
@@ -562,8 +562,19 @@ func (s *IdentityService) ResolveAccessToken(ctx context.Context,
 		return nil, propagateOrInternal(err, "error occurred when getting user '%s': %v", token.Username, err)
 	}
 
+	var userToken string
+	if d := req.GetExpiry(); d != nil {
+		userToken, err = s.server.issueUserTokenWithExpiry(user, d.AsDuration())
+	} else {
+		userToken, err = s.server.issueUserToken(user)
+	}
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to issue token for user '%s': %v", user.Username, err)
+	}
+
 	return &identityv1.ResolveAccessTokenResponse{
-		User:   gapi.UserToProto(user),
-		Scopes: token.Scopes,
+		User:      gapi.UserToProto(user),
+		Scopes:    token.Scopes,
+		UserToken: userToken,
 	}, nil
 }

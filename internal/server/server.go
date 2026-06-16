@@ -51,6 +51,10 @@ type Server struct {
 	// It is nil when JWT verification could not be initialized.
 	Verifier *authz.JWTVerifier
 
+	// jwtIssuerCfg is the full JWT issuer configuration, retained so that
+	// issueUserTokenWithExpiry can construct a temporary issuer with a custom expiry.
+	jwtIssuerCfg authz.JWTIssuerConfig
+
 	// jwtExpiry is the lifetime of issued JWTs, copied from JWTIssuerConfig so
 	// the token refresh loop can compute expiry times without re-reading config.
 	jwtExpiry time.Duration
@@ -124,6 +128,7 @@ func NewServer(configFile string) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("initialize JWT issuer: %w", err)
 	}
+	server.jwtIssuerCfg = config.JWTIssuer
 	server.jwtExpiry = config.JWTIssuer.Expiry
 	if server.jwtExpiry == 0 {
 		server.jwtExpiry = time.Hour
@@ -380,7 +385,7 @@ func (s *Server) applyAuthPolicy(user *models.User, authCtx authz.UserAuthContex
 	return nil
 }
 
-// issueUserToken issues a JWT for the user
+// issueUserToken issues a JWT for the user using the server's configured expiry.
 func (s *Server) issueUserToken(user *models.User) (string, error) {
 	if s.JWT == nil {
 		return "", fmt.Errorf("JWT issuer not configured")
@@ -392,6 +397,30 @@ func (s *Server) issueUserToken(user *models.User) (string, error) {
 	}
 
 	s.log.Debug().Msgf("issued new token for user '%s', expires at %s", user.Username, claims.ExpiresAt.Format(time.RFC3339))
+	return token, nil
+}
+
+// issueUserTokenWithExpiry issues a JWT for the user with a caller-supplied expiry,
+// overriding the server default. Used by ResolveAccessToken so that the API gateway
+// can request a JWT lifetime matched to the PAT session length.
+func (s *Server) issueUserTokenWithExpiry(user *models.User, expiry time.Duration) (string, error) {
+	if s.JWT == nil {
+		return "", fmt.Errorf("JWT issuer not configured")
+	}
+
+	cfg := s.jwtIssuerCfg
+	cfg.Expiry = expiry
+	issuer, err := authz.NewJWTIssuer(cfg)
+	if err != nil {
+		return "", fmt.Errorf("create JWT issuer with custom expiry: %w", err)
+	}
+
+	claims, token, err := issuer.IssueToken(user)
+	if err != nil {
+		return "", fmt.Errorf("issue JWT for user '%s': %w", user.Username, err)
+	}
+
+	s.log.Debug().Msgf("issued token for user '%s' with custom expiry, expires at %s", user.Username, claims.ExpiresAt.Format(time.RFC3339))
 	return token, nil
 }
 
