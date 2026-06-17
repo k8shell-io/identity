@@ -278,6 +278,7 @@ func (s *IdentityService) OnboardUserWebFlow(ctx context.Context,
 	}
 
 	if req.CliState != "" || req.CreatePat {
+		s.log.Debug().Msgf("Wrapping web flow state for provider '%s' with CLI state and PAT creation flag", req.Provider)
 		wrapped, err := wrapWebFlowState(authInfo.GetState(), req.CliState, req.CreatePat)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to wrap web flow state: %v", err)
@@ -340,6 +341,7 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 	resp := &identityv1.CompleteUserWebFlowResponse{UserToken: token}
 
 	if createPat {
+		s.log.Debug().Msgf("Creating Personal Access Token for user '%s' after completing web flow", username.GetUsername())
 		_, raw, err := s.server.DB.CreateAccessToken(username.GetUsername(), "cli", []string{"*"}, nil)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to create access token for user '%s': %v",
