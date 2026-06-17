@@ -268,21 +268,9 @@ func (s *IdentityService) OnboardUserWebFlow(ctx context.Context,
 		return nil, status.Errorf(codes.NotFound,
 			"no suitable identity provider found for onboarding via web flow with provider '%s'", req.Provider)
 	}
-	redirectUri := req.RedirectUri
-	if (req.CliState != "" || req.CreatePat) && redirectUri != "" {
-		if ru, parseErr := url.Parse(redirectUri); parseErr == nil {
-			rq := ru.Query()
-			if rq.Get("provider") == "" {
-				rq.Set("provider", req.Provider)
-				ru.RawQuery = rq.Encode()
-				redirectUri = ru.String()
-			}
-		}
-	}
-
 	authInfo, err := provider.OnboardUserWebFlow(context.Background(), &identityv1.OnboardUserWebFlowRequest{
 		Provider:    req.Provider,
-		RedirectUri: redirectUri,
+		RedirectUri: req.RedirectUri,
 	})
 	if err != nil {
 		return nil, propagateOrInternal(err, "failed to onboard user via web flow with provider '%s': %v",
