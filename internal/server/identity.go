@@ -294,6 +294,9 @@ func (s *IdentityService) OnboardUserWebFlow(ctx context.Context,
 		authInfo.State = wrapped
 	}
 
+	s.log.Info().Msgf("Initiated web flow onboarding for provider '%s', auth URL: %s",
+		req.Provider, authInfo.GetAuthUrl())
+
 	return authInfo, nil
 }
 
