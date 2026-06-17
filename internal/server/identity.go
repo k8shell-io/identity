@@ -5,7 +5,11 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"net/url"
 	"time"
 
 	commonv1 "github.com/k8shell-io/common/pkg/api/gen/go/common/v1"
@@ -21,6 +25,41 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+// webFlowStatePayload is embedded in the OAuth state parameter to carry
+// CLI-specific data across the redirect round-trip without server-side storage.
+// Detection: after base64url decoding, the legacy IDP state starts with a
+// provider name (e.g. "oidc:..."), while our payload starts with '{'.
+type webFlowStatePayload struct {
+	IDPState  string `json:"s"`
+	CliState  string `json:"c,omitempty"`
+	CreatePat bool   `json:"p,omitempty"`
+}
+
+func wrapWebFlowState(idpState, cliState string, createPat bool) (string, error) {
+	b, err := json.Marshal(webFlowStatePayload{IDPState: idpState, CliState: cliState, CreatePat: createPat})
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// unwrapWebFlowState decodes state produced by wrapWebFlowState.
+// When state is a legacy (unwrapped) IDP state it is returned as idpState unchanged.
+func unwrapWebFlowState(state string) (idpState, cliState string, createPat bool, err error) {
+	b, err := base64.RawURLEncoding.DecodeString(state)
+	if err != nil {
+		return "", "", false, fmt.Errorf("decode state: %w", err)
+	}
+	if len(b) == 0 || b[0] != '{' {
+		return state, "", false, nil
+	}
+	var p webFlowStatePayload
+	if err := json.Unmarshal(b, &p); err != nil {
+		return "", "", false, fmt.Errorf("unmarshal wrapped state: %w", err)
+	}
+	return p.IDPState, p.CliState, p.CreatePat, nil
+}
 
 // propagateOrInternal returns the error unchanged when its gRPC status code is
 // PermissionDenied or Unauthenticated (so upstream IDP rejections are forwarded
@@ -219,6 +258,11 @@ func (s *IdentityService) OnboardUserDeviceFlow(ctx context.Context,
 // OnboardUserWebFlow starts web-flow onboarding for the requested provider.
 func (s *IdentityService) OnboardUserWebFlow(ctx context.Context,
 	req *identityv1.OnboardUserWebFlowRequest) (*commonv1.OnboardUserWebFlow, error) {
+	if req.CreatePat && s.server.DB == nil {
+		return nil, status.Error(codes.FailedPrecondition,
+			"database is not configured, cannot create PAT during web flow")
+	}
+
 	provider, ok := s.server.providerByName(req.Provider)
 	if !ok {
 		return nil, status.Errorf(codes.NotFound,
@@ -232,13 +276,35 @@ func (s *IdentityService) OnboardUserWebFlow(ctx context.Context,
 		return nil, propagateOrInternal(err, "failed to onboard user via web flow with provider '%s': %v",
 			req.Provider, err)
 	}
+
+	if req.CliState != "" || req.CreatePat {
+		wrapped, err := wrapWebFlowState(authInfo.GetState(), req.CliState, req.CreatePat)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to wrap web flow state: %v", err)
+		}
+		u, err := url.Parse(authInfo.GetAuthUrl())
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to parse auth URL: %v", err)
+		}
+		q := u.Query()
+		q.Set("state", wrapped)
+		u.RawQuery = q.Encode()
+		authInfo.AuthUrl = u.String()
+		authInfo.State = wrapped
+	}
+
 	return authInfo, nil
 }
 
 // CompleteUserWebFlow completes web-flow onboarding and returns the resolved user.
 func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 	req *identityv1.CompleteUserWebFlowRequest) (*identityv1.CompleteUserWebFlowResponse, error) {
-	provider, _, err := utils.DecodeState(req.State)
+	idpState, cliState, createPat, err := unwrapWebFlowState(req.State)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "failed to decode web flow state: %v", err)
+	}
+
+	provider, _, err := utils.DecodeState(idpState)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "failed to decode web flow state: %v", err)
 	}
@@ -249,7 +315,7 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 			"no suitable identity provider found to complete web flow for provider '%s'", provider)
 	}
 	username, err := p.CompleteUserWebFlow(context.Background(), &identityv1.CompleteUserWebFlowRequest{
-		State: req.State,
+		State: idpState,
 		Code:  req.Code,
 	})
 	if err != nil {
@@ -271,9 +337,19 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 		s.server.provisionGitCredential(ctx, username.GetUsername(), p)
 	}
 
-	return &identityv1.CompleteUserWebFlowResponse{
-		UserToken: token,
-	}, nil
+	resp := &identityv1.CompleteUserWebFlowResponse{UserToken: token}
+
+	if createPat {
+		_, raw, err := s.server.DB.CreateAccessToken(username.GetUsername(), "cli", []string{"*"}, nil)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to create access token for user '%s': %v",
+				username.GetUsername(), err)
+		}
+		resp.Pat = raw
+		resp.CliState = cliState
+	}
+
+	return resp, nil
 }
 
 // CompleteUserDeviceFlow is called by the client after the user has completed
