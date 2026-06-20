@@ -512,7 +512,8 @@ func (s *IdentityService) GetAvailableIdentityProviders(
 	resp := make([]*identityv1.IdentityProviderInfo, len(activeProviders))
 	for i, activeProvider := range activeProviders {
 		resp[i] = &identityv1.IdentityProviderInfo{
-			Name: activeProvider.Name(),
+			Name:         activeProvider.Name(),
+			Capabilities: activeProvider.Capabilities(),
 		}
 	}
 
