@@ -234,6 +234,11 @@ func (s *IdentityService) GetUserOnboardCapability(ctx context.Context,
 // OnboardUserDeviceFlow starts device-flow onboarding for a user.
 func (s *IdentityService) OnboardUserDeviceFlow(ctx context.Context,
 	req *identityv1.OnboardUserDeviceFlowRequest) (*commonv1.OnboardUserDeviceFlow, error) {
+	if s.server.DB == nil {
+		return nil, status.Error(codes.FailedPrecondition,
+			"database is not configured, cannot onboard user via device flow")
+	}
+
 	provider, ok := s.server.providerByName(req.Provider)
 	if !ok {
 		return nil, status.Errorf(codes.NotFound,
@@ -258,9 +263,9 @@ func (s *IdentityService) OnboardUserDeviceFlow(ctx context.Context,
 // OnboardUserWebFlow starts web-flow onboarding for the requested provider.
 func (s *IdentityService) OnboardUserWebFlow(ctx context.Context,
 	req *identityv1.OnboardUserWebFlowRequest) (*commonv1.OnboardUserWebFlow, error) {
-	if req.CreatePat && s.server.DB == nil {
+	if s.server.DB == nil {
 		return nil, status.Error(codes.FailedPrecondition,
-			"database is not configured, cannot create PAT during web flow")
+			"database is not configured, cannot onboard user via web flow")
 	}
 
 	provider, ok := s.server.providerByName(req.Provider)
@@ -303,6 +308,11 @@ func (s *IdentityService) OnboardUserWebFlow(ctx context.Context,
 // CompleteUserWebFlow completes web-flow onboarding and returns the resolved user.
 func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 	req *identityv1.CompleteUserWebFlowRequest) (*identityv1.CompleteUserWebFlowResponse, error) {
+	if s.server.DB == nil {
+		return nil, status.Error(codes.FailedPrecondition,
+			"database is not configured, cannot complete web flow and create user")
+	}
+
 	idpState, cliState, createPat, err := unwrapWebFlowState(req.State)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "failed to decode web flow state: %v", err)
@@ -337,15 +347,33 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 		return nil, status.Errorf(codes.Internal, "failed to issue token for user '%s'", user.Username)
 	}
 
-	if s.server.DB != nil {
-		s.server.provisionGitCredential(ctx, username.GetUsername(), p)
-	}
-
 	resp := &identityv1.CompleteUserWebFlowResponse{UserToken: token}
 
 	if createPat {
-		s.log.Debug().Msgf("Creating Personal Access Token for user '%s' after completing web flow", username.GetUsername())
-		_, raw, err := s.server.DB.CreateAccessToken(username.GetUsername(), "cli", []string{"*"}, nil)
+		scopes := []string{"*"}
+		var patExpiresAt *time.Time
+
+		policyResult, err := s.server.applyTokenCreatePolicy(user, authz.TokenCreateSourceWebFlow)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to evaluate token create policy for user '%s': %v",
+				username.GetUsername(), err)
+		}
+		if policyResult != nil {
+			if !policyResult.Allowed {
+				return nil, status.Errorf(codes.PermissionDenied, "token creation denied for user '%s': %s",
+					username.GetUsername(), policyResult.Reason)
+			}
+			if scopesOb, ok := authz.ParseScopesObligation(policyResult.Obligations); ok {
+				scopes = scopesOb.Scopes
+			}
+			if expiresInOb, ok := authz.ParseExpiresInObligation(
+				policyResult.Obligations); ok && expiresInOb.Duration != nil {
+				t := time.Now().Add(*expiresInOb.Duration)
+				patExpiresAt = &t
+			}
+		}
+
+		_, raw, err := s.server.DB.CreateAccessToken(username.GetUsername(), "OAuth", scopes, patExpiresAt)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to create access token for user '%s': %v",
 				username.GetUsername(), err)
@@ -353,6 +381,8 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 		resp.Pat = raw
 		resp.CliState = cliState
 	}
+
+	s.server.provisionGitCredential(ctx, username.GetUsername(), p)
 
 	return resp, nil
 }

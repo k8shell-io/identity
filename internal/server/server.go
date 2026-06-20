@@ -350,6 +350,37 @@ func (s *Server) applyOnboardPolicy(user *models.User) error {
 	return nil
 }
 
+// applyTokenCreatePolicy evaluates the token:create action against the authz
+// service and returns the policy result so the caller can apply obligations
+// (scopes, expires_in). Returns nil result when the authz client or JWT issuer
+// is not configured.
+func (s *Server) applyTokenCreatePolicy(user *models.User, source authz.TokenCreateSource) (*authz.PolicyResult, error) {
+	if s.authzClient == nil || s.JWT == nil {
+		return nil, nil
+	}
+
+	token, err := s.issueUserToken(user)
+	if err != nil {
+		return nil, fmt.Errorf("applyTokenCreatePolicy: failed to issue token for user '%s': %w", user.Username, err)
+	}
+
+	evalReq, err := authz.NewUserTokenCreateEvalRequest(user.Username).
+		WithSource(source).
+		Build()
+	if err != nil {
+		return nil, fmt.Errorf("applyTokenCreatePolicy: failed to build eval request for user '%s': %w", user.Username, err)
+	}
+
+	evalProto := evalReq.ToProto(token)
+	evalProto.Package = "user"
+	resp, err := s.authzClient.Evaluate(context.Background(), evalProto)
+	if err != nil {
+		return nil, fmt.Errorf("applyTokenCreatePolicy: authz evaluation failed for user '%s': %w", user.Username, err)
+	}
+
+	return authz.PolicyResultFromProto(resp), nil
+}
+
 // applyAuthPolicy evaluates the user:auth action against the authz service.
 // It is a no-op when the authz client or JWT issuer is not configured.
 func (s *Server) applyAuthPolicy(user *models.User, authCtx authz.UserAuthContext) error {
