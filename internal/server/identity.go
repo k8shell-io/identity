@@ -358,28 +358,30 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 			return nil, status.Errorf(codes.Internal, "failed to evaluate token create policy for user '%s': %v",
 				username.GetUsername(), err)
 		}
-		if policyResult != nil {
-			if !policyResult.Allowed {
-				return nil, status.Errorf(codes.PermissionDenied, "token creation denied for user '%s': %s",
-					username.GetUsername(), policyResult.Reason)
+		if policyResult != nil && !policyResult.Allowed {
+			resp.PatError = fmt.Sprintf("Create token not allowed for user '%s': %s",
+				username.GetUsername(), policyResult.Reason)
+			resp.CliState = cliState
+		} else {
+			if policyResult != nil {
+				if scopesOb, ok := authz.ParseScopesObligation(policyResult.Obligations); ok {
+					scopes = scopesOb.Scopes
+				}
+				if expiresInOb, ok := authz.ParseExpiresInObligation(
+					policyResult.Obligations); ok && expiresInOb.Duration != nil {
+					t := time.Now().Add(*expiresInOb.Duration)
+					patExpiresAt = &t
+				}
 			}
-			if scopesOb, ok := authz.ParseScopesObligation(policyResult.Obligations); ok {
-				scopes = scopesOb.Scopes
-			}
-			if expiresInOb, ok := authz.ParseExpiresInObligation(
-				policyResult.Obligations); ok && expiresInOb.Duration != nil {
-				t := time.Now().Add(*expiresInOb.Duration)
-				patExpiresAt = &t
-			}
-		}
 
-		_, raw, err := s.server.DB.CreateAccessToken(username.GetUsername(), "OAuth", scopes, patExpiresAt)
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to create access token for user '%s': %v",
-				username.GetUsername(), err)
+			_, raw, err := s.server.DB.CreateAccessToken(username.GetUsername(), "OAuth", scopes, patExpiresAt)
+			if err != nil {
+				return nil, status.Errorf(codes.Internal, "failed to create access token for user '%s': %v",
+					username.GetUsername(), err)
+			}
+			resp.Pat = raw
+			resp.CliState = cliState
 		}
-		resp.Pat = raw
-		resp.CliState = cliState
 	}
 
 	s.server.provisionGitCredential(ctx, username.GetUsername(), p)
