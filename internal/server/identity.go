@@ -359,7 +359,7 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 				username.GetUsername(), err)
 		}
 		if policyResult != nil && !policyResult.Allowed {
-			resp.PatError = fmt.Sprintf("Create token not allowed for user '%s': %s",
+			resp.PatError = fmt.Sprintf("Create token not allowed for user '%s'. %s",
 				username.GetUsername(), policyResult.Reason)
 			resp.CliState = cliState
 		} else {
