@@ -121,7 +121,7 @@ Two runtime stages are available in `docker/identity/Dockerfile`:
 | Stage | Base | Use case |
 |---|---|---|
 | `alpine` | `alpine:3.21.3` | Development, debugging (has a shell) |
-| `distroless` | `distroless/static-debian12:nonroot` | Production (no shell, runs as non-root) |
+| `release` | `distroless/static-debian12:nonroot` | Production (no shell, runs as non-root) |
 
 Both stages use the same statically compiled binary (`CGO_ENABLED=0`, `-ldflags="-s -w"`).
 
