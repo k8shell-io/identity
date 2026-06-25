@@ -5,10 +5,16 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"net/url"
+	"time"
 
 	commonv1 "github.com/k8shell-io/common/pkg/api/gen/go/common/v1"
 	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
+	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
 	"github.com/k8shell-io/common/pkg/userstr"
@@ -17,7 +23,43 @@ import (
 	"golang.org/x/crypto/ssh"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+// webFlowStatePayload is embedded in the OAuth state parameter to carry
+// CLI-specific data across the redirect round-trip without server-side storage.
+// Detection: after base64url decoding, the legacy IDP state starts with a
+// provider name (e.g. "oidc:..."), while our payload starts with '{'.
+type webFlowStatePayload struct {
+	IDPState  string `json:"s"`
+	CliState  string `json:"c,omitempty"`
+	CreatePat bool   `json:"p,omitempty"`
+}
+
+func wrapWebFlowState(idpState, cliState string, createPat bool) (string, error) {
+	b, err := json.Marshal(webFlowStatePayload{IDPState: idpState, CliState: cliState, CreatePat: createPat})
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// unwrapWebFlowState decodes state produced by wrapWebFlowState.
+// When state is a legacy (unwrapped) IDP state it is returned as idpState unchanged.
+func unwrapWebFlowState(state string) (idpState, cliState string, createPat bool, err error) {
+	b, err := base64.RawURLEncoding.DecodeString(state)
+	if err != nil {
+		return "", "", false, fmt.Errorf("decode state: %w", err)
+	}
+	if len(b) == 0 || b[0] != '{' {
+		return state, "", false, nil
+	}
+	var p webFlowStatePayload
+	if err := json.Unmarshal(b, &p); err != nil {
+		return "", "", false, fmt.Errorf("unmarshal wrapped state: %w", err)
+	}
+	return p.IDPState, p.CliState, p.CreatePat, nil
+}
 
 // propagateOrInternal returns the error unchanged when its gRPC status code is
 // PermissionDenied or Unauthenticated (so upstream IDP rejections are forwarded
@@ -104,11 +146,8 @@ func (s *IdentityService) GetUsers(ctx context.Context, req *identityv1.GetUsers
 
 // FindUser looks up a user by username or access token.
 func (s *IdentityService) FindUser(ctx context.Context, req *identityv1.FindUserRequest) (*commonv1.User, error) {
-	if req.Username != "" && req.Token != "" {
-		return nil, status.Error(codes.InvalidArgument, "only one of username or token can be provided")
-	}
-	if req.Username == "" && req.Token == "" {
-		return nil, status.Error(codes.InvalidArgument, "no username or token provided")
+	if req.Username == "" {
+		return nil, status.Error(codes.InvalidArgument, "no username provided")
 	}
 
 	if req.Username != "" {
@@ -123,22 +162,8 @@ func (s *IdentityService) FindUser(ctx context.Context, req *identityv1.FindUser
 		return gapi.UserToProto(user), nil
 	}
 
-	if req.Token != "" {
-		user, err := s.server.GetUserByAccessToken(req.Token)
-		if err != nil {
-			if errors.Is(err, models.ErrUserNotFound) {
-				return nil, status.Error(codes.NotFound, "user not found by token")
-			}
-			s.log.Error().Err(err).Msg("failed to get user by token")
-			return nil, status.Errorf(codes.Internal, "failed to get user by token: %v", err)
-		}
-		if user == nil {
-			return nil, status.Error(codes.NotFound, "user not found for the provided token")
-		}
-		return gapi.UserToProto(user), nil
-	}
-
-	return nil, status.Error(codes.InvalidArgument, "invalid request: must provide either username or token")
+	return nil, status.Error(codes.InvalidArgument,
+		"invalid request: must provide either username or token")
 }
 
 // AuthUserPublicKey authenticates a user using an SSH public key.
@@ -169,6 +194,14 @@ func (s *IdentityService) AuthUserPublicKey(ctx context.Context,
 	if err != nil {
 		return nil, propagateOrInternal(err, "failed to authenticate user '%s' with provider '%s': %s",
 			req.Username, provider.Name(), err.Error())
+	}
+	if authpb != nil {
+		if err := s.server.applyAuthPolicy(user, authz.UserAuthContext{
+			Method:      authz.UserAuthMethodPublicKey,
+			Fingerprint: ssh.FingerprintSHA256(parsedKey),
+		}); err != nil {
+			return nil, status.Errorf(codes.PermissionDenied, "%v", err)
+		}
 	}
 	return authpb, nil
 }
@@ -201,6 +234,11 @@ func (s *IdentityService) GetUserOnboardCapability(ctx context.Context,
 // OnboardUserDeviceFlow starts device-flow onboarding for a user.
 func (s *IdentityService) OnboardUserDeviceFlow(ctx context.Context,
 	req *identityv1.OnboardUserDeviceFlowRequest) (*commonv1.OnboardUserDeviceFlow, error) {
+	if s.server.DB == nil {
+		return nil, status.Error(codes.FailedPrecondition,
+			"database is not configured, cannot onboard user via device flow")
+	}
+
 	provider, ok := s.server.providerByName(req.Provider)
 	if !ok {
 		return nil, status.Errorf(codes.NotFound,
@@ -225,6 +263,11 @@ func (s *IdentityService) OnboardUserDeviceFlow(ctx context.Context,
 // OnboardUserWebFlow starts web-flow onboarding for the requested provider.
 func (s *IdentityService) OnboardUserWebFlow(ctx context.Context,
 	req *identityv1.OnboardUserWebFlowRequest) (*commonv1.OnboardUserWebFlow, error) {
+	if s.server.DB == nil {
+		return nil, status.Error(codes.FailedPrecondition,
+			"database is not configured, cannot onboard user via web flow")
+	}
+
 	provider, ok := s.server.providerByName(req.Provider)
 	if !ok {
 		return nil, status.Errorf(codes.NotFound,
@@ -238,13 +281,44 @@ func (s *IdentityService) OnboardUserWebFlow(ctx context.Context,
 		return nil, propagateOrInternal(err, "failed to onboard user via web flow with provider '%s': %v",
 			req.Provider, err)
 	}
+
+	if req.CliState != "" || req.CreatePat {
+		s.log.Debug().Msgf("Wrapping web flow state for provider '%s' with CLI state and PAT creation flag", req.Provider)
+		wrapped, err := wrapWebFlowState(authInfo.GetState(), req.CliState, req.CreatePat)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to wrap web flow state: %v", err)
+		}
+		u, err := url.Parse(authInfo.GetAuthUrl())
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to parse auth URL: %v", err)
+		}
+		q := u.Query()
+		q.Set("state", wrapped)
+		u.RawQuery = q.Encode()
+		authInfo.AuthUrl = u.String()
+		authInfo.State = wrapped
+	}
+
+	s.log.Info().Msgf("Initiated web flow onboarding for provider '%s', auth URL: %s",
+		req.Provider, authInfo.GetAuthUrl())
+
 	return authInfo, nil
 }
 
 // CompleteUserWebFlow completes web-flow onboarding and returns the resolved user.
 func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 	req *identityv1.CompleteUserWebFlowRequest) (*identityv1.CompleteUserWebFlowResponse, error) {
-	provider, _, err := utils.DecodeState(req.State)
+	if s.server.DB == nil {
+		return nil, status.Error(codes.FailedPrecondition,
+			"database is not configured, cannot complete web flow and create user")
+	}
+
+	idpState, cliState, createPat, err := unwrapWebFlowState(req.State)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "failed to decode web flow state: %v", err)
+	}
+
+	provider, _, err := utils.DecodeState(idpState)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "failed to decode web flow state: %v", err)
 	}
@@ -255,7 +329,7 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 			"no suitable identity provider found to complete web flow for provider '%s'", provider)
 	}
 	username, err := p.CompleteUserWebFlow(context.Background(), &identityv1.CompleteUserWebFlowRequest{
-		State: req.State,
+		State: idpState,
 		Code:  req.Code,
 	})
 	if err != nil {
@@ -273,13 +347,46 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 		return nil, status.Errorf(codes.Internal, "failed to issue token for user '%s'", user.Username)
 	}
 
-	if s.server.DB != nil {
-		s.server.provisionGitCredential(ctx, username.GetUsername(), p)
+	resp := &identityv1.CompleteUserWebFlowResponse{UserToken: token}
+
+	if createPat {
+		scopes := []string{"*"}
+		var patExpiresAt *time.Time
+
+		policyResult, err := s.server.applyTokenCreatePolicy(user, authz.TokenCreateSourceWebFlow)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to evaluate token create policy for user '%s': %v",
+				username.GetUsername(), err)
+		}
+		if policyResult != nil && !policyResult.Allowed {
+			resp.PatError = fmt.Sprintf("Create token not allowed for user '%s'. %s",
+				username.GetUsername(), policyResult.Reason)
+			resp.CliState = cliState
+		} else {
+			if policyResult != nil {
+				if scopesOb, ok := authz.ParseScopesObligation(policyResult.Obligations); ok {
+					scopes = scopesOb.Scopes
+				}
+				if expiresInOb, ok := authz.ParseExpiresInObligation(
+					policyResult.Obligations); ok && expiresInOb.Duration != nil {
+					t := time.Now().Add(*expiresInOb.Duration)
+					patExpiresAt = &t
+				}
+			}
+
+			_, raw, err := s.server.DB.CreateAccessToken(username.GetUsername(), "OAuth", scopes, patExpiresAt)
+			if err != nil {
+				return nil, status.Errorf(codes.Internal, "failed to create access token for user '%s': %v",
+					username.GetUsername(), err)
+			}
+			resp.Pat = raw
+			resp.CliState = cliState
+		}
 	}
 
-	return &identityv1.CompleteUserWebFlowResponse{
-		UserToken: token,
-	}, nil
+	s.server.provisionGitCredential(ctx, username.GetUsername(), p)
+
+	return resp, nil
 }
 
 // CompleteUserDeviceFlow is called by the client after the user has completed
@@ -437,11 +544,151 @@ func (s *IdentityService) GetAvailableIdentityProviders(
 	resp := make([]*identityv1.IdentityProviderInfo, len(activeProviders))
 	for i, activeProvider := range activeProviders {
 		resp[i] = &identityv1.IdentityProviderInfo{
-			Name: activeProvider.Name(),
+			Name:         activeProvider.Name(),
+			Capabilities: activeProvider.Capabilities(),
 		}
 	}
 
 	return &identityv1.GetAvailableIdentityProvidersResponse{
 		Providers: resp,
+	}, nil
+}
+
+// CreateAccessToken issues a new Personal Access Token for a user.
+// The raw token is returned once in the response and is not recoverable after that.
+func (s *IdentityService) CreateAccessToken(ctx context.Context,
+	req *identityv1.CreateAccessTokenRequest) (*identityv1.CreateAccessTokenResponse, error) {
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured, cannot create access token")
+	}
+	if req.Username == "" {
+		return nil, status.Error(codes.InvalidArgument, "username is required")
+	}
+	if req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+	if err := authz.ValidateScopes(req.GetScopes()); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	if _, err := s.server.GetUserByUsername(req.Username, ""); err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
+		}
+		return nil, propagateOrInternal(err, "error occurred when getting user '%s': %v", req.Username, err)
+	}
+
+	var expiresAt *time.Time
+	if ts := req.GetExpiresAt(); ts != nil {
+		t := ts.AsTime()
+		expiresAt = &t
+	}
+
+	id, raw, err := s.server.DB.CreateAccessToken(req.Username, req.Name, req.GetScopes(), expiresAt)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to create access token: %v", err)
+	}
+
+	return &identityv1.CreateAccessTokenResponse{Id: id, Token: raw}, nil
+}
+
+// ListAccessTokens returns access token metadata (no raw tokens or hashes) for a user.
+func (s *IdentityService) ListAccessTokens(ctx context.Context,
+	req *identityv1.Username) (*identityv1.ListAccessTokensResponse, error) {
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured, cannot list access tokens")
+	}
+	if req.Username == "" {
+		return nil, status.Error(codes.InvalidArgument, "username is required")
+	}
+
+	tokens, err := s.server.DB.ListAccessTokens(req.Username)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to list access tokens: %v", err)
+	}
+
+	infos := make([]*identityv1.AccessTokenInfo, len(tokens))
+	for i, t := range tokens {
+		info := &identityv1.AccessTokenInfo{
+			Id:        t.ID,
+			Username:  t.Username,
+			Name:      t.Name,
+			Scopes:    t.Scopes,
+			CreatedAt: timestamppb.New(t.CreatedAt),
+			IsActive:  t.IsActive,
+		}
+		if t.ExpiresAt != nil {
+			info.ExpiresAt = timestamppb.New(*t.ExpiresAt)
+		}
+		if t.LastUsedAt != nil {
+			info.LastUsedAt = timestamppb.New(*t.LastUsedAt)
+		}
+		infos[i] = info
+	}
+
+	return &identityv1.ListAccessTokensResponse{Tokens: infos}, nil
+}
+
+// RevokeAccessToken soft-deletes an access token by ID, enforcing username ownership.
+func (s *IdentityService) RevokeAccessToken(ctx context.Context,
+	req *identityv1.RevokeAccessTokenRequest) (*identityv1.RevokeAccessTokenResponse, error) {
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured, cannot revoke access token")
+	}
+	if req.Username == "" {
+		return nil, status.Error(codes.InvalidArgument, "username is required")
+	}
+
+	if err := s.server.DB.RevokeAccessToken(req.Id, req.Username); err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Errorf(codes.NotFound, "access token %d not found for user '%s'", req.Id, req.Username)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to revoke access token: %v", err)
+	}
+
+	return &identityv1.RevokeAccessTokenResponse{Success: true}, nil
+}
+
+// ResolveAccessToken looks up a raw k8sh_ token, updates last_used_at, and returns
+// the owning user and the token's scopes. Called by API gateways on every k8sh_ request.
+func (s *IdentityService) ResolveAccessToken(ctx context.Context,
+	req *identityv1.ResolveAccessTokenRequest) (*identityv1.ResolveAccessTokenResponse, error) {
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured, cannot resolve access token")
+	}
+	if req.Token == "" {
+		return nil, status.Error(codes.InvalidArgument, "token is required")
+	}
+
+	token, err := s.server.DB.ResolveAccessToken(req.Token)
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Error(codes.Unauthenticated, "invalid or expired access token")
+		}
+		return nil, status.Errorf(codes.Internal, "failed to resolve access token: %v", err)
+	}
+
+	user, err := s.server.GetUserByUsername(token.Username, "")
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) || errors.Is(err, models.ErrUserIsNotValid) {
+			return nil, status.Error(codes.Unauthenticated, "invalid or expired access token")
+		}
+		return nil, propagateOrInternal(err, "error occurred when getting user '%s': %v", token.Username, err)
+	}
+
+	var userToken string
+	if d := req.GetExpiry(); d != nil {
+		userToken, err = s.server.issueUserTokenWithExpiry(user, d.AsDuration())
+	} else {
+		userToken, err = s.server.issueUserToken(user)
+	}
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to issue token for user '%s': %v", user.Username, err)
+	}
+
+	return &identityv1.ResolveAccessTokenResponse{
+		User:      gapi.UserToProto(user),
+		Scopes:    token.Scopes,
+		UserToken: userToken,
 	}, nil
 }

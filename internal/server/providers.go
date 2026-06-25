@@ -41,7 +41,7 @@ func (s *Server) loadProviders(config *Config) error {
 			return fmt.Errorf("duplicate identity provider name '%s' from address '%s'", client.Name(), idpCfg.Address)
 		}
 		s.IdentityProviders[client.Name()] = client
-		s.log.Info().Msgf("Loaded identity provider '%s' from address '%s'", client.Name(), idpCfg.Address)
+		s.log.Info().Msgf("Loaded identity provider: name='%s', caps=%v from address '%s'", client.Name(), client.Capabilities(), idpCfg.Address)
 	}
 
 	return nil
@@ -103,7 +103,7 @@ func (s *Server) retryPendingProviders() {
 		}
 		s.IdentityProviders[client.Name()] = client
 		s.providerMu.Unlock()
-		s.log.Info().Msgf("Identity provider '%s' connected from address '%s'", client.Name(), cfg.Address)
+		s.log.Info().Msgf("Identity provider: name='%s', caps=%v from address '%s'", client.Name(), client.Capabilities(), cfg.Address)
 	}
 
 	s.providerMu.Lock()

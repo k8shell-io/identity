@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"github.com/k8shell-io/common/pkg/api/client/identity"
+	authzv1 "github.com/k8shell-io/common/pkg/api/gen/go/authz/v1"
 	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
 	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/common/pkg/gapi"
@@ -50,6 +51,10 @@ type Server struct {
 	// It is nil when JWT verification could not be initialized.
 	Verifier *authz.JWTVerifier
 
+	// jwtIssuerCfg is the full JWT issuer configuration, retained so that
+	// issueUserTokenWithExpiry can construct a temporary issuer with a custom expiry.
+	jwtIssuerCfg authz.JWTIssuerConfig
+
 	// jwtExpiry is the lifetime of issued JWTs, copied from JWTIssuerConfig so
 	// the token refresh loop can compute expiry times without re-reading config.
 	jwtExpiry time.Duration
@@ -57,6 +62,8 @@ type Server struct {
 	// k8sClient is the Kubernetes API client used to manage user token secrets.
 	// It is nil when Kubernetes integration is disabled or unavailable.
 	k8sClient *kubernetes.Clientset
+
+	authzClient authzv1.AuthzServiceClient
 
 	// k8sCfg holds the resolved Kubernetes configuration.
 	k8sCfg KubernetesConfig
@@ -98,6 +105,14 @@ func NewServer(configFile string) (*Server, error) {
 		server.log.Warn().Msg("Database is disabled in configuration; server will run without persistent storage")
 	}
 
+	if config.Authz.IsEnabled() {
+		authzConn, err := gapi.NewClient(config.Authz)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create authz client: %w", err)
+		}
+		server.authzClient = authzv1.NewAuthzServiceClient(authzConn.Conn)
+	}
+
 	server.nats, err = natsc.NewNATSClient(config.Nats)
 	if err != nil {
 		return nil, fmt.Errorf("create NATS client: %w", err)
@@ -113,6 +128,7 @@ func NewServer(configFile string) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("initialize JWT issuer: %w", err)
 	}
+	server.jwtIssuerCfg = config.JWTIssuer
 	server.jwtExpiry = config.JWTIssuer.Expiry
 	if server.jwtExpiry == 0 {
 		server.jwtExpiry = time.Hour
@@ -252,6 +268,9 @@ func (s *Server) refreshUser(username string, source string, user *models.User) 
 
 		if createUser || updateUser {
 			if createUser {
+				if err := s.applyOnboardPolicy(foundUser); err != nil {
+					return nil, err
+				}
 				err := s.DB.CreateUser(foundUser)
 				if err != nil {
 					return nil, fmt.Errorf("failed to create user '%s' in database: %w", username, err)
@@ -260,6 +279,7 @@ func (s *Server) refreshUser(username string, source string, user *models.User) 
 				foundUser.Shell = user.Shell
 				foundUser.Sudo = user.Sudo
 				foundUser.Locked = user.Locked
+				foundUser.Roles = user.Roles
 				err := s.DB.UpdateUser(foundUser)
 				if err != nil {
 					return nil, fmt.Errorf("failed to update user '%s' in database: %w", username, err)
@@ -284,7 +304,119 @@ func (s *Server) refreshUser(username string, source string, user *models.User) 
 	return user, nil
 }
 
-// issueUserToken issues a JWT for the user
+// applyOnboardPolicy evaluates the user:onboard action against the authz
+// service. It returns an error when the policy denies onboarding. On allow it
+// applies any resulting obligations (e.g. sudo) to the user before it is
+// persisted. It is a no-op when the authz client or JWT issuer is not
+// configured.
+func (s *Server) applyOnboardPolicy(user *models.User) error {
+	if s.authzClient == nil || s.JWT == nil {
+		return nil
+	}
+
+	token, err := s.issueUserToken(user)
+	if err != nil {
+		return fmt.Errorf("applyOnboardPolicy: failed to issue token for user '%s': %w", user.Username, err)
+	}
+
+	evalReq, err := authz.NewUserOnboardEvalRequest(user.Username).
+		WithIDP(user.Source).
+		Build()
+	if err != nil {
+		return fmt.Errorf("applyOnboardPolicy: failed to build eval request for user '%s': %w", user.Username, err)
+	}
+
+	evalProto := evalReq.ToProto(token)
+	evalProto.Package = "user"
+	resp, err := s.authzClient.Evaluate(context.Background(), evalProto)
+	if err != nil {
+		return fmt.Errorf("applyOnboardPolicy: authz evaluation failed for user '%s': %w", user.Username, err)
+	}
+
+	result := authz.PolicyResultFromProto(resp)
+	if !result.Allowed {
+		return fmt.Errorf("applyOnboardPolicy: onboarding denied for user '%s': %s", user.Username, result.Reason)
+	}
+
+	if sudo, ok := authz.ParseSudoObligation(result.Obligations); ok {
+		user.Sudo = sudo.Granted
+	}
+	if roles, ok := authz.ParseRolesObligation(result.Obligations); ok {
+		user.Roles = roles.Roles
+	}
+	if blueprints, ok := authz.ParseBlueprintsObligation(result.Obligations); ok {
+		user.Blueprints = blueprints.Blueprints
+	}
+	return nil
+}
+
+// applyTokenCreatePolicy evaluates the token:create action against the authz
+// service and returns the policy result so the caller can apply obligations
+// (scopes, expires_in). Returns nil result when the authz client or JWT issuer
+// is not configured.
+func (s *Server) applyTokenCreatePolicy(user *models.User, source authz.TokenCreateSource) (*authz.PolicyResult, error) {
+	if s.authzClient == nil || s.JWT == nil {
+		return nil, nil
+	}
+
+	token, err := s.issueUserToken(user)
+	if err != nil {
+		return nil, fmt.Errorf("applyTokenCreatePolicy: failed to issue token for user '%s': %w", user.Username, err)
+	}
+
+	evalReq, err := authz.NewUserTokenCreateEvalRequest(user.Username).
+		WithSource(source).
+		Build()
+	if err != nil {
+		return nil, fmt.Errorf("applyTokenCreatePolicy: failed to build eval request for user '%s': %w", user.Username, err)
+	}
+
+	evalProto := evalReq.ToProto(token)
+	evalProto.Package = "user"
+	resp, err := s.authzClient.Evaluate(context.Background(), evalProto)
+	if err != nil {
+		return nil, fmt.Errorf("applyTokenCreatePolicy: authz evaluation failed for user '%s': %w", user.Username, err)
+	}
+
+	return authz.PolicyResultFromProto(resp), nil
+}
+
+// applyAuthPolicy evaluates the user:auth action against the authz service.
+// It is a no-op when the authz client or JWT issuer is not configured.
+func (s *Server) applyAuthPolicy(user *models.User, authCtx authz.UserAuthContext) error {
+	if s.authzClient == nil || s.JWT == nil {
+		return nil
+	}
+
+	token, err := s.issueUserToken(user)
+	if err != nil {
+		return fmt.Errorf("applyAuthPolicy: failed to issue token for user '%s': %w", user.Username, err)
+	}
+
+	evalReq, err := authz.NewUserAuthEvalRequest(user.Username).
+		WithIDP(user.Source).
+		WithAuthMethod(authCtx.Method).
+		WithFingerprint(authCtx.Fingerprint).
+		Build()
+	if err != nil {
+		return fmt.Errorf("applyAuthPolicy: failed to build eval request for user '%s': %w", user.Username, err)
+	}
+
+	evalProto := evalReq.ToProto(token)
+	evalProto.Package = "user"
+	resp, err := s.authzClient.Evaluate(context.Background(), evalProto)
+	if err != nil {
+		return fmt.Errorf("applyAuthPolicy: authz evaluation failed for user '%s': %w", user.Username, err)
+	}
+
+	result := authz.PolicyResultFromProto(resp)
+	if !result.Allowed {
+		return fmt.Errorf("applyAuthPolicy: auth denied for user '%s': %s", user.Username, result.Reason)
+	}
+	return nil
+}
+
+// issueUserToken issues a JWT for the user using the server's configured expiry.
 func (s *Server) issueUserToken(user *models.User) (string, error) {
 	if s.JWT == nil {
 		return "", fmt.Errorf("JWT issuer not configured")
@@ -296,6 +428,30 @@ func (s *Server) issueUserToken(user *models.User) (string, error) {
 	}
 
 	s.log.Debug().Msgf("issued new token for user '%s', expires at %s", user.Username, claims.ExpiresAt.Format(time.RFC3339))
+	return token, nil
+}
+
+// issueUserTokenWithExpiry issues a JWT for the user with a caller-supplied expiry,
+// overriding the server default. Used by ResolveAccessToken so that the API gateway
+// can request a JWT lifetime matched to the PAT session length.
+func (s *Server) issueUserTokenWithExpiry(user *models.User, expiry time.Duration) (string, error) {
+	if s.JWT == nil {
+		return "", fmt.Errorf("JWT issuer not configured")
+	}
+
+	cfg := s.jwtIssuerCfg
+	cfg.Expiry = expiry
+	issuer, err := authz.NewJWTIssuer(cfg)
+	if err != nil {
+		return "", fmt.Errorf("create JWT issuer with custom expiry: %w", err)
+	}
+
+	claims, token, err := issuer.IssueToken(user)
+	if err != nil {
+		return "", fmt.Errorf("issue JWT for user '%s': %w", user.Username, err)
+	}
+
+	s.log.Debug().Msgf("issued token for user '%s' with custom expiry, expires at %s", user.Username, claims.ExpiresAt.Format(time.RFC3339))
 	return token, nil
 }
 

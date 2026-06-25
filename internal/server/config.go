@@ -66,6 +66,9 @@ type Config struct {
 	// leader election for the token refresh loop.
 	Kubernetes KubernetesConfig `yaml:"kubernetes" validate:"required"`
 
+	// Authz configures the authorization gRPC client used for policy evaluation.
+	Authz gapi.ClientConfig `yaml:"authz"`
+
 	// configDir is the directory containing the loaded configuration file.
 	configDir string
 }
