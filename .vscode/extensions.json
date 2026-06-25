@@ -1,6 +1,6 @@
 {
   "recommendations": [
     "golang.go",
-    "humao.rest-client",
+    "anthropic.claude-code"
   ]
 }
