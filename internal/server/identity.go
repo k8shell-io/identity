@@ -577,6 +577,9 @@ func (s *IdentityService) UpdateUser(ctx context.Context,
 	if len(req.GetAuthKeys()) > 0 {
 		user.AuthKeys = req.GetAuthKeys()
 	}
+	if v := req.GetOrg(); v != nil {
+		user.Organization = v.GetValue()
+	}
 
 	if err := s.server.DB.UpdateUser(user); err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to update user '%s': %v", req.Username, err)
