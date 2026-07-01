@@ -194,7 +194,14 @@ func (d *DB) UpdateUser(user *models.User) error {
 		user.Organization,
 		user.Username,
 	)
-	return err
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" && pgErr.ConstraintName == "users_organization_fkey" {
+			return fmt.Errorf("%w: organization '%s' does not exist", models.ErrInvalidParameters, user.Organization)
+		}
+		return err
+	}
+	return nil
 }
 
 // InvalidateUser marks a user account as invalid (is_valid=false) without deleting it.

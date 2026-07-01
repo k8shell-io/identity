@@ -582,6 +582,9 @@ func (s *IdentityService) UpdateUser(ctx context.Context,
 	}
 
 	if err := s.server.DB.UpdateUser(user); err != nil {
+		if errors.Is(err, models.ErrInvalidParameters) {
+			return nil, status.Errorf(codes.InvalidArgument, "failed to update user '%s': %v", req.Username, err)
+		}
 		return nil, status.Errorf(codes.Internal, "failed to update user '%s': %v", req.Username, err)
 	}
 
