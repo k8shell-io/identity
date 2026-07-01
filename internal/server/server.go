@@ -266,28 +266,25 @@ func (s *Server) refreshUser(username string, source string, user *models.User) 
 		updateUser := (foundUser != nil && user != nil)
 		invalidateUser := (foundUser == nil && user != nil)
 
-		if createUser || updateUser {
-			if createUser {
-				if err := s.applyOnboardPolicy(foundUser); err != nil {
-					return nil, err
-				}
-				err := s.DB.CreateUser(foundUser)
-				if err != nil {
-					return nil, fmt.Errorf("failed to create user '%s' in database: %w", username, err)
-				}
-			} else if updateUser {
-				foundUser.Shell = user.Shell
-				foundUser.Sudo = user.Sudo
-				foundUser.Locked = user.Locked
-				foundUser.Roles = user.Roles
-				err := s.DB.UpdateUser(foundUser)
-				if err != nil {
-					return nil, fmt.Errorf("failed to update user '%s' in database: %w", username, err)
-				}
+		if createUser {
+			if err := s.applyOnboardPolicy(foundUser); err != nil {
+				return nil, err
 			}
+			err := s.DB.CreateUser(foundUser)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create user '%s' in database: %w", username, err)
+			}
+			return foundUser, nil
+		}
 
+		if updateUser {
+			user.IsValid = foundUser.IsValid
+			user.ExpiresAt = foundUser.ExpiresAt
+			err := s.DB.UpdateUser(user)
+			if err != nil {
+				return nil, fmt.Errorf("failed to update user '%s' in database: %w", username, err)
+			}
 			return user, nil
-
 		}
 
 		if invalidateUser {
