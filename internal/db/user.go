@@ -166,13 +166,14 @@ func (d *DB) UpdateUser(user *models.User) error {
 		password=$7,
 		shell=$8,
 		sudo=$9,
-		auths=$10,
-		auth_keys=$11,
-		roles=$12,
-		blueprints=$13,
-		source=$14,
-		organization=$15
-	WHERE username=$16`
+		locked=$10,
+		auths=$11,
+		auth_keys=$12,
+		roles=$13,
+		blueprints=$14,
+		source=$15,
+		organization=$16
+	WHERE username=$17`
 
 	_, err := d.Pool.Exec(context.Background(), query,
 		user.IsValid,
@@ -184,6 +185,7 @@ func (d *DB) UpdateUser(user *models.User) error {
 		user.Password,
 		user.Shell,
 		user.Sudo,
+		user.Locked,
 		user.Auths,
 		user.AuthKeys,
 		user.Roles,
@@ -470,6 +472,66 @@ func (d *DB) InvalidateUserToken(ctx context.Context, username string) error {
 		 WHERE username=$1`,
 		username)
 	return err
+}
+
+// addUserArrayField appends items to a user's text[] column (no duplicates) and returns the updated user.
+func (d *DB) addUserArrayField(username, column string, items []string) (*models.User, error) {
+	query := fmt.Sprintf(`UPDATE identity.users
+		SET %s = array(SELECT unnest(%s) UNION SELECT unnest($2::text[]))
+		WHERE username=$1`, column, column)
+	result, err := d.Pool.Exec(context.Background(), query, username, items)
+	if err != nil {
+		return nil, err
+	}
+	if result.RowsAffected() == 0 {
+		return nil, models.ErrUserNotFound
+	}
+	return d.FindUser(username, "")
+}
+
+// removeUserArrayField removes items from a user's text[] column and returns the updated user.
+func (d *DB) removeUserArrayField(username, column string, items []string) (*models.User, error) {
+	query := fmt.Sprintf(`UPDATE identity.users
+		SET %s = array(SELECT unnest(%s) EXCEPT SELECT unnest($2::text[]))
+		WHERE username=$1`, column, column)
+	result, err := d.Pool.Exec(context.Background(), query, username, items)
+	if err != nil {
+		return nil, err
+	}
+	if result.RowsAffected() == 0 {
+		return nil, models.ErrUserNotFound
+	}
+	return d.FindUser(username, "")
+}
+
+// AddUserRoles appends the given roles to the user, skipping duplicates.
+func (d *DB) AddUserRoles(username string, roles []string) (*models.User, error) {
+	return d.addUserArrayField(username, "roles", roles)
+}
+
+// RemoveUserRoles removes the given roles from the user.
+func (d *DB) RemoveUserRoles(username string, roles []string) (*models.User, error) {
+	return d.removeUserArrayField(username, "roles", roles)
+}
+
+// AddUserBlueprints appends the given blueprints to the user, skipping duplicates.
+func (d *DB) AddUserBlueprints(username string, blueprints []string) (*models.User, error) {
+	return d.addUserArrayField(username, "blueprints", blueprints)
+}
+
+// RemoveUserBlueprints removes the given blueprints from the user.
+func (d *DB) RemoveUserBlueprints(username string, blueprints []string) (*models.User, error) {
+	return d.removeUserArrayField(username, "blueprints", blueprints)
+}
+
+// AddUserAuthKeys appends the given SSH public keys to the user, skipping duplicates.
+func (d *DB) AddUserAuthKeys(username string, authKeys []string) (*models.User, error) {
+	return d.addUserArrayField(username, "auth_keys", authKeys)
+}
+
+// RemoveUserAuthKeys removes the given SSH public keys from the user.
+func (d *DB) RemoveUserAuthKeys(username string, authKeys []string) (*models.User, error) {
+	return d.removeUserArrayField(username, "auth_keys", authKeys)
 }
 
 // ClaimUsersForTokenRefresh atomically claims a batch of valid users whose

@@ -536,6 +536,199 @@ func (s *IdentityService) DeleteUserCredential(ctx context.Context,
 	return &identityv1.DeleteUserCredentialResponse{Success: true}, nil
 }
 
+// UpdateUser applies a partial update to a user record. Only non-nil wrapper
+// fields and non-empty repeated fields in the request are applied.
+func (s *IdentityService) UpdateUser(ctx context.Context,
+	req *identityv1.UpdateUserRequest) (*commonv1.User, error) {
+	if req.Username == "" {
+		return nil, status.Error(codes.InvalidArgument, "username is required")
+	}
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured")
+	}
+
+	user, err := s.server.DB.FindUser(req.Username, "")
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to get user '%s': %v", req.Username, err)
+	}
+
+	if v := req.GetFullname(); v != nil {
+		user.Fullname = v.GetValue()
+	}
+	if v := req.GetSudo(); v != nil {
+		user.Sudo = v.GetValue()
+	}
+	if v := req.GetLocked(); v != nil {
+		user.Locked = v.GetValue()
+	}
+	if len(req.GetRoles()) > 0 {
+		roles := make([]models.Role, len(req.GetRoles()))
+		for i, r := range req.GetRoles() {
+			roles[i] = models.Role(r)
+		}
+		user.Roles = roles
+	}
+	if len(req.GetBlueprints()) > 0 {
+		user.Blueprints = req.GetBlueprints()
+	}
+	if len(req.GetAuthKeys()) > 0 {
+		user.AuthKeys = req.GetAuthKeys()
+	}
+
+	if err := s.server.DB.UpdateUser(user); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to update user '%s': %v", req.Username, err)
+	}
+
+	return gapi.UserToProto(user), nil
+}
+
+// AddUserRoles adds one or more roles to a user without affecting existing roles.
+func (s *IdentityService) AddUserRoles(ctx context.Context,
+	req *identityv1.UserRolesRequest) (*commonv1.User, error) {
+	if req.Username == "" {
+		return nil, status.Error(codes.InvalidArgument, "username is required")
+	}
+	if len(req.GetRoles()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "at least one role is required")
+	}
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured")
+	}
+
+	user, err := s.server.DB.AddUserRoles(req.Username, req.GetRoles())
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to add roles for user '%s': %v", req.Username, err)
+	}
+
+	return gapi.UserToProto(user), nil
+}
+
+// RemoveUserRoles removes one or more roles from a user.
+func (s *IdentityService) RemoveUserRoles(ctx context.Context,
+	req *identityv1.UserRolesRequest) (*commonv1.User, error) {
+	if req.Username == "" {
+		return nil, status.Error(codes.InvalidArgument, "username is required")
+	}
+	if len(req.GetRoles()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "at least one role is required")
+	}
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured")
+	}
+
+	user, err := s.server.DB.RemoveUserRoles(req.Username, req.GetRoles())
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to remove roles for user '%s': %v", req.Username, err)
+	}
+
+	return gapi.UserToProto(user), nil
+}
+
+// AddUserBlueprints grants a user access to one or more blueprints.
+func (s *IdentityService) AddUserBlueprints(ctx context.Context,
+	req *identityv1.UserBlueprintsRequest) (*commonv1.User, error) {
+	if req.Username == "" {
+		return nil, status.Error(codes.InvalidArgument, "username is required")
+	}
+	if len(req.GetBlueprints()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "at least one blueprint is required")
+	}
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured")
+	}
+
+	user, err := s.server.DB.AddUserBlueprints(req.Username, req.GetBlueprints())
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to add blueprints for user '%s': %v", req.Username, err)
+	}
+
+	return gapi.UserToProto(user), nil
+}
+
+// RemoveUserBlueprints revokes access to one or more blueprints from a user.
+func (s *IdentityService) RemoveUserBlueprints(ctx context.Context,
+	req *identityv1.UserBlueprintsRequest) (*commonv1.User, error) {
+	if req.Username == "" {
+		return nil, status.Error(codes.InvalidArgument, "username is required")
+	}
+	if len(req.GetBlueprints()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "at least one blueprint is required")
+	}
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured")
+	}
+
+	user, err := s.server.DB.RemoveUserBlueprints(req.Username, req.GetBlueprints())
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to remove blueprints for user '%s': %v", req.Username, err)
+	}
+
+	return gapi.UserToProto(user), nil
+}
+
+// AddUserAuthKeys registers one or more SSH public keys for a user.
+func (s *IdentityService) AddUserAuthKeys(ctx context.Context,
+	req *identityv1.UserAuthKeysRequest) (*commonv1.User, error) {
+	if req.Username == "" {
+		return nil, status.Error(codes.InvalidArgument, "username is required")
+	}
+	if len(req.GetAuthKeys()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "at least one auth key is required")
+	}
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured")
+	}
+
+	user, err := s.server.DB.AddUserAuthKeys(req.Username, req.GetAuthKeys())
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to add auth keys for user '%s': %v", req.Username, err)
+	}
+
+	return gapi.UserToProto(user), nil
+}
+
+// RemoveUserAuthKeys removes one or more SSH public keys from a user.
+func (s *IdentityService) RemoveUserAuthKeys(ctx context.Context,
+	req *identityv1.UserAuthKeysRequest) (*commonv1.User, error) {
+	if req.Username == "" {
+		return nil, status.Error(codes.InvalidArgument, "username is required")
+	}
+	if len(req.GetAuthKeys()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "at least one auth key is required")
+	}
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured")
+	}
+
+	user, err := s.server.DB.RemoveUserAuthKeys(req.Username, req.GetAuthKeys())
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to remove auth keys for user '%s': %v", req.Username, err)
+	}
+
+	return gapi.UserToProto(user), nil
+}
+
 func (s *IdentityService) GetAvailableIdentityProviders(
 	ctx context.Context,
 	req *identityv1.GetAvailableIdentityProvidersRequest,
