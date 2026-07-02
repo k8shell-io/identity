@@ -195,7 +195,7 @@ func (s *IdentityService) AuthUserPublicKey(ctx context.Context,
 		return nil, propagateOrInternal(err, "failed to authenticate user '%s' with provider '%s': %s",
 			req.Username, provider.Name(), err.Error())
 	}
-	if authpb != nil {
+	if authpb != nil && authpb.Valid {
 		if err := s.server.applyAuthPolicy(user, authz.UserAuthContext{
 			Method:      authz.UserAuthMethodPublicKey,
 			Fingerprint: ssh.FingerprintSHA256(parsedKey),
