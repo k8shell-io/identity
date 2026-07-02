@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -212,8 +213,12 @@ func (d *DB) DeleteUser(username string) error {
 	return err
 }
 
-// ListUsers returns a paginated list of all users ordered by username.
-func (d *DB) ListUsers(limit, offset int) ([]*models.User, error) {
+// ListUsers returns a paginated list of users ordered by username, optionally
+// restricted to users matching the given filters. roles and blueprints match
+// when the user has at least one of the listed values; org matches when the
+// user belongs to that organization. An empty/nil filter imposes no
+// restriction on that dimension.
+func (d *DB) ListUsers(limit, offset int, roles, blueprints []string, org string) ([]*models.User, error) {
 	limit, offset = db.AdjustListLimit(limit, offset)
 
 	query := `
@@ -221,11 +226,32 @@ func (d *DB) ListUsers(limit, offset int) ([]*models.User, error) {
 		       email, COALESCE(password, '') AS password, shell, sudo, locked,
 		       auth_keys, roles, blueprints, source, organization
 		FROM identity.users
-		ORDER BY username
-		LIMIT $1 OFFSET $2
 	`
 
-	rows, err := d.Pool.Query(context.Background(), query, limit, offset)
+	var (
+		conditions []string
+		args       []any
+	)
+	if len(roles) > 0 {
+		args = append(args, roles)
+		conditions = append(conditions, fmt.Sprintf("roles && $%d", len(args)))
+	}
+	if len(blueprints) > 0 {
+		args = append(args, blueprints)
+		conditions = append(conditions, fmt.Sprintf("blueprints && $%d", len(args)))
+	}
+	if org != "" {
+		args = append(args, org)
+		conditions = append(conditions, fmt.Sprintf("organization = $%d", len(args)))
+	}
+	if len(conditions) > 0 {
+		query += "WHERE " + strings.Join(conditions, " AND ") + "\n"
+	}
+
+	args = append(args, limit, offset)
+	query += fmt.Sprintf("ORDER BY username LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+
+	rows, err := d.Pool.Query(context.Background(), query, args...)
 	if err != nil {
 		return nil, err
 	}

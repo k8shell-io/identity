@@ -113,14 +113,65 @@ func (s *IdentityService) IssueUserToken(ctx context.Context,
 	return &identityv1.IssueUserTokenResponse{UserToken: token}, nil
 }
 
-// GetUsers retrieves users with pagination support.
+// userMatchesFilter reports whether user satisfies the GetUsers filters: an
+// AND-of-ORs where roles and blueprints each match when the user has at least
+// one of the listed values, and org matches when the user belongs to it. An
+// empty/nil filter imposes no restriction on that dimension.
+func userMatchesFilter(user *models.User, roles, blueprints []string, org string) bool {
+	if len(roles) > 0 {
+		matched := false
+		for _, r := range roles {
+			for _, userRole := range user.Roles {
+				if string(userRole) == r {
+					matched = true
+					break
+				}
+			}
+			if matched {
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	if len(blueprints) > 0 {
+		matched := false
+		for _, b := range blueprints {
+			for _, userBlueprint := range user.Blueprints {
+				if userBlueprint == b {
+					matched = true
+					break
+				}
+			}
+			if matched {
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	if org != "" && user.Organization != org {
+		return false
+	}
+	return true
+}
+
+// GetUsers retrieves users with pagination support, optionally filtered by
+// role, blueprint, or organization.
 func (s *IdentityService) GetUsers(ctx context.Context, req *identityv1.GetUsersRequest) (*identityv1.UserList, error) {
 	if s.server.DB == nil {
 		userList := make([]*commonv1.User, 0)
 		localUsers := s.server.getLocalUsers()
 
-		for inx, user := range localUsers {
-			if inx < int(req.Offset) {
+		skipped := 0
+		for _, user := range localUsers {
+			if !userMatchesFilter(user, req.Roles, req.Blueprints, req.Org) {
+				continue
+			}
+			if skipped < int(req.Offset) {
+				skipped++
 				continue
 			}
 			userList = append(userList, gapi.UserToProto(user))
@@ -131,7 +182,7 @@ func (s *IdentityService) GetUsers(ctx context.Context, req *identityv1.GetUsers
 		return &identityv1.UserList{Users: userList}, nil
 	}
 
-	users, err := s.server.DB.ListUsers(int(req.Limit), int(req.Offset))
+	users, err := s.server.DB.ListUsers(int(req.Limit), int(req.Offset), req.Roles, req.Blueprints, req.Org)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to list users: %v", err)
 	}
