@@ -33,7 +33,6 @@ CREATE TABLE identity.users (
 
     -- authentication
     password       varchar,                      -- hashed; NULL for external auth
-    auths          character varying[],          -- allowed auth methods
     auth_keys      character varying[],          -- authorized SSH public keys
 
     -- provider metadata
