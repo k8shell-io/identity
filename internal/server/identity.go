@@ -564,6 +564,9 @@ func (s *IdentityService) UpdateUser(ctx context.Context,
 	if v := req.GetLocked(); v != nil {
 		user.Locked = v.GetValue()
 	}
+	if v := req.GetShell(); v != nil {
+		user.Shell = v.GetValue()
+	}
 	if len(req.GetRoles()) > 0 {
 		roles := make([]models.Role, len(req.GetRoles()))
 		for i, r := range req.GetRoles() {
@@ -579,6 +582,15 @@ func (s *IdentityService) UpdateUser(ctx context.Context,
 	}
 	if v := req.GetOrg(); v != nil {
 		user.Organization = v.GetValue()
+	}
+	if v := req.GetEmail(); v != nil {
+		user.Email = v.GetValue()
+	}
+	if v := req.GetUid(); v != nil {
+		user.UID = v.GetValue()
+	}
+	if v := req.GetGid(); v != nil {
+		user.GID = v.GetValue()
 	}
 
 	if err := s.server.DB.UpdateUser(user); err != nil {
