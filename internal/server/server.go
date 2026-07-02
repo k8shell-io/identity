@@ -491,8 +491,8 @@ func (s *Server) GetUserByUsername(username string, source string) (*models.User
 }
 
 // GetUserByAccessToken retrieves a user by verifying the provided JWT access token.
-// In the DB path the token's JTI is matched against the stored current_token_id to
-// support revocation. In the file-provider path the subject claim is used directly.
+// In the DB path the verified subject and source claims are used to look up the user.
+// In the file-provider path the subject claim is used directly.
 func (s *Server) GetUserByAccessToken(token string) (*models.User, error) {
 	if s.Verifier == nil {
 		return nil, fmt.Errorf("JWT verification is not configured")

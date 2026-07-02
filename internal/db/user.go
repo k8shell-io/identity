@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -451,31 +450,6 @@ func (d *DB) UpdateUserCredential(cred *models.UserCredential) error {
 	return err
 }
 
-// SetUserToken stores the JTI of an issued JWT and its expiry for the given user.
-// Clears any in-progress refresh claim so the background loop can reclaim the
-// user on the next cycle when the new token approaches its expiry.
-func (d *DB) SetUserToken(ctx context.Context, username, tokenID string, expiresAt time.Time) error {
-	_, err := d.Pool.Exec(ctx,
-		`UPDATE identity.users
-		 SET current_token_id=$1, token_expires_at=$2, token_refresh_claimed_until=NULL
-		 WHERE username=$3`,
-		tokenID, expiresAt, username)
-	return err
-}
-
-// InvalidateUserToken clears the token expiry for the given user so that the
-// background refresh loop picks the user up on its next cycle and re-issues a
-// fresh token. Any existing refresh claim is also cleared so the row is
-// immediately eligible for reclaiming.
-func (d *DB) InvalidateUserToken(ctx context.Context, username string) error {
-	_, err := d.Pool.Exec(ctx,
-		`UPDATE identity.users
-		 SET token_expires_at=NOW(), token_refresh_claimed_until=NULL
-		 WHERE username=$1`,
-		username)
-	return err
-}
-
 // addUserArrayField appends items to a user's text[] column (no duplicates) and returns the updated user.
 func (d *DB) addUserArrayField(username, column string, items []string) (*models.User, error) {
 	query := fmt.Sprintf(`UPDATE identity.users
@@ -534,50 +508,4 @@ func (d *DB) AddUserAuthKeys(username string, authKeys []string) (*models.User, 
 // RemoveUserAuthKeys removes the given SSH public keys from the user.
 func (d *DB) RemoveUserAuthKeys(username string, authKeys []string) (*models.User, error) {
 	return d.removeUserArrayField(username, "auth_keys", authKeys)
-}
-
-// ClaimUsersForTokenRefresh atomically claims a batch of valid users whose
-// tokens are absent or expiring before expiresBeforeTime for renewal.
-// It uses SELECT FOR UPDATE SKIP LOCKED so that multiple service instances
-// share the work without double-processing.
-// claimUntil is set on claimed rows to act as a lease; if an instance crashes
-// the lease expires and another instance can reclaim those rows.
-// Returns the usernames of the claimed users.
-func (d *DB) ClaimUsersForTokenRefresh(ctx context.Context, expiresBeforeTime time.Time, claimUntil time.Time, limit int) ([]string, error) {
-	rows, err := d.Pool.Query(ctx, `
-		WITH claimed AS (
-			SELECT username
-			FROM identity.users
-			WHERE is_valid = true
-			  AND (
-			      token_expires_at IS NULL
-			      OR token_expires_at < $1
-			  )
-			  AND (
-			      token_refresh_claimed_until IS NULL
-			      OR token_refresh_claimed_until < NOW()
-			  )
-			ORDER BY token_expires_at ASC NULLS FIRST
-			LIMIT $2
-			FOR UPDATE SKIP LOCKED
-		)
-		UPDATE identity.users
-		SET token_refresh_claimed_until = $3
-		WHERE username IN (SELECT username FROM claimed)
-		RETURNING username`,
-		expiresBeforeTime, limit, claimUntil)
-	if err != nil {
-		return nil, fmt.Errorf("claim users for token refresh: %w", err)
-	}
-	defer rows.Close()
-
-	var usernames []string
-	for rows.Next() {
-		var username string
-		if err := rows.Scan(&username); err != nil {
-			return nil, err
-		}
-		usernames = append(usernames, username)
-	}
-	return usernames, rows.Err()
 }
