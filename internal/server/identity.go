@@ -247,10 +247,7 @@ func (s *IdentityService) AuthUserPublicKey(ctx context.Context,
 			req.Username, provider.Name(), err.Error())
 	}
 	if authpb != nil && authpb.Valid {
-		if err := s.server.applyAuthPolicy(user, authz.UserAuthContext{
-			Method:      authz.UserAuthMethodPublicKey,
-			Fingerprint: ssh.FingerprintSHA256(parsedKey),
-		}); err != nil {
+		if err := s.server.applyAuthPolicy(user, authz.UserAuthMethodPublicKey); err != nil {
 			return nil, status.Errorf(codes.PermissionDenied, "%v", err)
 		}
 	}

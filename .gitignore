@@ -11,3 +11,6 @@ bin/identity
 vendor/
 reports/
 bin/identity
+go.work
+go.work.sum
+/common

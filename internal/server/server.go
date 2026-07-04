@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -378,9 +379,10 @@ func (s *Server) applyTokenCreatePolicy(user *models.User, source authz.TokenCre
 	return authz.PolicyResultFromProto(resp), nil
 }
 
-// applyAuthPolicy evaluates the user:auth action against the authz service.
-// It is a no-op when the authz client or JWT issuer is not configured.
-func (s *Server) applyAuthPolicy(user *models.User, authCtx authz.UserAuthContext) error {
+// applyAuthPolicy evaluates the user:auth action against the authz service and
+// confirms that method is among the auth_methods the policy permits for the
+// user. It is a no-op when the authz client or JWT issuer is not configured.
+func (s *Server) applyAuthPolicy(user *models.User, method authz.UserAuthMethod) error {
 	if s.authzClient == nil || s.JWT == nil {
 		return nil
 	}
@@ -392,8 +394,6 @@ func (s *Server) applyAuthPolicy(user *models.User, authCtx authz.UserAuthContex
 
 	evalReq, err := authz.NewUserAuthEvalRequest(user.Username).
 		WithIDP(user.Source).
-		WithAuthMethod(authCtx.Method).
-		WithFingerprint(authCtx.Fingerprint).
 		Build()
 	if err != nil {
 		return fmt.Errorf("applyAuthPolicy: failed to build eval request for user '%s': %w", user.Username, err)
@@ -409,6 +409,11 @@ func (s *Server) applyAuthPolicy(user *models.User, authCtx authz.UserAuthContex
 	result := authz.PolicyResultFromProto(resp)
 	if !result.Allowed {
 		return fmt.Errorf("applyAuthPolicy: auth denied for user '%s': %s", user.Username, result.Reason)
+	}
+
+	obligation, ok := authz.ParseAuthMethodsObligation(result.Obligations)
+	if !ok || !slices.Contains(obligation.Methods, method) {
+		return fmt.Errorf("applyAuthPolicy: auth method '%s' not permitted for user '%s'", method, user.Username)
 	}
 	return nil
 }
