@@ -94,6 +94,8 @@ github.com/json-iterator/go v1.1.12 h1:PV8peI4a0ysnczrg+LtxykD8LfKY9ML6u2jnxaEnr
 github.com/json-iterator/go v1.1.12/go.mod h1:e30LSqwooZae/UwlEbR2852Gd8hjQvJoHmT4TnhNGBo=
 github.com/k8shell-io/common v0.30.17 h1:ePFTmlgknDxTB8kf2r7slq//AH0mDXP8XCnlyF++Byc=
 github.com/k8shell-io/common v0.30.17/go.mod h1:40c5GkpS7Y0/aOFa37Lq8z/mLUn3k3GV/AHtFJFL28k=
+github.com/k8shell-io/common v0.31.0 h1:iFo6IUdNQCU2cKnUPd2u2vJ14UKR+rodTPj9uax6Ay8=
+github.com/k8shell-io/common v0.31.0/go.mod h1:40c5GkpS7Y0/aOFa37Lq8z/mLUn3k3GV/AHtFJFL28k=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=
 github.com/kisielk/gotool v1.0.0/go.mod h1:XhKaO+MFFWcvkIS/tQcRk01m1F5IRFswLeQ+oQHNcck=
 github.com/klauspost/compress v1.18.0 h1:c/Cqfb0r+Yi+JtIEq73FWXVkRonBlf0CRNYc8Zttxdo=
