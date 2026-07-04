@@ -200,6 +200,26 @@ func (d *DB) UpdateUser(user *models.User) error {
 	return nil
 }
 
+// SetUserPassword sets a user's stored password hash. Pass an empty hash to
+// clear it (NULL), which disables password auth for the user.
+func (d *DB) SetUserPassword(username, hash string) (*models.User, error) {
+	var val *string
+	if hash != "" {
+		val = &hash
+	}
+
+	result, err := d.Pool.Exec(context.Background(),
+		`UPDATE identity.users SET password=$2 WHERE username=$1`, username, val)
+	if err != nil {
+		return nil, err
+	}
+	if result.RowsAffected() == 0 {
+		return nil, models.ErrUserNotFound
+	}
+
+	return d.FindUser(username, "")
+}
+
 // InvalidateUser marks a user account as invalid (is_valid=false) without deleting it.
 func (d *DB) InvalidateUser(username string) error {
 	query := `UPDATE identity.users SET is_valid=false WHERE username=$1`

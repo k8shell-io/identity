@@ -20,11 +20,15 @@ import (
 	"github.com/k8shell-io/common/pkg/userstr"
 	"github.com/k8shell-io/common/pkg/utils"
 	"github.com/rs/zerolog"
+	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/crypto/ssh"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+// minPasswordLength is the minimum length accepted by SetUserPassword.
+const minPasswordLength = 8
 
 // webFlowStatePayload is embedded in the OAuth state parameter to carry
 // CLI-specific data across the redirect round-trip without server-side storage.
@@ -252,6 +256,75 @@ func (s *IdentityService) AuthUserPublicKey(ctx context.Context,
 		}
 	}
 	return authpb, nil
+}
+
+// AuthUserPassword authenticates a user against the bcrypt password hash stored
+// locally in the database. Unlike AuthUserPublicKey, this is never delegated to
+// an identity provider — passwords are a k8Shell-local credential, resolved the
+// same way as PATs and stored credentials.
+func (s *IdentityService) AuthUserPassword(ctx context.Context,
+	req *identityv1.AuthUserPasswordRequest) (*identityv1.AuthUserResponse, error) {
+
+	user, err := s.server.GetUserByUsername(req.Username, "")
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) || errors.Is(err, models.ErrUserIsNotValid) {
+			return &identityv1.AuthUserResponse{Valid: false}, nil
+		}
+		return nil, propagateOrInternal(err, "error occurred when finding user '%s': %s",
+			req.Username, err.Error())
+	}
+
+	if user.Password == "" || req.Password == "" {
+		return &identityv1.AuthUserResponse{Valid: false}, nil
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+		return &identityv1.AuthUserResponse{Valid: false}, nil
+	}
+
+	if err := s.server.applyAuthPolicy(user, authz.UserAuthMethodPassword); err != nil {
+		return nil, status.Errorf(codes.PermissionDenied, "%v", err)
+	}
+
+	return &identityv1.AuthUserResponse{Valid: true, User: gapi.UserToProto(user)}, nil
+}
+
+// SetUserPassword sets or clears a user's local password. The password is
+// bcrypt-hashed before being persisted; the raw value is never stored or
+// returned. Pass an empty password to clear it, disabling password auth.
+func (s *IdentityService) SetUserPassword(ctx context.Context,
+	req *identityv1.SetUserPasswordRequest) (*commonv1.User, error) {
+	if req.Username == "" {
+		return nil, status.Error(codes.InvalidArgument, "username is required")
+	}
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured")
+	}
+
+	hash := ""
+	if req.Password != "" {
+		if len(req.Password) < minPasswordLength {
+			return nil, status.Errorf(codes.InvalidArgument, "password must be at least %d characters", minPasswordLength)
+		}
+		hashed, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			if errors.Is(err, bcrypt.ErrPasswordTooLong) {
+				return nil, status.Error(codes.InvalidArgument, "password is too long")
+			}
+			return nil, status.Errorf(codes.Internal, "failed to hash password: %v", err)
+		}
+		hash = string(hashed)
+	}
+
+	user, err := s.server.DB.SetUserPassword(req.Username, hash)
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to set password for user '%s': %v", req.Username, err)
+	}
+
+	return gapi.UserToProto(user), nil
 }
 
 // GetUserOnboardCapability returns onboarding capability information for a user.
