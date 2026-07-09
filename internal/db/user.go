@@ -319,10 +319,18 @@ func (d *DB) InvalidateUser(username string) error {
 	return err
 }
 
-// DeleteUser permanently removes a user record from the database by username.
+// DeleteUser permanently removes a user record from the database by
+// username. Credentials and access tokens owned by the user are removed
+// along with it (ON DELETE CASCADE).
 func (d *DB) DeleteUser(username string) error {
-	_, err := d.Pool.Exec(context.Background(), `DELETE FROM identity.users WHERE username=$1`, username)
-	return err
+	result, err := d.Pool.Exec(context.Background(), `DELETE FROM identity.users WHERE username=$1`, username)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return models.ErrUserNotFound
+	}
+	return nil
 }
 
 // ListUsers returns a paginated list of users ordered by username, optionally

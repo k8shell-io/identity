@@ -918,6 +918,34 @@ func (s *IdentityService) UpdateUser(ctx context.Context,
 	return gapi.UserToProto(user), nil
 }
 
+// DeleteUser permanently removes a user record by username. Credentials and
+// access tokens owned by the user are removed along with it (ON DELETE
+// CASCADE at the DB level).
+//
+// Like CreateUser, this RPC has no per-call authz check here: the acted-on
+// user cannot authorize their own deletion, and this service has no way to
+// identify the calling admin. Authorizing which admins may call DeleteUser
+// against the user:delete contract is the API server's responsibility,
+// enforced before it reaches this RPC.
+func (s *IdentityService) DeleteUser(ctx context.Context,
+	req *identityv1.DeleteUserRequest) (*identityv1.DeleteUserResponse, error) {
+	if req.Username == "" {
+		return nil, status.Error(codes.InvalidArgument, "username is required")
+	}
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured")
+	}
+
+	if err := s.server.DB.DeleteUser(req.Username); err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to delete user '%s': %v", req.Username, err)
+	}
+
+	return &identityv1.DeleteUserResponse{Success: true}, nil
+}
+
 // AddUserRoles adds one or more roles to a user without affecting existing roles.
 func (s *IdentityService) AddUserRoles(ctx context.Context,
 	req *identityv1.UserRolesRequest) (*commonv1.User, error) {
