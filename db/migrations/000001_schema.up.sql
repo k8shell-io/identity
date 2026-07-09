@@ -41,6 +41,8 @@ CREATE TABLE identity.users (
     blueprints     character varying[]           -- available k8shell blueprints
 );
 
+CREATE INDEX idx_users_email ON identity.users (email);
+
 -- user_credentials stores credentials for external services.
 -- credential_source controls how the secret is resolved at request time
 -- values are: stored, kubernetes, or a named identity provider for dynamic git credentials.

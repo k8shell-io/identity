@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 	"time"
 
 	commonv1 "github.com/k8shell-io/common/pkg/api/gen/go/common/v1"
@@ -31,6 +32,20 @@ import (
 
 // minPasswordLength is the minimum length accepted by SetUserPassword.
 const minPasswordLength = 8
+
+// defaultUserShell is the login shell assigned by CreateUser when none is supplied.
+const defaultUserShell = "/bin/sh"
+
+// localUserSource tags users created via CreateUser as having no backing
+// identity provider, distinguishing them from provider-synced users.
+const localUserSource = "local"
+
+// localUserExpiry is the expires_at set on users created via CreateUser.
+// refreshUser re-fetches from the provider named by a user's Source once
+// expires_at passes, and marks the user invalid if that provider can't be
+// found; local users have no such provider, so this is set far enough out
+// that it is never reached in practice.
+const localUserExpiry = 100 * 365 * 24 * time.Hour
 
 // webFlowStatePayload is embedded in the OAuth state parameter to carry
 // CLI-specific data across the redirect round-trip without server-side storage.
@@ -223,12 +238,22 @@ func (s *IdentityService) FindUser(ctx context.Context, req *identityv1.FindUser
 		"invalid request: must provide either username or token")
 }
 
-// AuthUserPublicKey authenticates a user using an SSH public key.
+// AuthUserPublicKey authenticates a user using an SSH public key. The key is
+// always checked against identity.users.auth_keys first, regardless of the
+// user's source — a provider-onboarded user may still have locally-added
+// keys (see AddUserAuthKeys), and local users (source="local") have no
+// backing identity provider at all. The upstream provider is only consulted
+// when the DB has no matching key, and is skipped entirely for local users
+// since they have no provider to fall back to. If the DB isn't configured,
+// the local check is skipped and auth goes straight to the provider.
 func (s *IdentityService) AuthUserPublicKey(ctx context.Context,
 	req *identityv1.AuthUserPublicKeyRequest) (*identityv1.AuthUserResponse, error) {
 
 	user, err := s.server.GetUserByUsername(req.Username, "")
-	if err != nil && !errors.Is(err, models.ErrUserNotFound) {
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) || errors.Is(err, models.ErrUserIsNotValid) {
+			return &identityv1.AuthUserResponse{Valid: false}, nil
+		}
 		return nil, propagateOrInternal(err, "error occured when finding user '%s': %s",
 			req.Username, err.Error())
 	}
@@ -238,26 +263,61 @@ func (s *IdentityService) AuthUserPublicKey(ctx context.Context,
 		s.log.Warn().Msgf("Failed to parse provided public key for user '%s': %v", req.Username, err)
 		return nil, nil
 	}
+	normalizedKey := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(parsedKey)))
 
-	// authenticate the user with the public key using the identity providers
-	provider, ok := s.server.providerByName(user.Source)
-	if !ok {
-		return nil, status.Errorf(codes.NotFound, "no suitable identity provider found for user '%s'", req.Username)
+	var authpb *identityv1.AuthUserResponse
+	if s.server.DB != nil {
+		authpb, err = s.matchStoredAuthKey(user.Username, normalizedKey)
+		if err != nil {
+			return nil, propagateOrInternal(err, "failed to check stored auth keys for user '%s': %s",
+				req.Username, err.Error())
+		}
 	}
-	authpb, err := provider.AuthUserPublicKey(context.Background(), &identityv1.AuthUserPublicKeyRequest{
-		Username:  req.Username,
-		PublicKey: string(ssh.MarshalAuthorizedKey(parsedKey)),
-	})
-	if err != nil {
-		return nil, propagateOrInternal(err, "failed to authenticate user '%s' with provider '%s': %s",
-			req.Username, provider.Name(), err.Error())
+
+	if authpb == nil || !authpb.Valid {
+		if user.Source == localUserSource {
+			// local users have no backing identity provider to fall back to
+			authpb = &identityv1.AuthUserResponse{Valid: false}
+		} else {
+			provider, ok := s.server.providerByName(user.Source)
+			if !ok {
+				return nil, status.Errorf(codes.NotFound, "no suitable identity provider found for user '%s'", req.Username)
+			}
+			authpb, err = provider.AuthUserPublicKey(context.Background(), &identityv1.AuthUserPublicKeyRequest{
+				Username:  req.Username,
+				PublicKey: normalizedKey,
+			})
+			if err != nil {
+				return nil, propagateOrInternal(err, "failed to authenticate user '%s' with provider '%s': %s",
+					req.Username, provider.Name(), err.Error())
+			}
+		}
 	}
+
 	if authpb != nil && authpb.Valid {
 		if err := s.server.applyAuthPolicy(user, authz.UserAuthMethodPublicKey); err != nil {
 			return nil, status.Errorf(codes.PermissionDenied, "%v", err)
 		}
 	}
 	return authpb, nil
+}
+
+// matchStoredAuthKey checks a normalized SSH public key against the keys
+// stored in identity.users.auth_keys for a user, regardless of source.
+func (s *IdentityService) matchStoredAuthKey(username, normalizedKey string) (*identityv1.AuthUserResponse, error) {
+	keys, err := s.server.DB.ListUserAuthKeys(username)
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return &identityv1.AuthUserResponse{Valid: false}, nil
+		}
+		return nil, err
+	}
+	for _, k := range keys {
+		if strings.TrimSpace(k) == normalizedKey {
+			return &identityv1.AuthUserResponse{Valid: true}, nil
+		}
+	}
+	return &identityv1.AuthUserResponse{Valid: false}, nil
 }
 
 // AuthUserPassword authenticates a user against the bcrypt password hash stored
@@ -672,6 +732,126 @@ func validateAuthKeys(authKeys []string) error {
 		}
 	}
 	return nil
+}
+
+// CreateUser creates a new local user record (source="local"), i.e. one with
+// no backing identity provider. Username and email must both be unique;
+// unlike username, email has no DB-level uniqueness constraint so it is
+// checked here. When not supplied: uid defaults to the next free value at or
+// above db.localUserUIDFloor; gid defaults to the resolved uid, giving the
+// user their own private group; shell defaults to /bin/sh; sudo and locked
+// default to false; fullname may be left empty.
+//
+// Unlike user:onboard/user:auth/token:create, this RPC has no per-call authz
+// check here: those evaluate policy for a self-service subject (the caller
+// and the acted-on user are the same person), but CreateUser is admin-on-
+// behalf-of-someone-else and this service has no way to identify the calling
+// admin (no per-caller JWT is verified from incoming gRPC context anywhere in
+// this service, only the gapi service-account allowlist). Authorizing which
+// admins may call CreateUser is the API server's responsibility, enforced
+// before it reaches this RPC — same as every other admin mutation here
+// (UpdateUser, AddUserRoles, SetUserPassword, etc.).
+func (s *IdentityService) CreateUser(ctx context.Context,
+	req *identityv1.CreateUserRequest) (*commonv1.User, error) {
+	if req.Username == "" {
+		return nil, status.Error(codes.InvalidArgument, "username is required")
+	}
+	if req.Organization == "" {
+		return nil, status.Error(codes.InvalidArgument, "organization is required")
+	}
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured")
+	}
+
+	username := strings.ToLower(req.Username)
+
+	if _, err := s.server.DB.FindUser(username, ""); err == nil {
+		return nil, status.Errorf(codes.AlreadyExists, "user '%s' already exists", username)
+	} else if !errors.Is(err, models.ErrUserNotFound) {
+		return nil, status.Errorf(codes.Internal, "failed to check for existing user '%s': %v", username, err)
+	}
+
+	if req.Email != "" {
+		if _, err := s.server.DB.FindUserByEmail(req.Email); err == nil {
+			return nil, status.Errorf(codes.AlreadyExists, "a user with email '%s' already exists", req.Email)
+		} else if !errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Errorf(codes.Internal, "failed to check for existing email '%s': %v", req.Email, err)
+		}
+	}
+
+	hash := ""
+	if req.Password != "" {
+		if len(req.Password) < minPasswordLength {
+			return nil, status.Errorf(codes.InvalidArgument, "password must be at least %d characters", minPasswordLength)
+		}
+		hashed, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			if errors.Is(err, bcrypt.ErrPasswordTooLong) {
+				return nil, status.Error(codes.InvalidArgument, "password is too long")
+			}
+			return nil, status.Errorf(codes.Internal, "failed to hash password: %v", err)
+		}
+		hash = string(hashed)
+	}
+
+	uid := req.GetUid()
+	if uid == 0 {
+		next, err := s.server.DB.NextAvailableUID()
+		if err != nil {
+			if errors.Is(err, backend.ErrUIDRangeExhausted) {
+				return nil, status.Error(codes.ResourceExhausted,
+					"no available uid for auto-assignment; supply one explicitly")
+			}
+			return nil, status.Errorf(codes.Internal, "failed to allocate uid for user '%s': %v", username, err)
+		}
+		uid = next
+	}
+	gid := req.GetGid()
+	if gid == 0 {
+		gid = uid
+	}
+
+	shell := req.Shell
+	if shell == "" {
+		shell = defaultUserShell
+	}
+
+	roles := make([]models.Role, len(req.GetRoles()))
+	for i, r := range req.GetRoles() {
+		roles[i] = models.Role(r)
+	}
+
+	user := &models.User{
+		Username:     username,
+		Organization: req.Organization,
+		IsValid:      true,
+		ExpiresAt:    time.Now().Add(localUserExpiry),
+		UID:          uid,
+		GID:          gid,
+		Fullname:     req.Fullname,
+		Email:        req.Email,
+		Password:     hash,
+		Shell:        shell,
+		Sudo:         req.Sudo,
+		Locked:       req.Locked,
+		Roles:        roles,
+		Blueprints:   req.GetBlueprints(),
+		Source:       localUserSource,
+	}
+
+	if err := s.server.DB.CreateUser(user); err != nil {
+		switch {
+		case errors.Is(err, backend.ErrUsernameExists):
+			return nil, status.Errorf(codes.AlreadyExists, "user '%s' already exists", username)
+		case errors.Is(err, backend.ErrUIDExists):
+			return nil, status.Errorf(codes.AlreadyExists, "uid %d is already in use", uid)
+		case errors.Is(err, models.ErrInvalidParameters):
+			return nil, status.Errorf(codes.InvalidArgument, "%v", err)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to create user '%s': %v", username, err)
+	}
+
+	return gapi.UserToProto(user), nil
 }
 
 // UpdateUser applies a partial update to a user record. Only non-nil wrapper

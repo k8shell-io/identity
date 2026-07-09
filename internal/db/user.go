@@ -68,6 +68,48 @@ func (d *DB) FindUser(username string, source string) (*models.User, error) {
 	return &user, nil
 }
 
+// FindUserByEmail retrieves a user by exact email match. Returns
+// models.ErrUserNotFound when no user has that email, or when email is empty.
+func (d *DB) FindUserByEmail(email string) (*models.User, error) {
+	if email == "" {
+		return nil, models.ErrUserNotFound
+	}
+
+	query := `
+		SELECT username, is_valid, expires_at, uid, gid, fullname,
+		       email, password, shell, sudo, locked,
+		       roles, blueprints, source, organization
+		FROM identity.users
+		WHERE email=$1
+	`
+
+	var user models.User
+	err := d.Pool.QueryRow(context.Background(), query, email).Scan(
+		&user.Username,
+		&user.IsValid,
+		&user.ExpiresAt,
+		&user.UID,
+		&user.GID,
+		&user.Fullname,
+		&user.Email,
+		&user.Password,
+		&user.Shell,
+		&user.Sudo,
+		&user.Locked,
+		&user.Roles,
+		&user.Blueprints,
+		&user.Source,
+		&user.Organization,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, models.ErrUserNotFound
+	} else if err != nil {
+		return nil, err
+	}
+
+	return &user, nil
+}
+
 // FindUserByUsernameAndSource retrieves a user by username and source.
 func (d *DB) FindUserByUsernameAndSource(ctx context.Context, username string, source string) (*models.User, error) {
 	query := `
@@ -104,6 +146,12 @@ func (d *DB) FindUserByUsernameAndSource(ctx context.Context, username string, s
 
 	return &user, nil
 }
+
+// ErrUsernameExists is returned by CreateUser when the username is already taken.
+var ErrUsernameExists = errors.New("username already exists")
+
+// ErrUIDExists is returned by CreateUser when the uid is already in use by another user.
+var ErrUIDExists = errors.New("uid already exists")
 
 // CreateUser inserts a new user record into the database.
 // If the user's organization does not exist and is in the auto-create allowlist,
@@ -144,10 +192,58 @@ func (d *DB) CreateUser(user *models.User) error {
 		user.Email, user.Password, user.Shell, user.Sudo, user.Locked,
 		user.Roles, user.Blueprints, user.Source, user.Organization)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			switch pgErr.ConstraintName {
+			case "users_pkey":
+				return fmt.Errorf("%w: %q", ErrUsernameExists, user.Username)
+			case "users_uid_key":
+				return fmt.Errorf("%w: %d", ErrUIDExists, user.UID)
+			}
+		}
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" && pgErr.ConstraintName == "users_organization_fkey" {
+			return fmt.Errorf("%w: organization '%s' does not exist", models.ErrInvalidParameters, user.Organization)
+		}
 		return err
 	}
 
 	return tx.Commit(ctx)
+}
+
+// localUserUIDFloor and localUserUIDCeiling bound the UID range auto-assigned
+// by NextAvailableUID for users created via CreateUser, mirroring the
+// UID_MIN/UID_MAX pair in /etc/login.defs that reserves a range for regular
+// users apart from system accounts. Provider-synced users carry whatever
+// numeric ID their upstream provider (GitHub, GitLab, etc.) assigned, which
+// can be arbitrarily large; without a ceiling here, a single such UID inside
+// the range would make MAX(uid) jump to it and every subsequent local
+// allocation would chase that value upward instead of staying compact.
+const (
+	localUserUIDFloor   = 1000
+	localUserUIDCeiling = 59999
+)
+
+// ErrUIDRangeExhausted is returned by NextAvailableUID when every UID in
+// [localUserUIDFloor, localUserUIDCeiling] is already taken.
+var ErrUIDRangeExhausted = errors.New("no available uid in local user range")
+
+// NextAvailableUID returns the next unused UID in
+// [localUserUIDFloor, localUserUIDCeiling], for assigning to users created
+// via CreateUser that don't specify one. Because it only considers UIDs
+// already taken within that bounded range, it stays collision-free and
+// compact regardless of what UIDs providers have used elsewhere.
+func (d *DB) NextAvailableUID() (uint32, error) {
+	var uid uint32
+	err := d.Pool.QueryRow(context.Background(),
+		`SELECT COALESCE(MAX(uid), $1 - 1) + 1 FROM identity.users WHERE uid BETWEEN $1 AND $2`,
+		localUserUIDFloor, localUserUIDCeiling).Scan(&uid)
+	if err != nil {
+		return 0, err
+	}
+	if uid > localUserUIDCeiling {
+		return 0, ErrUIDRangeExhausted
+	}
+	return uid, nil
 }
 
 // UpdateUser updates an existing user's fields, identified by username.
