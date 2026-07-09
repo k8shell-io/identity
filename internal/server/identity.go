@@ -4,6 +4,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -19,6 +20,7 @@ import (
 	"github.com/k8shell-io/common/pkg/models"
 	"github.com/k8shell-io/common/pkg/userstr"
 	"github.com/k8shell-io/common/pkg/utils"
+	backend "github.com/k8shell-io/identity/internal/db"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/crypto/ssh"
@@ -657,6 +659,21 @@ func (s *IdentityService) DeleteUserCredential(ctx context.Context,
 	return &identityv1.DeleteUserCredentialResponse{Success: true}, nil
 }
 
+// validateAuthKeys checks that every entry is a well-formed SSH public key in
+// authorized_keys format, returning an error naming the first offending entry.
+func validateAuthKeys(authKeys []string) error {
+	for _, k := range authKeys {
+		_, _, _, rest, err := ssh.ParseAuthorizedKey([]byte(k))
+		if err != nil || len(bytes.TrimSpace(rest)) > 0 {
+			if err == nil {
+				err = fmt.Errorf("unexpected trailing data")
+			}
+			return fmt.Errorf("invalid SSH public key %q: %w", k, err)
+		}
+	}
+	return nil
+}
+
 // UpdateUser applies a partial update to a user record. Only non-nil wrapper
 // fields and non-empty repeated fields in the request are applied.
 func (s *IdentityService) UpdateUser(ctx context.Context,
@@ -697,9 +714,6 @@ func (s *IdentityService) UpdateUser(ctx context.Context,
 	}
 	if len(req.GetBlueprints()) > 0 {
 		user.Blueprints = req.GetBlueprints()
-	}
-	if len(req.GetAuthKeys()) > 0 {
-		user.AuthKeys = req.GetAuthKeys()
 	}
 	if v := req.GetOrg(); v != nil {
 		user.Organization = v.GetValue()
@@ -820,6 +834,96 @@ func (s *IdentityService) RemoveUserBlueprints(ctx context.Context,
 	return gapi.UserToProto(user), nil
 }
 
+// formatAuthKey renders an SSH public key as either its raw material or its
+// SHA256 fingerprint, depending on format. Keys that fail to parse are
+// returned unchanged.
+func formatAuthKey(key string, format identityv1.AuthKeyFormat) string {
+	if format != identityv1.AuthKeyFormat_AUTH_KEY_FORMAT_DIGEST {
+		return key
+	}
+	parsed, _, _, _, err := ssh.ParseAuthorizedKey([]byte(key))
+	if err != nil {
+		return key
+	}
+	return ssh.FingerprintSHA256(parsed)
+}
+
+// listUpstreamAuthKeys queries user's upstream identity provider (if any) for
+// its registered SSH public keys via the provider's ListUserAuthKeys RPC.
+// Keys are returned with raw (unformatted) key material and their source
+// defaulted to the provider's name when the provider doesn't set one. A
+// provider that doesn't support the call, or is unavailable, yields nil
+// rather than an error.
+func (s *IdentityService) listUpstreamAuthKeys(ctx context.Context, user *models.User) []*identityv1.UserAuthKey {
+	provider, ok := s.server.providerByName(user.Source)
+	if !ok {
+		return nil
+	}
+	resp, err := provider.ListUserAuthKeys(ctx, &identityv1.Username{Username: user.Username})
+	if err != nil {
+		s.log.Warn().Err(err).Msgf(
+			"failed to list auth keys from provider '%s' for user '%s'", provider.Name(), user.Username)
+		return nil
+	}
+	keys := resp.GetAuthKeys()
+	for _, k := range keys {
+		if k.GetSource() == "" {
+			k.Source = provider.Name()
+		}
+	}
+	return keys
+}
+
+// ListUserAuthKeys returns all SSH public keys registered for a user, either
+// as full key material or as SHA256 fingerprints depending on req.Format.
+//
+// Keys stored locally (via AddUserAuthKeys) are reported with source
+// "local". The user's upstream identity provider is also consulted via its
+// ListUserAuthKeys RPC; those keys are reported with the source it returns,
+// falling back to the provider's name. A provider that doesn't support the
+// call (or is unavailable) is skipped rather than failing the request.
+// Upstream provider keys are always ordered before local keys.
+func (s *IdentityService) ListUserAuthKeys(ctx context.Context,
+	req *identityv1.ListUserAuthKeysRequest) (*identityv1.ListUserAuthKeysResponse, error) {
+	if req.Username == "" {
+		return nil, status.Error(codes.InvalidArgument, "username is required")
+	}
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured")
+	}
+
+	user, err := s.server.GetUserByUsername(req.Username, "")
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
+		}
+		return nil, propagateOrInternal(err, "error occurred when getting user '%s': %v", req.Username, err)
+	}
+
+	keys, err := s.server.DB.ListUserAuthKeys(user.Username)
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to list auth keys for user '%s': %v", req.Username, err)
+	}
+
+	var authKeys []*identityv1.UserAuthKey
+
+	for _, k := range s.listUpstreamAuthKeys(ctx, user) {
+		authKeys = append(authKeys, &identityv1.UserAuthKey{
+			Key:    formatAuthKey(k.GetKey(), req.GetFormat()),
+			Source: k.GetSource(),
+		})
+	}
+
+	for _, k := range keys {
+		authKeys = append(authKeys, &identityv1.UserAuthKey{Key: formatAuthKey(k, req.GetFormat()), Source: "local"})
+	}
+
+	return &identityv1.ListUserAuthKeysResponse{AuthKeys: authKeys}, nil
+}
+
 // AddUserAuthKeys registers one or more SSH public keys for a user.
 func (s *IdentityService) AddUserAuthKeys(ctx context.Context,
 	req *identityv1.UserAuthKeysRequest) (*commonv1.User, error) {
@@ -829,14 +933,38 @@ func (s *IdentityService) AddUserAuthKeys(ctx context.Context,
 	if len(req.GetAuthKeys()) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "at least one auth key is required")
 	}
+	if err := validateAuthKeys(req.GetAuthKeys()); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
 	if s.server.DB == nil {
 		return nil, status.Error(codes.Unavailable, "database is not configured")
 	}
 
-	user, err := s.server.DB.AddUserAuthKeys(req.Username, req.GetAuthKeys())
+	authUser, err := s.server.GetUserByUsername(req.Username, "")
 	if err != nil {
 		if errors.Is(err, models.ErrUserNotFound) {
 			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
+		}
+		return nil, propagateOrInternal(err, "error occurred when getting user '%s': %v", req.Username, err)
+	}
+
+	for _, upstream := range s.listUpstreamAuthKeys(ctx, authUser) {
+		for _, k := range req.GetAuthKeys() {
+			if k == upstream.GetKey() {
+				return nil, status.Errorf(codes.AlreadyExists,
+					"auth key %q already exists for user '%s' via provider '%s'",
+					k, req.Username, upstream.GetSource())
+			}
+		}
+	}
+
+	user, err := s.server.DB.AddUserAuthKeys(req.Username, req.GetAuthKeys())
+	if err != nil {
+		switch {
+		case errors.Is(err, models.ErrUserNotFound):
+			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
+		case errors.Is(err, backend.ErrAuthKeyExists):
+			return nil, status.Errorf(codes.AlreadyExists, "%v", err)
 		}
 		return nil, status.Errorf(codes.Internal, "failed to add auth keys for user '%s': %v", req.Username, err)
 	}
@@ -844,25 +972,57 @@ func (s *IdentityService) AddUserAuthKeys(ctx context.Context,
 	return gapi.UserToProto(user), nil
 }
 
-// RemoveUserAuthKeys removes one or more SSH public keys from a user.
-func (s *IdentityService) RemoveUserAuthKeys(ctx context.Context,
-	req *identityv1.UserAuthKeysRequest) (*commonv1.User, error) {
+// RemoveUserAuthKey removes a single SSH public key from a user, identified
+// by its index in the list returned by ListUserAuthKeys. Only keys with
+// source "local" can be removed this way; keys reported under any other
+// source are managed by their identity provider, not this service.
+func (s *IdentityService) RemoveUserAuthKey(ctx context.Context,
+	req *identityv1.RemoveUserAuthKeyRequest) (*commonv1.User, error) {
 	if req.Username == "" {
 		return nil, status.Error(codes.InvalidArgument, "username is required")
-	}
-	if len(req.GetAuthKeys()) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "at least one auth key is required")
 	}
 	if s.server.DB == nil {
 		return nil, status.Error(codes.Unavailable, "database is not configured")
 	}
 
-	user, err := s.server.DB.RemoveUserAuthKeys(req.Username, req.GetAuthKeys())
+	list, err := s.ListUserAuthKeys(ctx, &identityv1.ListUserAuthKeysRequest{
+		Username: req.Username,
+		Format:   identityv1.AuthKeyFormat_AUTH_KEY_FORMAT_NORMAL,
+	})
 	if err != nil {
-		if errors.Is(err, models.ErrUserNotFound) {
-			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
+		return nil, err
+	}
+
+	keys := list.GetAuthKeys()
+	if int(req.GetIndex()) >= len(keys) {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"invalid auth key index %d for user '%s'", req.GetIndex(), req.Username)
+	}
+	if src := keys[req.GetIndex()].GetSource(); src != "local" {
+		return nil, status.Errorf(codes.FailedPrecondition,
+			"auth key at index %d for user '%s' is managed by provider '%s' and cannot be removed locally",
+			req.GetIndex(), req.Username, src)
+	}
+
+	// ListUserAuthKeys prepends upstream provider keys before local ones, so
+	// the requested index must be translated to its position within the
+	// DB-only auth_keys array that db.RemoveUserAuthKey operates on.
+	var localIndex uint32
+	for _, k := range keys[:req.GetIndex()] {
+		if k.GetSource() == "local" {
+			localIndex++
 		}
-		return nil, status.Errorf(codes.Internal, "failed to remove auth keys for user '%s': %v", req.Username, err)
+	}
+
+	user, err := s.server.DB.RemoveUserAuthKey(req.Username, localIndex)
+	if err != nil {
+		switch {
+		case errors.Is(err, models.ErrUserNotFound):
+			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
+		case errors.Is(err, models.ErrInvalidParameters):
+			return nil, status.Errorf(codes.InvalidArgument, "%v", err)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to remove auth key for user '%s': %v", req.Username, err)
 	}
 
 	return gapi.UserToProto(user), nil

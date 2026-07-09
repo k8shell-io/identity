@@ -25,7 +25,7 @@ func (d *DB) FindUser(username string, source string) (*models.User, error) {
 		query = `
 			SELECT username, is_valid, expires_at, uid, gid, fullname,
 			       email, password, shell, sudo, locked,
-			       auth_keys, roles, blueprints, source, organization
+			       roles, blueprints, source, organization
 			FROM identity.users
 			WHERE username=$1
 		`
@@ -34,7 +34,7 @@ func (d *DB) FindUser(username string, source string) (*models.User, error) {
 		query = `
 			SELECT username, is_valid, expires_at, uid, gid, fullname,
 			       email, password, shell, sudo, locked,
-			       auth_keys, roles, blueprints, source, organization
+			       roles, blueprints, source, organization
 			FROM identity.users
 			WHERE username=$1 AND source=$2
 		`
@@ -54,7 +54,6 @@ func (d *DB) FindUser(username string, source string) (*models.User, error) {
 		&user.Shell,
 		&user.Sudo,
 		&user.Locked,
-		&user.AuthKeys,
 		&user.Roles,
 		&user.Blueprints,
 		&user.Source,
@@ -74,7 +73,7 @@ func (d *DB) FindUserByUsernameAndSource(ctx context.Context, username string, s
 	query := `
 		SELECT username, is_valid, expires_at, uid, gid, fullname,
 		       email, COALESCE(password, '') AS password, shell, sudo, locked,
-		       auth_keys, roles, blueprints, source, organization
+		       roles, blueprints, source, organization
 		FROM identity.users
 		WHERE username=$1 and source=$2
 	`
@@ -92,7 +91,6 @@ func (d *DB) FindUserByUsernameAndSource(ctx context.Context, username string, s
 		&user.Shell,
 		&user.Sudo,
 		&user.Locked,
-		&user.AuthKeys,
 		&user.Roles,
 		&user.Blueprints,
 		&user.Source,
@@ -138,13 +136,13 @@ func (d *DB) CreateUser(user *models.User) error {
 	_, err = tx.Exec(ctx, `INSERT INTO identity.users (
 		username, is_valid, expires_at, uid, gid, fullname,
 		email, password, shell, sudo, locked,
-		auth_keys, roles, blueprints, source, organization
+		roles, blueprints, source, organization
 	) VALUES (
-		$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+		$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
 	)`,
 		user.Username, user.IsValid, user.ExpiresAt, user.UID, user.GID, user.Fullname,
 		user.Email, user.Password, user.Shell, user.Sudo, user.Locked,
-		user.AuthKeys, user.Roles, user.Blueprints, user.Source, user.Organization)
+		user.Roles, user.Blueprints, user.Source, user.Organization)
 	if err != nil {
 		return err
 	}
@@ -165,12 +163,11 @@ func (d *DB) UpdateUser(user *models.User) error {
 		shell=$8,
 		sudo=$9,
 		locked=$10,
-		auth_keys=$11,
-		roles=$12,
-		blueprints=$13,
-		source=$14,
-		organization=$15
-	WHERE username=$16`
+		roles=$11,
+		blueprints=$12,
+		source=$13,
+		organization=$14
+	WHERE username=$15`
 
 	_, err := d.Pool.Exec(context.Background(), query,
 		user.IsValid,
@@ -183,7 +180,6 @@ func (d *DB) UpdateUser(user *models.User) error {
 		user.Shell,
 		user.Sudo,
 		user.Locked,
-		user.AuthKeys,
 		user.Roles,
 		user.Blueprints,
 		user.Source,
@@ -244,7 +240,7 @@ func (d *DB) ListUsers(limit, offset int, roles, blueprints []string, org string
 	query := `
 		SELECT username, is_valid, expires_at, uid, gid, fullname,
 		       email, COALESCE(password, '') AS password, shell, sudo, locked,
-		       auth_keys, roles, blueprints, source, organization
+		       roles, blueprints, source, organization
 		FROM identity.users
 	`
 
@@ -292,7 +288,6 @@ func (d *DB) ListUsers(limit, offset int, roles, blueprints []string, org string
 			&user.Shell,
 			&user.Sudo,
 			&user.Locked,
-			&user.AuthKeys,
 			&user.Roles,
 			&user.Blueprints,
 			&user.Source,
@@ -546,12 +541,85 @@ func (d *DB) RemoveUserBlueprints(username string, blueprints []string) (*models
 	return d.removeUserArrayField(username, "blueprints", blueprints)
 }
 
-// AddUserAuthKeys appends the given SSH public keys to the user, skipping duplicates.
-func (d *DB) AddUserAuthKeys(username string, authKeys []string) (*models.User, error) {
-	return d.addUserArrayField(username, "auth_keys", authKeys)
+// ListUserAuthKeys returns the SSH public keys stored for a user, in the
+// stable order relied on by index-based removal (RemoveUserAuthKey).
+func (d *DB) ListUserAuthKeys(username string) ([]string, error) {
+	var keys []string
+	err := d.Pool.QueryRow(context.Background(),
+		`SELECT auth_keys FROM identity.users WHERE username=$1`, username).Scan(&keys)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, models.ErrUserNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	return keys, nil
 }
 
-// RemoveUserAuthKeys removes the given SSH public keys from the user.
-func (d *DB) RemoveUserAuthKeys(username string, authKeys []string) (*models.User, error) {
-	return d.removeUserArrayField(username, "auth_keys", authKeys)
+// SetUserAuthKeys replaces all SSH public keys stored for a user.
+func (d *DB) SetUserAuthKeys(username string, authKeys []string) error {
+	result, err := d.Pool.Exec(context.Background(),
+		`UPDATE identity.users SET auth_keys=$2 WHERE username=$1`, username, authKeys)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return models.ErrUserNotFound
+	}
+	return nil
+}
+
+// ErrAuthKeyExists is returned by AddUserAuthKeys when one of the given keys
+// is already registered for the user.
+var ErrAuthKeyExists = errors.New("auth key already exists")
+
+// AddUserAuthKeys appends the given SSH public keys to the user, preserving
+// the existing order, then returns the updated user. It returns
+// ErrAuthKeyExists without making any change if any of the given keys is
+// already registered for the user (including duplicates within authKeys
+// itself).
+func (d *DB) AddUserAuthKeys(username string, authKeys []string) (*models.User, error) {
+	existing, err := d.ListUserAuthKeys(username)
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]struct{}, len(existing))
+	for _, k := range existing {
+		seen[k] = struct{}{}
+	}
+	updated := existing
+	for _, k := range authKeys {
+		if _, ok := seen[k]; ok {
+			return nil, fmt.Errorf("%w: %q", ErrAuthKeyExists, k)
+		}
+		seen[k] = struct{}{}
+		updated = append(updated, k)
+	}
+
+	if err := d.SetUserAuthKeys(username, updated); err != nil {
+		return nil, err
+	}
+	return d.FindUser(username, "")
+}
+
+// RemoveUserAuthKey removes the SSH public key at the given index, as
+// returned by ListUserAuthKeys, and returns the updated user. It returns
+// models.ErrInvalidParameters if the index is out of range.
+func (d *DB) RemoveUserAuthKey(username string, index uint32) (*models.User, error) {
+	existing, err := d.ListUserAuthKeys(username)
+	if err != nil {
+		return nil, err
+	}
+	if int(index) >= len(existing) {
+		return nil, fmt.Errorf("%w: auth key index %d out of range", models.ErrInvalidParameters, index)
+	}
+
+	updated := make([]string, 0, len(existing)-1)
+	updated = append(updated, existing[:index]...)
+	updated = append(updated, existing[index+1:]...)
+
+	if err := d.SetUserAuthKeys(username, updated); err != nil {
+		return nil, err
+	}
+	return d.FindUser(username, "")
 }
