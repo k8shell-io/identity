@@ -69,8 +69,8 @@ CREATE TABLE identity.user_credentials (
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    -- a user may have at most one credential per (service, scope, identity) tuple
-    UNIQUE (username, service_name, service_scope, subject),
+    -- a user may have at most one credential per (service, scope) pair, regardless of subject
+    CONSTRAINT user_credentials_uniq_key UNIQUE (username, service_name, service_scope),
 
     -- only known service types are accepted
     CONSTRAINT chk_service_name
@@ -95,11 +95,6 @@ CREATE TABLE identity.user_credentials (
 
 CREATE INDEX idx_user_creds_username ON identity.user_credentials (username);
 CREATE INDEX idx_user_creds_service  ON identity.user_credentials (service_name);
-
--- a user may have at most one Kubernetes credential per namespace, regardless of service account
-CREATE UNIQUE INDEX user_credentials_kubernetes_uniq_key ON identity.user_credentials
-    (username, service_name, service_scope, credential_source)
-    WHERE service_name = 'kubernetes';
 
 -- access_tokens stores Personal Access Tokens (PATs) for users.
 -- The raw token is never stored; only sha256(token) in hex is kept.

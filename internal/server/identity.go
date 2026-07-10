@@ -689,6 +689,9 @@ func (s *IdentityService) AddKubernetesUserCredential(ctx context.Context,
 
 	cred, err := s.server.DB.AddKubernetesUserCredential(req.Username, req.Scope, req.Subject)
 	if err != nil {
+		if errors.Is(err, backend.ErrCredentialExists) {
+			return nil, status.Errorf(codes.AlreadyExists, "%v", err)
+		}
 		return nil, status.Errorf(codes.Internal, "failed to add kubernetes user credential: %v", err)
 	}
 
@@ -713,6 +716,9 @@ func (s *IdentityService) AddGitUserCredential(ctx context.Context,
 
 	cred, err := s.server.DB.AddGitUserCredential(req.Username, req.Scope, req.Subject, req.Secret)
 	if err != nil {
+		if errors.Is(err, backend.ErrCredentialExists) {
+			return nil, status.Errorf(codes.AlreadyExists, "%v", err)
+		}
 		return nil, status.Errorf(codes.Internal, "failed to add git user credential: %v", err)
 	}
 
@@ -738,6 +744,9 @@ func (s *IdentityService) AddRegistryUserCredential(ctx context.Context,
 
 	cred, err := s.server.DB.AddRegistryUserCredential(req.Username, req.Scope, req.Subject, req.Secret)
 	if err != nil {
+		if errors.Is(err, backend.ErrCredentialExists) {
+			return nil, status.Errorf(codes.AlreadyExists, "%v", err)
+		}
 		return nil, status.Errorf(codes.Internal, "failed to add registry user credential: %v", err)
 	}
 

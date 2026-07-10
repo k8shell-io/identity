@@ -404,6 +404,10 @@ func (d *DB) ListUsers(limit, offset int, roles, blueprints []string, org string
 	return users, nil
 }
 
+// ErrCredentialExists is returned by AddKubernetesUserCredential, AddGitUserCredential, and
+// AddRegistryUserCredential when a credential already exists for the same uniqueness key.
+var ErrCredentialExists = errors.New("credential already exists")
+
 // AddKubernetesUserCredential provisions a Kubernetes service-account credential for a user.
 // namespace maps to service_scope and serviceAccount maps to subject; the secret is left NULL
 // since kubernetes credentials are resolved on demand via the TokenRequest API.
@@ -429,9 +433,8 @@ func (d *DB) AddKubernetesUserCredential(username, namespace, serviceAccount str
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "user_credentials_kubernetes_uniq_key" {
-			return nil, fmt.Errorf("kubernetes credential already exists for user '%s', namespace '%s'",
-				username, namespace)
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "user_credentials_uniq_key" {
+			return nil, fmt.Errorf("%w for user '%s', namespace '%s'", ErrCredentialExists, username, namespace)
 		}
 		return nil, err
 	}
@@ -440,7 +443,9 @@ func (d *DB) AddKubernetesUserCredential(username, namespace, serviceAccount str
 }
 
 // AddGitUserCredential stores a Git credential for a user. scope maps to service_scope and
-// subject maps to subject; credential_source is always "stored" and secret is persisted as given.
+// subject maps to subject; credential_source is always "stored" and secret is persisted as
+// given. A user may have at most one credential per (service_name, scope), regardless of
+// subject.
 func (d *DB) AddGitUserCredential(username, scope, subject, secret string) (*models.UserCredential, error) {
 	if username == "" || scope == "" || subject == "" || secret == "" {
 		return nil, fmt.Errorf("required field: username, scope, subject, secret")
@@ -464,10 +469,8 @@ func (d *DB) AddGitUserCredential(username, scope, subject, secret string) (*mod
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" &&
-			pgErr.ConstraintName == "user_credentials_username_service_name_service_scope_subject_key" {
-			return nil, fmt.Errorf("git credential already exists for user '%s', scope '%s', subject '%s'",
-				username, scope, subject)
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "user_credentials_uniq_key" {
+			return nil, fmt.Errorf("%w for user '%s', scope '%s'", ErrCredentialExists, username, scope)
 		}
 		return nil, err
 	}
@@ -477,7 +480,8 @@ func (d *DB) AddGitUserCredential(username, scope, subject, secret string) (*mod
 
 // AddRegistryUserCredential stores a container registry credential for a user. scope maps to
 // service_scope and subject maps to subject; credential_source is always "stored" and secret
-// is persisted as given.
+// is persisted as given. A user may have at most one credential per (service_name, scope),
+// regardless of subject.
 func (d *DB) AddRegistryUserCredential(username, scope, subject, secret string) (*models.UserCredential, error) {
 	if username == "" || scope == "" || subject == "" || secret == "" {
 		return nil, fmt.Errorf("required field: username, scope, subject, secret")
@@ -501,10 +505,8 @@ func (d *DB) AddRegistryUserCredential(username, scope, subject, secret string) 
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" &&
-			pgErr.ConstraintName == "user_credentials_username_service_name_service_scope_subject_key" {
-			return nil, fmt.Errorf("registry credential already exists for user '%s', scope '%s', subject '%s'",
-				username, scope, subject)
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "user_credentials_uniq_key" {
+			return nil, fmt.Errorf("%w for user '%s', scope '%s'", ErrCredentialExists, username, scope)
 		}
 		return nil, err
 	}
@@ -588,7 +590,7 @@ func (d *DB) UpsertDynamicGitCredential(username, providerName, serviceScope str
 	query := `INSERT INTO identity.user_credentials
 		(username, service_name, service_scope, subject, secret, credential_source)
 	VALUES ($1, 'git', $2, $1, NULL, $3)
-	ON CONFLICT (username, service_name, service_scope, subject) DO NOTHING`
+	ON CONFLICT (username, service_name, service_scope) DO NOTHING`
 
 	_, err := d.Pool.Exec(context.Background(), query, username, serviceScope, providerName)
 	return err
