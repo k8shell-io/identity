@@ -802,9 +802,7 @@ func (s *IdentityService) DeleteUserCredential(ctx context.Context,
 	return &identityv1.DeleteUserCredentialResponse{Success: true}, nil
 }
 
-// RemoveUserCredential removes a single credential owned by a user, by ID. Credentials
-// provisioned by the onboarding flow (credential_source matching "idp.k8shell.io/*") are
-// refused with FailedPrecondition.
+// RemoveUserCredential removes a single credential owned by a user, by ID.
 func (s *IdentityService) RemoveUserCredential(ctx context.Context,
 	req *identityv1.RemoveUserCredentialRequest) (*identityv1.RemoveUserCredentialResponse, error) {
 	if s.server.DB == nil {
@@ -815,10 +813,6 @@ func (s *IdentityService) RemoveUserCredential(ctx context.Context,
 	if err != nil {
 		if errors.Is(err, models.ErrUserNotFound) {
 			return nil, status.Errorf(codes.NotFound, "credential not found for user '%s', id '%d'", req.Username, req.Id)
-		}
-		if errors.Is(err, backend.ErrProtectedCredential) {
-			return nil, status.Errorf(codes.FailedPrecondition,
-				"credential '%d' was created by the onboarding process and cannot be removed", req.Id)
 		}
 		return nil, status.Errorf(codes.Internal, "failed to remove user credential: %v", err)
 	}

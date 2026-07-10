@@ -609,41 +609,23 @@ func (d *DB) DeleteUserCredential(id uint32) error {
 	return nil
 }
 
-// ErrProtectedCredential is returned by RemoveUserCredential when the targeted credential
-// was provisioned by the onboarding flow (credential_source LIKE 'idp.k8shell.io/%') and
-// therefore cannot be removed through that path.
-var ErrProtectedCredential = errors.New("credential was created by the onboarding process and cannot be removed")
+// ErrProtectedCredential is returned by UpdateUserCredential when the targeted credential
+// was provisioned by the onboarding flow (credential_source LIKE 'idp.k8shell.io/%') and the
+// caller tried to change something other than active.
+var ErrProtectedCredential = errors.New("credential was created by the onboarding process; only active can be updated")
 
 // RemoveUserCredential removes a single credential owned by username, identified by id.
-// Credentials whose credential_source matches "idp.k8shell.io/*" — provisioned by
-// CompleteUserWebFlow / CompleteUserDeviceFlow to link the user's git identity — are
-// refused with ErrProtectedCredential. Returns models.ErrUserNotFound when no matching
-// credential exists for that user.
+// Returns models.ErrUserNotFound when no matching credential exists for that user.
 func (d *DB) RemoveUserCredential(username string, id uint32) error {
 	result, err := d.Pool.Exec(context.Background(),
-		`DELETE FROM identity.user_credentials
-			WHERE id=$1 AND username=$2 AND credential_source NOT LIKE 'idp.k8shell.io/%'`,
-		id, username)
+		`DELETE FROM identity.user_credentials WHERE id=$1 AND username=$2`, id, username)
 	if err != nil {
 		return err
 	}
-	if result.RowsAffected() > 0 {
-		return nil
-	}
-
-	// Nothing was deleted — work out whether the row doesn't exist for this
-	// user, or exists but is protected, so the caller gets a precise error.
-	var exists bool
-	err = d.Pool.QueryRow(context.Background(),
-		`SELECT true FROM identity.user_credentials WHERE id=$1 AND username=$2`, id, username,
-	).Scan(&exists)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if result.RowsAffected() == 0 {
 		return models.ErrUserNotFound
 	}
-	if err != nil {
-		return err
-	}
-	return ErrProtectedCredential
+	return nil
 }
 
 // UpdateUserCredential updates an existing user credential record.
