@@ -744,21 +744,47 @@ func (s *IdentityService) AddRegistryUserCredential(ctx context.Context,
 	return &identityv1.AddRegistryUserCredentialResponse{Credential: gapi.UserCredentialToProto(cred)}, nil
 }
 
-// UpdateUserCredential updates an existing external credential.
+// UpdateUserCredential partially updates a credential by ID. Only fields set (non-nil) in req
+// are applied. Credentials provisioned by the onboarding flow (credential_source matching
+// "idp.k8shell.io/*") may only have Active updated.
 func (s *IdentityService) UpdateUserCredential(ctx context.Context,
-	req *commonv1.UserCredential) (*identityv1.UpdateUserCredentialResponse, error) {
+	req *identityv1.UpdateUserCredentialRequest) (*identityv1.UpdateUserCredentialResponse, error) {
 	if s.server.DB == nil {
 		return nil, status.Errorf(codes.Unavailable, "database is not configured, cannot update user credential")
 	}
 
-	credential := gapi.ProtoToUserCredential(req)
+	var scope, subject, secret *string
+	if req.Scope != nil {
+		v := req.Scope.GetValue()
+		scope = &v
+	}
+	if req.Subject != nil {
+		v := req.Subject.GetValue()
+		subject = &v
+	}
+	if req.Secret != nil {
+		v := req.Secret.GetValue()
+		secret = &v
+	}
+	var active *bool
+	if req.Active != nil {
+		v := req.Active.GetValue()
+		active = &v
+	}
 
-	err := s.server.DB.UpdateUserCredential(credential)
+	cred, err := s.server.DB.UpdateUserCredential(req.Id, scope, subject, secret, active)
 	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Errorf(codes.NotFound, "credential '%d' not found", req.Id)
+		}
+		if errors.Is(err, backend.ErrProtectedCredential) {
+			return nil, status.Errorf(codes.FailedPrecondition,
+				"credential '%d' was created by the onboarding process; only active can be updated", req.Id)
+		}
 		return nil, status.Errorf(codes.Internal, "failed to update user credential: %v", err)
 	}
 
-	return &identityv1.UpdateUserCredentialResponse{Credential: req}, nil
+	return &identityv1.UpdateUserCredentialResponse{Credential: gapi.UserCredentialToProto(cred)}, nil
 }
 
 // DeleteUserCredential deletes an external credential by ID.

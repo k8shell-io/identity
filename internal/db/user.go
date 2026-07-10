@@ -404,13 +404,6 @@ func (d *DB) ListUsers(limit, offset int, roles, blueprints []string, org string
 	return users, nil
 }
 
-// validServiceNames lists the service types accepted by the user_credentials table.
-var validServiceNames = map[string]bool{
-	"registry":   true,
-	"git":        true,
-	"kubernetes": true,
-}
-
 // AddKubernetesUserCredential provisions a Kubernetes service-account credential for a user.
 // namespace maps to service_scope and serviceAccount maps to subject; the secret is left NULL
 // since kubernetes credentials are resolved on demand via the TokenRequest API.
@@ -656,37 +649,61 @@ func (d *DB) RemoveUserCredential(username string, id uint32) error {
 // UpdateUserCredential updates an existing user credential record.
 // For dynamic credentials (kubernetes, dynamic git) Secret is ignored — the
 // secret column stays NULL and is resolved live at request time.
-func (d *DB) UpdateUserCredential(cred *models.UserCredential) error {
-	if cred.Username == "" || cred.ServiceName == "" || cred.ServiceScope == "" || cred.Subject == "" {
-		return fmt.Errorf("required field: username, service_name, service_scope, subject")
+// UpdateUserCredential partially updates a credential identified by id. Nil arguments leave
+// the corresponding column unchanged. Credentials whose credential_source matches
+// "idp.k8shell.io/*" — provisioned by the onboarding flow (CompleteUserWebFlow /
+// CompleteUserDeviceFlow) — may only have active updated; attempting to change scope,
+// subject, or secret returns ErrProtectedCredential. Returns models.ErrUserNotFound when no
+// credential with that id exists.
+func (d *DB) UpdateUserCredential(id uint32, scope, subject, secret *string, active *bool) (*models.UserCredential, error) {
+	var credentialSource string
+	err := d.Pool.QueryRow(context.Background(),
+		`SELECT credential_source FROM identity.user_credentials WHERE id=$1`, id,
+	).Scan(&credentialSource)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, models.ErrUserNotFound
 	}
-	if cred.CredentialSource == "" {
-		return fmt.Errorf("required field: credential_source")
-	}
-	if !validServiceNames[cred.ServiceName] {
-		return fmt.Errorf("unknown service_name '%s': must be one of registry, git, kubernetes", cred.ServiceName)
-	}
-	if cred.ServiceName == "registry" && cred.Secret == "" {
-		return fmt.Errorf("secret is required for service 'registry'")
+	if err != nil {
+		return nil, err
 	}
 
-	var secret *string
-	if cred.Secret != "" {
-		secret = &cred.Secret
+	protected := strings.HasPrefix(credentialSource, "idp.k8shell.io/")
+	if protected && (scope != nil || subject != nil || secret != nil) {
+		return nil, ErrProtectedCredential
 	}
 
 	query := `UPDATE identity.user_credentials SET
-		service_name=$1,
-		service_scope=$2,
-		subject=$3,
-		secret=$4,
-		credential_source=$5,
-		updated_at=NOW()
-	WHERE id=$6 AND username=$7`
+			service_scope = COALESCE($2, service_scope),
+			subject       = COALESCE($3, subject),
+			secret        = COALESCE($4, secret),
+			is_active     = COALESCE($5, is_active),
+			updated_at    = NOW()
+		WHERE id=$1
+		RETURNING id, username, service_name, service_scope, subject,
+			COALESCE(secret, '') AS secret, credential_source, is_active, created_at, updated_at`
 
-	_, err := d.Pool.Exec(context.Background(), query,
-		cred.ServiceName, cred.ServiceScope, cred.Subject, secret, cred.CredentialSource, cred.ID, cred.Username)
-	return err
+	var cred models.UserCredential
+	err = d.Pool.QueryRow(context.Background(), query, id, scope, subject, secret, active).Scan(
+		&cred.ID,
+		&cred.Username,
+		&cred.ServiceName,
+		&cred.ServiceScope,
+		&cred.Subject,
+		&cred.Secret,
+		&cred.CredentialSource,
+		&cred.IsActive,
+		&cred.CreatedAt,
+		&cred.UpdatedAt,
+	)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return nil, fmt.Errorf("credential update conflicts with an existing credential for the same scope/subject")
+		}
+		return nil, err
+	}
+
+	return &cred, nil
 }
 
 // addUserArrayField appends items to a user's text[] column (no duplicates) and returns the updated user.
