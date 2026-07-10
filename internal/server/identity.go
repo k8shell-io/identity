@@ -622,9 +622,10 @@ func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context,
 	return blueprintpb, nil
 }
 
-// ListUserCredentials returns all stored credentials for a user.
+// ListUserCredentials returns stored credentials for a user, or a single
+// credential when req.Id is set.
 func (s *IdentityService) ListUserCredentials(ctx context.Context,
-	req *identityv1.Username) (*identityv1.ListUserCredentialsResponse, error) {
+	req *identityv1.ListUserCredentialsRequest) (*identityv1.ListUserCredentialsResponse, error) {
 	if s.server.DB == nil {
 		return nil, status.Errorf(codes.Unavailable, "database is not configured, cannot retrieve user credentials")
 	}
@@ -637,7 +638,7 @@ func (s *IdentityService) ListUserCredentials(ctx context.Context,
 		return nil, propagateOrInternal(err, "error occurred when getting user '%s': %v", req.Username, err)
 	}
 
-	creds, err := s.server.DB.ListUserCredentials(req.Username)
+	creds, err := s.server.DB.ListUserCredentials(req.Username, req.Id)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to get credentials for user '%s': %v", req.Username, err)
 	}
@@ -670,21 +671,28 @@ func (s *IdentityService) GetUserCredential(ctx context.Context,
 	return gapi.UserCredentialToProto(cred), nil
 }
 
-// AddUserCredential adds an external credential for a user.
-func (s *IdentityService) AddUserCredential(ctx context.Context,
-	req *commonv1.UserCredential) (*identityv1.AddUserCredentialResponse, error) {
+// AddKubernetesUserCredential provisions a Kubernetes service-account credential for a user.
+// req.Scope maps to the credential's service_scope and req.Subject maps to its subject.
+func (s *IdentityService) AddKubernetesUserCredential(ctx context.Context,
+	req *identityv1.AddKubernetesUserCredentialRequest) (*identityv1.AddKubernetesUserCredentialResponse, error) {
 	if s.server.DB == nil {
 		return nil, status.Errorf(codes.Unavailable, "database is not configured, cannot add user credential")
 	}
 
-	credential := gapi.ProtoToUserCredential(req)
-
-	err := s.server.DB.AddUserCredential(credential)
+	_, err := s.server.GetUserByUsername(req.Username, "")
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to add user credential: %v", err)
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
+		}
+		return nil, propagateOrInternal(err, "error occurred when getting user '%s': %v", req.Username, err)
 	}
 
-	return &identityv1.AddUserCredentialResponse{Credential: req}, nil
+	cred, err := s.server.DB.AddKubernetesUserCredential(req.Username, req.Scope, req.Subject)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to add kubernetes user credential: %v", err)
+	}
+
+	return &identityv1.AddKubernetesUserCredentialResponse{Credential: gapi.UserCredentialToProto(cred)}, nil
 }
 
 // UpdateUserCredential updates an existing external credential.
@@ -717,6 +725,30 @@ func (s *IdentityService) DeleteUserCredential(ctx context.Context,
 	}
 
 	return &identityv1.DeleteUserCredentialResponse{Success: true}, nil
+}
+
+// RemoveUserCredential removes a single credential owned by a user, by ID. Credentials
+// provisioned by the onboarding flow (credential_source matching "idp.k8shell.io/*") are
+// refused with FailedPrecondition.
+func (s *IdentityService) RemoveUserCredential(ctx context.Context,
+	req *identityv1.RemoveUserCredentialRequest) (*identityv1.RemoveUserCredentialResponse, error) {
+	if s.server.DB == nil {
+		return nil, status.Errorf(codes.Unavailable, "database is not configured, cannot remove user credential")
+	}
+
+	err := s.server.DB.RemoveUserCredential(req.Username, req.Id)
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Errorf(codes.NotFound, "credential not found for user '%s', id '%d'", req.Username, req.Id)
+		}
+		if errors.Is(err, backend.ErrProtectedCredential) {
+			return nil, status.Errorf(codes.FailedPrecondition,
+				"credential '%d' was created by the onboarding process and cannot be removed", req.Id)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to remove user credential: %v", err)
+	}
+
+	return &identityv1.RemoveUserCredentialResponse{Success: true}, nil
 }
 
 // validateAuthKeys checks that every entry is a well-formed SSH public key in

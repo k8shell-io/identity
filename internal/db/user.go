@@ -411,61 +411,39 @@ var validServiceNames = map[string]bool{
 	"kubernetes": true,
 }
 
-// AddUserCredential inserts a new credential for a user.
-func (d *DB) AddUserCredential(cred *models.UserCredential) error {
-	if cred.Username == "" || cred.ServiceName == "" || cred.ServiceScope == "" || cred.Subject == "" {
-		return fmt.Errorf("required field: username, service_name, service_scope, subject")
-	}
-	if cred.CredentialSource == "" {
-		return fmt.Errorf("required field: credential_source")
-	}
-	if !validServiceNames[cred.ServiceName] {
-		return fmt.Errorf("unknown service_name '%s': must be one of registry, git, kubernetes", cred.ServiceName)
-	}
-	if cred.ServiceName == "registry" && cred.Secret == "" {
-		return fmt.Errorf("secret is required for service 'registry'")
-	}
-
-	var secret *string
-	if cred.Secret != "" {
-		secret = &cred.Secret
+// AddKubernetesUserCredential provisions a Kubernetes service-account credential for a user.
+// namespace maps to service_scope and serviceAccount maps to subject; the secret is left NULL
+// since kubernetes credentials are resolved on demand via the TokenRequest API.
+func (d *DB) AddKubernetesUserCredential(username, namespace, serviceAccount string) (*models.UserCredential, error) {
+	if username == "" || namespace == "" || serviceAccount == "" {
+		return nil, fmt.Errorf("required field: username, namespace, service_account")
 	}
 
 	query := `INSERT INTO identity.user_credentials (
 		username, service_name, service_scope, subject, secret, credential_source
-	) VALUES ($1, $2, $3, $4, $5, $6)`
+	) VALUES ($1, 'kubernetes', $2, $3, NULL, 'kubernetes')
+	RETURNING id, is_active, created_at, updated_at`
 
-	_, err := d.Pool.Exec(context.Background(), query,
-		cred.Username, cred.ServiceName, cred.ServiceScope, cred.Subject, secret, cred.CredentialSource)
-
+	cred := &models.UserCredential{
+		Username:         username,
+		ServiceName:      "kubernetes",
+		ServiceScope:     namespace,
+		Subject:          serviceAccount,
+		CredentialSource: "kubernetes",
+	}
+	err := d.Pool.QueryRow(context.Background(), query, username, namespace, serviceAccount).Scan(
+		&cred.ID, &cred.IsActive, &cred.CreatedAt, &cred.UpdatedAt,
+	)
 	if err != nil {
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) {
-			switch pgErr.Code {
-			case "23505":
-				if pgErr.ConstraintName == "user_credentials_username_service_name_service_scope_subject_key" {
-					return fmt.Errorf("credential already exists for user '%s', service '%s', scope '%s', subject '%s'",
-						cred.Username, cred.ServiceName, cred.ServiceScope, cred.Subject)
-				}
-			case "23502":
-				return fmt.Errorf("required field '%s' cannot be empty", pgErr.ColumnName)
-			case "23514":
-				switch pgErr.ConstraintName {
-				case "chk_service_name":
-					return fmt.Errorf("unknown service_name '%s': must be one of registry, git, kubernetes", cred.ServiceName)
-				case "chk_credential_source_secret":
-					return fmt.Errorf("secret must be present when credential_source='stored' and absent otherwise")
-				case "chk_kubernetes_credential_source":
-					return fmt.Errorf("kubernetes credentials must have credential_source='kubernetes'")
-				case "chk_registry_credential_source":
-					return fmt.Errorf("registry credentials must have credential_source='stored'")
-				}
-			}
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "user_credentials_kubernetes_uniq_key" {
+			return nil, fmt.Errorf("kubernetes credential already exists for user '%s', namespace '%s'",
+				username, namespace)
 		}
-		return err
+		return nil, err
 	}
 
-	return nil
+	return cred, nil
 }
 
 // GetUserCredential retrieves a single credential for the given user,
@@ -473,7 +451,7 @@ func (d *DB) AddUserCredential(cred *models.UserCredential) error {
 // matching active credential exists.
 func (d *DB) GetUserCredential(username, serviceName, serviceScope string) (*models.UserCredential, error) {
 	query := `SELECT id, username, service_name, service_scope, subject,
-			COALESCE(secret, '') AS secret, credential_source
+			COALESCE(secret, '') AS secret, credential_source, is_active, created_at, updated_at
 		FROM identity.user_credentials
 			WHERE username=$1 AND service_name=$2 AND service_scope=$3 AND is_active=true
 		LIMIT 1`
@@ -487,6 +465,9 @@ func (d *DB) GetUserCredential(username, serviceName, serviceScope string) (*mod
 		&cred.Subject,
 		&cred.Secret,
 		&cred.CredentialSource,
+		&cred.IsActive,
+		&cred.CreatedAt,
+		&cred.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, models.ErrUserNotFound
@@ -497,14 +478,15 @@ func (d *DB) GetUserCredential(username, serviceName, serviceScope string) (*mod
 	return &cred, nil
 }
 
-// ListUserCredentials retrieves all credentials for the given username.
-func (d *DB) ListUserCredentials(username string) ([]*models.UserCredential, error) {
+// ListUserCredentials retrieves all credentials for the given username. If id
+// is non-zero, the result is filtered to the credential with that ID.
+func (d *DB) ListUserCredentials(username string, id uint32) ([]*models.UserCredential, error) {
 	query := `SELECT id, username, service_name, service_scope, subject,
-			COALESCE(secret, '') AS secret, credential_source
+			credential_source, is_active, created_at, updated_at
 		FROM identity.user_credentials
-			WHERE username=$1 AND is_active=true`
+			WHERE username=$1 AND is_active=true AND ($2 = 0 OR id = $2)`
 
-	rows, err := d.Pool.Query(context.Background(), query, username)
+	rows, err := d.Pool.Query(context.Background(), query, username, id)
 	if err != nil {
 		return nil, err
 	}
@@ -519,8 +501,10 @@ func (d *DB) ListUserCredentials(username string) ([]*models.UserCredential, err
 			&cred.ServiceName,
 			&cred.ServiceScope,
 			&cred.Subject,
-			&cred.Secret,
 			&cred.CredentialSource,
+			&cred.IsActive,
+			&cred.CreatedAt,
+			&cred.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -557,6 +541,43 @@ func (d *DB) DeleteUserCredential(id uint32) error {
 	}
 
 	return nil
+}
+
+// ErrProtectedCredential is returned by RemoveUserCredential when the targeted credential
+// was provisioned by the onboarding flow (credential_source LIKE 'idp.k8shell.io/%') and
+// therefore cannot be removed through that path.
+var ErrProtectedCredential = errors.New("credential was created by the onboarding process and cannot be removed")
+
+// RemoveUserCredential removes a single credential owned by username, identified by id.
+// Credentials whose credential_source matches "idp.k8shell.io/*" — provisioned by
+// CompleteUserWebFlow / CompleteUserDeviceFlow to link the user's git identity — are
+// refused with ErrProtectedCredential. Returns models.ErrUserNotFound when no matching
+// credential exists for that user.
+func (d *DB) RemoveUserCredential(username string, id uint32) error {
+	result, err := d.Pool.Exec(context.Background(),
+		`DELETE FROM identity.user_credentials
+			WHERE id=$1 AND username=$2 AND credential_source NOT LIKE 'idp.k8shell.io/%'`,
+		id, username)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() > 0 {
+		return nil
+	}
+
+	// Nothing was deleted — work out whether the row doesn't exist for this
+	// user, or exists but is protected, so the caller gets a precise error.
+	var exists bool
+	err = d.Pool.QueryRow(context.Background(),
+		`SELECT true FROM identity.user_credentials WHERE id=$1 AND username=$2`, id, username,
+	).Scan(&exists)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return models.ErrUserNotFound
+	}
+	if err != nil {
+		return err
+	}
+	return ErrProtectedCredential
 }
 
 // UpdateUserCredential updates an existing user credential record.
