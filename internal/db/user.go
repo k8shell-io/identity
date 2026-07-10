@@ -446,6 +446,79 @@ func (d *DB) AddKubernetesUserCredential(username, namespace, serviceAccount str
 	return cred, nil
 }
 
+// AddGitUserCredential stores a Git credential for a user. scope maps to service_scope and
+// subject maps to subject; credential_source is always "stored" and secret is persisted as given.
+func (d *DB) AddGitUserCredential(username, scope, subject, secret string) (*models.UserCredential, error) {
+	if username == "" || scope == "" || subject == "" || secret == "" {
+		return nil, fmt.Errorf("required field: username, scope, subject, secret")
+	}
+
+	query := `INSERT INTO identity.user_credentials (
+		username, service_name, service_scope, subject, secret, credential_source
+	) VALUES ($1, 'git', $2, $3, $4, 'stored')
+	RETURNING id, is_active, created_at, updated_at`
+
+	cred := &models.UserCredential{
+		Username:         username,
+		ServiceName:      "git",
+		ServiceScope:     scope,
+		Subject:          subject,
+		Secret:           secret,
+		CredentialSource: "stored",
+	}
+	err := d.Pool.QueryRow(context.Background(), query, username, scope, subject, secret).Scan(
+		&cred.ID, &cred.IsActive, &cred.CreatedAt, &cred.UpdatedAt,
+	)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" &&
+			pgErr.ConstraintName == "user_credentials_username_service_name_service_scope_subject_key" {
+			return nil, fmt.Errorf("git credential already exists for user '%s', scope '%s', subject '%s'",
+				username, scope, subject)
+		}
+		return nil, err
+	}
+
+	return cred, nil
+}
+
+// AddRegistryUserCredential stores a container registry credential for a user. scope maps to
+// service_scope and subject maps to subject; credential_source is always "stored" and secret
+// is persisted as given.
+func (d *DB) AddRegistryUserCredential(username, scope, subject, secret string) (*models.UserCredential, error) {
+	if username == "" || scope == "" || subject == "" || secret == "" {
+		return nil, fmt.Errorf("required field: username, scope, subject, secret")
+	}
+
+	query := `INSERT INTO identity.user_credentials (
+		username, service_name, service_scope, subject, secret, credential_source
+	) VALUES ($1, 'registry', $2, $3, $4, 'stored')
+	RETURNING id, is_active, created_at, updated_at`
+
+	cred := &models.UserCredential{
+		Username:         username,
+		ServiceName:      "registry",
+		ServiceScope:     scope,
+		Subject:          subject,
+		Secret:           secret,
+		CredentialSource: "stored",
+	}
+	err := d.Pool.QueryRow(context.Background(), query, username, scope, subject, secret).Scan(
+		&cred.ID, &cred.IsActive, &cred.CreatedAt, &cred.UpdatedAt,
+	)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" &&
+			pgErr.ConstraintName == "user_credentials_username_service_name_service_scope_subject_key" {
+			return nil, fmt.Errorf("registry credential already exists for user '%s', scope '%s', subject '%s'",
+				username, scope, subject)
+		}
+		return nil, err
+	}
+
+	return cred, nil
+}
+
 // GetUserCredential retrieves a single credential for the given user,
 // service_name and service_scope. Returns models.ErrUserNotFound when no
 // matching active credential exists.

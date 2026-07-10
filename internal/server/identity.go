@@ -695,6 +695,55 @@ func (s *IdentityService) AddKubernetesUserCredential(ctx context.Context,
 	return &identityv1.AddKubernetesUserCredentialResponse{Credential: gapi.UserCredentialToProto(cred)}, nil
 }
 
+// AddGitUserCredential stores a Git credential for a user. req.Scope maps to the credential's
+// service_scope and req.Subject maps to its subject; req.Secret is stored as given.
+func (s *IdentityService) AddGitUserCredential(ctx context.Context,
+	req *identityv1.AddGitUserCredentialRequest) (*identityv1.AddGitUserCredentialResponse, error) {
+	if s.server.DB == nil {
+		return nil, status.Errorf(codes.Unavailable, "database is not configured, cannot add user credential")
+	}
+
+	_, err := s.server.GetUserByUsername(req.Username, "")
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
+		}
+		return nil, propagateOrInternal(err, "error occurred when getting user '%s': %v", req.Username, err)
+	}
+
+	cred, err := s.server.DB.AddGitUserCredential(req.Username, req.Scope, req.Subject, req.Secret)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to add git user credential: %v", err)
+	}
+
+	return &identityv1.AddGitUserCredentialResponse{Credential: gapi.UserCredentialToProto(cred)}, nil
+}
+
+// AddRegistryUserCredential stores a container registry credential for a user. req.Scope maps
+// to the credential's service_scope and req.Subject maps to its subject; req.Secret is stored
+// as given.
+func (s *IdentityService) AddRegistryUserCredential(ctx context.Context,
+	req *identityv1.AddRegistryUserCredentialRequest) (*identityv1.AddRegistryUserCredentialResponse, error) {
+	if s.server.DB == nil {
+		return nil, status.Errorf(codes.Unavailable, "database is not configured, cannot add user credential")
+	}
+
+	_, err := s.server.GetUserByUsername(req.Username, "")
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
+		}
+		return nil, propagateOrInternal(err, "error occurred when getting user '%s': %v", req.Username, err)
+	}
+
+	cred, err := s.server.DB.AddRegistryUserCredential(req.Username, req.Scope, req.Subject, req.Secret)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to add registry user credential: %v", err)
+	}
+
+	return &identityv1.AddRegistryUserCredentialResponse{Credential: gapi.UserCredentialToProto(cred)}, nil
+}
+
 // UpdateUserCredential updates an existing external credential.
 func (s *IdentityService) UpdateUserCredential(ctx context.Context,
 	req *commonv1.UserCredential) (*identityv1.UpdateUserCredentialResponse, error) {
