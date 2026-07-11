@@ -381,8 +381,9 @@ func (s *Server) applyTokenCreatePolicy(user *models.User, source authz.TokenCre
 
 // applyAuthPolicy evaluates the user:auth action against the authz service and
 // confirms that method is among the auth_methods the policy permits for the
-// user. It is a no-op when the authz client or JWT issuer is not configured.
-func (s *Server) applyAuthPolicy(user *models.User, method authz.UserAuthMethod) error {
+// user on the given surface. It is a no-op when the authz client or JWT
+// issuer is not configured.
+func (s *Server) applyAuthPolicy(user *models.User, method authz.UserAuthMethod, surface authz.AuthSurface) error {
 	if s.authzClient == nil || s.JWT == nil {
 		return nil
 	}
@@ -394,6 +395,7 @@ func (s *Server) applyAuthPolicy(user *models.User, method authz.UserAuthMethod)
 
 	evalReq, err := authz.NewUserAuthEvalRequest(user.Username).
 		WithIDP(user.Source).
+		WithSurface(surface).
 		Build()
 	if err != nil {
 		return fmt.Errorf("applyAuthPolicy: failed to build eval request for user '%s': %w", user.Username, err)

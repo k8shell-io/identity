@@ -295,7 +295,7 @@ func (s *IdentityService) AuthUserPublicKey(ctx context.Context,
 	}
 
 	if authpb != nil && authpb.Valid {
-		if err := s.server.applyAuthPolicy(user, authz.UserAuthMethodPublicKey); err != nil {
+		if err := s.server.applyAuthPolicy(user, authz.UserAuthMethodPublicKey, authz.AuthSurfaceSSH); err != nil {
 			return nil, status.Errorf(codes.PermissionDenied, "%v", err)
 		}
 	}
@@ -320,32 +320,51 @@ func (s *IdentityService) matchStoredAuthKey(username, normalizedKey string) (*i
 	return &identityv1.AuthUserResponse{Valid: false}, nil
 }
 
-// AuthUserPassword authenticates a user against the bcrypt password hash stored
+// checkUserPassword resolves a user by username and verifies password against
+// their stored bcrypt hash. It returns a nil user (with no error) when the
+// user cannot be found, is invalid, or the password does not match.
+func (s *IdentityService) checkUserPassword(username, password string) (*models.User, error) {
+	user, err := s.server.GetUserByUsername(username, "")
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) || errors.Is(err, models.ErrUserIsNotValid) {
+			return nil, nil
+		}
+		return nil, propagateOrInternal(err, "error occurred when finding user '%s': %s",
+			username, err.Error())
+	}
+
+	if user.Password == "" || password == "" {
+		return nil, nil
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
+		return nil, nil
+	}
+
+	return user, nil
+}
+
+// AuthUserPassword checks a password against the bcrypt password hash stored
 // locally in the database. Unlike AuthUserPublicKey, this is never delegated to
 // an identity provider — passwords are a k8Shell-local credential, resolved the
 // same way as PATs and stored credentials.
+//
+// This RPC does not evaluate the user:auth authz policy itself: it is called
+// by both SSH and web login surfaces, each of which evaluates user:auth with
+// its own surface context before (or instead of) calling here — identity has
+// no way to know which surface is calling. Callers that need to verify a
+// password outside of login (e.g. requiring the current password before a
+// change) can also call this RPC directly, since it carries no login-specific
+// authorization of its own.
 func (s *IdentityService) AuthUserPassword(ctx context.Context,
 	req *identityv1.AuthUserPasswordRequest) (*identityv1.AuthUserResponse, error) {
 
-	user, err := s.server.GetUserByUsername(req.Username, "")
+	user, err := s.checkUserPassword(req.Username, req.Password)
 	if err != nil {
-		if errors.Is(err, models.ErrUserNotFound) || errors.Is(err, models.ErrUserIsNotValid) {
-			return &identityv1.AuthUserResponse{Valid: false}, nil
-		}
-		return nil, propagateOrInternal(err, "error occurred when finding user '%s': %s",
-			req.Username, err.Error())
+		return nil, err
 	}
-
-	if user.Password == "" || req.Password == "" {
+	if user == nil {
 		return &identityv1.AuthUserResponse{Valid: false}, nil
-	}
-
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
-		return &identityv1.AuthUserResponse{Valid: false}, nil
-	}
-
-	if err := s.server.applyAuthPolicy(user, authz.UserAuthMethodPassword); err != nil {
-		return nil, status.Errorf(codes.PermissionDenied, "%v", err)
 	}
 
 	return &identityv1.AuthUserResponse{Valid: true, User: gapi.UserToProto(user)}, nil
