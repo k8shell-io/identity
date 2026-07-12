@@ -241,7 +241,7 @@ func (d *DB) DeleteExpiredAccessTokens(cutoff time.Time) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("begin access token cleanup transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	var locked bool
 	if err := tx.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1)`, accessTokenJanitorLockKey).
