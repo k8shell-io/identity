@@ -552,7 +552,7 @@ func (d *DB) ListUserCredentials(username string, id uint32) ([]*models.UserCred
 	query := `SELECT id, username, service_name, service_scope, subject,
 			credential_source, is_active, created_at, updated_at
 		FROM identity.user_credentials
-			WHERE username=$1 AND is_active=true AND ($2 = 0 OR id = $2)`
+			WHERE username=$1 AND ($2 = 0 OR id = $2)`
 
 	rows, err := d.Pool.Query(context.Background(), query, username, id)
 	if err != nil {
