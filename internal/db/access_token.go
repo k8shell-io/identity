@@ -39,10 +39,10 @@ func hashToken(raw string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// previewToken returns the first tokenPreviewLength characters of raw's random
-// portion, for display purposes only.
+// previewToken returns tokenPrefix plus the first tokenPreviewLength characters
+// of raw's random portion, for display purposes only.
 func previewToken(raw string) string {
-	return raw[len(tokenPrefix) : len(tokenPrefix)+tokenPreviewLength]
+	return raw[:len(tokenPrefix)+tokenPreviewLength]
 }
 
 // CreateAccessToken generates a new PAT for username, stores its hash, and returns
