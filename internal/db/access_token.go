@@ -56,6 +56,61 @@ func (d *DB) CreateAccessToken(username, name string, scopes []string, expiresAt
 	return id, raw, nil
 }
 
+// GetActiveAccessTokenByName looks up the active token owned by username with the
+// given name. Returns models.ErrUserNotFound if no such token exists.
+func (d *DB) GetActiveAccessTokenByName(username, name string) (*models.AccessToken, error) {
+	var t models.AccessToken
+	var expiresAt *time.Time
+	var lastUsedAt *time.Time
+
+	err := d.Pool.QueryRow(context.Background(),
+		`SELECT id, username, name, scopes, expires_at, created_at, last_used_at, is_active
+		 FROM identity.access_tokens
+		 WHERE username = $1 AND name = $2 AND is_active = TRUE`,
+		username, name,
+	).Scan(
+		&t.ID,
+		&t.Username,
+		&t.Name,
+		&t.Scopes,
+		&expiresAt,
+		&t.CreatedAt,
+		&lastUsedAt,
+		&t.IsActive,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, models.ErrUserNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get access token by name: %w", err)
+	}
+
+	t.ExpiresAt = expiresAt
+	t.LastUsedAt = lastUsedAt
+	return &t, nil
+}
+
+// RenewAccessToken rotates the raw token of an existing access token record in place,
+// applying the given scopes and expiry, and returns the new raw token (shown once).
+func (d *DB) RenewAccessToken(id int64, scopes []string, expiresAt *time.Time) (string, error) {
+	raw, err := generateRawToken()
+	if err != nil {
+		return "", err
+	}
+
+	_, err = d.Pool.Exec(context.Background(),
+		`UPDATE identity.access_tokens
+		 SET token_hash = $1, scopes = $2, expires_at = $3, last_used_at = NULL
+		 WHERE id = $4`,
+		hashToken(raw), scopes, expiresAt, id,
+	)
+	if err != nil {
+		return "", fmt.Errorf("renew access token: %w", err)
+	}
+
+	return raw, nil
+}
+
 // ResolveAccessToken looks up a token by its raw value, verifies it is active and
 // not expired, updates last_used_at, and returns the token record.
 func (d *DB) ResolveAccessToken(raw string) (*models.AccessToken, error) {
@@ -147,4 +202,47 @@ func (d *DB) RevokeAccessToken(id int64, username string) error {
 		return models.ErrUserNotFound
 	}
 	return nil
+}
+
+// accessTokenJanitorLockKey is the Postgres advisory lock key used to ensure that
+// only one running service instance performs expired access token cleanup at a
+// time, even when multiple replicas each run their own janitor on the same schedule.
+const accessTokenJanitorLockKey = 8214559041
+
+// DeleteExpiredAccessTokens permanently removes access tokens whose expiry is
+// before cutoff. Tokens that never expire (expires_at IS NULL) are untouched.
+// The delete is guarded by a transaction-scoped Postgres advisory lock, so if
+// another instance is already running the same cleanup, this call is a no-op
+// and returns (0, nil) instead of racing it.
+func (d *DB) DeleteExpiredAccessTokens(cutoff time.Time) (int64, error) {
+	ctx := context.Background()
+
+	tx, err := d.Pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("begin access token cleanup transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var locked bool
+	if err := tx.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1)`, accessTokenJanitorLockKey).
+		Scan(&locked); err != nil {
+		return 0, fmt.Errorf("acquire access token janitor lock: %w", err)
+	}
+	if !locked {
+		return 0, nil
+	}
+
+	result, err := tx.Exec(ctx,
+		`DELETE FROM identity.access_tokens WHERE expires_at IS NOT NULL AND expires_at < $1`,
+		cutoff,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("delete expired access tokens: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("commit access token cleanup: %w", err)
+	}
+
+	return result.RowsAffected(), nil
 }

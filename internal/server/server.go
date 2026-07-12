@@ -190,6 +190,7 @@ func (s *Server) Serve() error {
 	defer cancel()
 
 	s.startProviderRetryLoop(ctx)
+	s.startAccessTokenJanitor(ctx)
 
 	errChan := make(chan error, 1)
 	go func() {

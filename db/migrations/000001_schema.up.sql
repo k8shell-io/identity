@@ -117,3 +117,11 @@ CREATE INDEX idx_access_tokens_username ON identity.access_tokens (username);
 INSERT INTO identity.organizations (name, description) VALUES
     ('default', 'Default organization');
 
+-- Only one active access token may exist per (username, name) pair. This makes
+-- "renew" (rotate the existing token in place) well-defined: there is at most one
+-- active token to renew for a given name. Revoked tokens are excluded so a name
+-- can be reused after revocation.
+CREATE UNIQUE INDEX idx_access_tokens_username_name_active
+    ON identity.access_tokens (username, name)
+    WHERE is_active = TRUE;
+

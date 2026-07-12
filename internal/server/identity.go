@@ -6,7 +6,9 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -507,6 +509,17 @@ func (s *IdentityService) OnboardUserWebFlow(ctx context.Context,
 	return authInfo, nil
 }
 
+// randomTokenSuffix returns a short random hex string used to give each web-flow
+// login its own uniquely named access token, so logging in from one device does
+// not invalidate a token already issued to another.
+func randomTokenSuffix() (string, error) {
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate token suffix: %w", err)
+	}
+	return hex.EncodeToString(b), nil
+}
+
 // CompleteUserWebFlow completes web-flow onboarding and returns the resolved user.
 func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 	req *identityv1.CompleteUserWebFlowRequest) (*identityv1.CompleteUserWebFlowResponse, error) {
@@ -576,7 +589,14 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 				}
 			}
 
-			_, raw, err := s.server.DB.CreateAccessToken(username.GetUsername(), "OAuth", scopes, patExpiresAt)
+			suffix, err := randomTokenSuffix()
+			if err != nil {
+				return nil, status.Errorf(codes.Internal, "failed to create access token for user '%s': %v",
+					username.GetUsername(), err)
+			}
+
+			_, raw, err := s.server.DB.CreateAccessToken(username.GetUsername(),
+				"OAuth-"+suffix, scopes, patExpiresAt)
 			if err != nil {
 				return nil, status.Errorf(codes.Internal, "failed to create access token for user '%s': %v",
 					username.GetUsername(), err)
@@ -1411,6 +1431,20 @@ func (s *IdentityService) CreateAccessToken(ctx context.Context,
 	if ts := req.GetExpiresAt(); ts != nil {
 		t := ts.AsTime()
 		expiresAt = &t
+	}
+
+	if req.GetRenew() {
+		existing, err := s.server.DB.GetActiveAccessTokenByName(req.Username, req.Name)
+		if err != nil && !errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Errorf(codes.Internal, "failed to look up access token: %v", err)
+		}
+		if err == nil {
+			raw, err := s.server.DB.RenewAccessToken(existing.ID, req.GetScopes(), expiresAt)
+			if err != nil {
+				return nil, status.Errorf(codes.Internal, "failed to renew access token: %v", err)
+			}
+			return &identityv1.CreateAccessTokenResponse{Id: existing.ID, Token: raw}, nil
+		}
 	}
 
 	id, raw, err := s.server.DB.CreateAccessToken(req.Username, req.Name, req.GetScopes(), expiresAt)
