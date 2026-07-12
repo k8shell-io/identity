@@ -19,6 +19,11 @@ import (
 
 const tokenPrefix = "k8sh_"
 
+// tokenPreviewLength is how many characters of a token's random portion (after
+// tokenPrefix) are stored for display purposes, letting a user tell their tokens
+// apart in listings without the raw value ever being stored or shown again.
+const tokenPreviewLength = 8
+
 // generateRawToken creates a new opaque token: "k8sh_" + base64url(32 random bytes).
 func generateRawToken() (string, error) {
 	b := make([]byte, 32)
@@ -34,6 +39,12 @@ func hashToken(raw string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// previewToken returns the first tokenPreviewLength characters of raw's random
+// portion, for display purposes only.
+func previewToken(raw string) string {
+	return raw[len(tokenPrefix) : len(tokenPrefix)+tokenPreviewLength]
+}
+
 // CreateAccessToken generates a new PAT for username, stores its hash, and returns
 // the raw token (shown to the caller once) along with the new record's ID.
 func (d *DB) CreateAccessToken(username, name string, scopes []string, expiresAt *time.Time) (int64, string, error) {
@@ -44,10 +55,10 @@ func (d *DB) CreateAccessToken(username, name string, scopes []string, expiresAt
 
 	var id int64
 	err = d.Pool.QueryRow(context.Background(),
-		`INSERT INTO identity.access_tokens (token_hash, username, name, scopes, expires_at)
-		 VALUES ($1, $2, $3, $4, $5)
+		`INSERT INTO identity.access_tokens (token_hash, username, name, scopes, expires_at, token_preview)
+		 VALUES ($1, $2, $3, $4, $5, $6)
 		 RETURNING id`,
-		hashToken(raw), username, name, scopes, expiresAt,
+		hashToken(raw), username, name, scopes, expiresAt, previewToken(raw),
 	).Scan(&id)
 	if err != nil {
 		return 0, "", fmt.Errorf("insert access token: %w", err)
@@ -63,8 +74,9 @@ func (d *DB) GetActiveAccessTokenByName(username, name string) (*models.AccessTo
 	var expiresAt *time.Time
 	var lastUsedAt *time.Time
 
+	var tokenPreview *string
 	err := d.Pool.QueryRow(context.Background(),
-		`SELECT id, username, name, scopes, expires_at, created_at, last_used_at, is_active
+		`SELECT id, username, name, scopes, expires_at, created_at, last_used_at, is_active, token_preview
 		 FROM identity.access_tokens
 		 WHERE username = $1 AND name = $2 AND is_active = TRUE`,
 		username, name,
@@ -77,6 +89,7 @@ func (d *DB) GetActiveAccessTokenByName(username, name string) (*models.AccessTo
 		&t.CreatedAt,
 		&lastUsedAt,
 		&t.IsActive,
+		&tokenPreview,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, models.ErrUserNotFound
@@ -87,6 +100,7 @@ func (d *DB) GetActiveAccessTokenByName(username, name string) (*models.AccessTo
 
 	t.ExpiresAt = expiresAt
 	t.LastUsedAt = lastUsedAt
+	t.TokenPreview = tokenPreview
 	return &t, nil
 }
 
@@ -100,9 +114,9 @@ func (d *DB) RenewAccessToken(id int64, scopes []string, expiresAt *time.Time) (
 
 	_, err = d.Pool.Exec(context.Background(),
 		`UPDATE identity.access_tokens
-		 SET token_hash = $1, scopes = $2, expires_at = $3, last_used_at = NULL
-		 WHERE id = $4`,
-		hashToken(raw), scopes, expiresAt, id,
+		 SET token_hash = $1, scopes = $2, expires_at = $3, last_used_at = NULL, token_preview = $4
+		 WHERE id = $5`,
+		hashToken(raw), scopes, expiresAt, previewToken(raw), id,
 	)
 	if err != nil {
 		return "", fmt.Errorf("renew access token: %w", err)
@@ -119,12 +133,13 @@ func (d *DB) ResolveAccessToken(raw string) (*models.AccessToken, error) {
 	var t models.AccessToken
 	var expiresAt *time.Time
 	var lastUsedAt *time.Time
+	var tokenPreview *string
 
 	err := d.Pool.QueryRow(context.Background(),
 		`UPDATE identity.access_tokens
 		 SET last_used_at = NOW()
 		 WHERE token_hash = $1 AND is_active = TRUE AND (expires_at IS NULL OR expires_at > NOW())
-		 RETURNING id, username, name, scopes, expires_at, created_at, last_used_at, is_active`,
+		 RETURNING id, username, name, scopes, expires_at, created_at, last_used_at, is_active, token_preview`,
 		hash,
 	).Scan(
 		&t.ID,
@@ -135,6 +150,7 @@ func (d *DB) ResolveAccessToken(raw string) (*models.AccessToken, error) {
 		&t.CreatedAt,
 		&lastUsedAt,
 		&t.IsActive,
+		&tokenPreview,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, models.ErrUserNotFound
@@ -145,13 +161,14 @@ func (d *DB) ResolveAccessToken(raw string) (*models.AccessToken, error) {
 
 	t.ExpiresAt = expiresAt
 	t.LastUsedAt = lastUsedAt
+	t.TokenPreview = tokenPreview
 	return &t, nil
 }
 
 // ListAccessTokens returns all access token metadata for a user (no hashes).
 func (d *DB) ListAccessTokens(username string) ([]*models.AccessToken, error) {
 	rows, err := d.Pool.Query(context.Background(),
-		`SELECT id, username, name, scopes, expires_at, created_at, last_used_at, is_active
+		`SELECT id, username, name, scopes, expires_at, created_at, last_used_at, is_active, token_preview
 		 FROM identity.access_tokens
 		 WHERE username = $1
 		 ORDER BY created_at DESC`,
@@ -167,6 +184,7 @@ func (d *DB) ListAccessTokens(username string) ([]*models.AccessToken, error) {
 		var t models.AccessToken
 		var expiresAt *time.Time
 		var lastUsedAt *time.Time
+		var tokenPreview *string
 		if err := rows.Scan(
 			&t.ID,
 			&t.Username,
@@ -176,11 +194,13 @@ func (d *DB) ListAccessTokens(username string) ([]*models.AccessToken, error) {
 			&t.CreatedAt,
 			&lastUsedAt,
 			&t.IsActive,
+			&tokenPreview,
 		); err != nil {
 			return nil, err
 		}
 		t.ExpiresAt = expiresAt
 		t.LastUsedAt = lastUsedAt
+		t.TokenPreview = tokenPreview
 		tokens = append(tokens, &t)
 	}
 	return tokens, rows.Err()

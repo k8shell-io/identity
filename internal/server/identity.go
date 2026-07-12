@@ -1486,6 +1486,9 @@ func (s *IdentityService) ListAccessTokens(ctx context.Context,
 		if t.LastUsedAt != nil {
 			info.LastUsedAt = timestamppb.New(*t.LastUsedAt)
 		}
+		if t.TokenPreview != nil {
+			info.TokenPreview = *t.TokenPreview
+		}
 		infos[i] = info
 	}
 

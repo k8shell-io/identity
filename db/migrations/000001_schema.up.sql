@@ -100,15 +100,16 @@ CREATE INDEX idx_user_creds_service  ON identity.user_credentials (service_name)
 -- The raw token is never stored; only sha256(token) in hex is kept.
 -- Scopes cap the token to a subset of the owning user's policy permissions.
 CREATE TABLE identity.access_tokens (
-    id           BIGSERIAL   PRIMARY KEY,
-    token_hash   TEXT        NOT NULL UNIQUE,  -- hex(sha256(raw_token))
-    username     VARCHAR     NOT NULL REFERENCES identity.users(username) ON DELETE CASCADE,
-    name         TEXT        NOT NULL,          -- human label, e.g. "k8shell-cli laptop"
-    scopes       TEXT[]      NOT NULL,          -- allowed action scopes
-    expires_at   TIMESTAMPTZ,                   -- NULL = never expires
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    last_used_at TIMESTAMPTZ,
-    is_active    BOOLEAN     NOT NULL DEFAULT TRUE
+    id            BIGSERIAL   PRIMARY KEY,
+    token_hash    TEXT        NOT NULL UNIQUE,  -- hex(sha256(raw_token))
+    username      VARCHAR     NOT NULL REFERENCES identity.users(username) ON DELETE CASCADE,
+    name          TEXT        NOT NULL,          -- human label, e.g. "k8shell-cli laptop"
+    scopes        TEXT[]      NOT NULL,          -- allowed action scopes
+    expires_at    TIMESTAMPTZ,                   -- NULL = never expires
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_used_at  TIMESTAMPTZ,
+    is_active     BOOLEAN     NOT NULL DEFAULT TRUE,
+    token_preview VARCHAR(8)                     -- first chars of raw_token, for display only
 );
 
 CREATE INDEX idx_access_tokens_username ON identity.access_tokens (username);
