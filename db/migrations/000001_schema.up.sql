@@ -109,7 +109,7 @@ CREATE TABLE identity.access_tokens (
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_used_at  TIMESTAMPTZ,
     is_active     BOOLEAN     NOT NULL DEFAULT TRUE,
-    token_preview VARCHAR(8)                     -- first chars of raw_token, for display only
+    token_preview VARCHAR(15)                     -- first chars of raw_token, for display only
 );
 
 CREATE INDEX idx_access_tokens_username ON identity.access_tokens (username);
