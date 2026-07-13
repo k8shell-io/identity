@@ -596,7 +596,7 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 			}
 
 			_, raw, err := s.server.DB.CreateAccessToken(username.GetUsername(),
-				"OAuth-"+suffix, scopes, patExpiresAt)
+				"OAuth-"+suffix, scopes, patExpiresAt, true)
 			if err != nil {
 				return nil, status.Errorf(codes.Internal, "failed to create access token for user '%s': %v",
 					username.GetUsername(), err)
@@ -1433,8 +1433,13 @@ func (s *IdentityService) CreateAccessToken(ctx context.Context,
 		expiresAt = &t
 	}
 
+	active := true
+	if req.Active != nil {
+		active = req.Active.GetValue()
+	}
+
 	if req.GetRenew() {
-		existing, err := s.server.DB.GetActiveAccessTokenByName(req.Username, req.Name)
+		existing, err := s.server.DB.GetAccessTokenByName(req.Username, req.Name)
 		if err != nil && !errors.Is(err, models.ErrUserNotFound) {
 			return nil, status.Errorf(codes.Internal, "failed to look up access token: %v", err)
 		}
@@ -1447,12 +1452,49 @@ func (s *IdentityService) CreateAccessToken(ctx context.Context,
 		}
 	}
 
-	id, raw, err := s.server.DB.CreateAccessToken(req.Username, req.Name, req.GetScopes(), expiresAt)
+	id, raw, err := s.server.DB.CreateAccessToken(req.Username, req.Name, req.GetScopes(), expiresAt, active)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to create access token: %v", err)
 	}
 
 	return &identityv1.CreateAccessTokenResponse{Id: id, Token: raw}, nil
+}
+
+// UpdateAccessToken partially updates an access token's active state and/or scopes,
+// enforcing username ownership. Only fields set (non-nil) in req are applied.
+func (s *IdentityService) UpdateAccessToken(ctx context.Context,
+	req *identityv1.UpdateAccessTokenRequest) (*identityv1.UpdateAccessTokenResponse, error) {
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured, cannot update access token")
+	}
+	if req.Username == "" {
+		return nil, status.Error(codes.InvalidArgument, "username is required")
+	}
+
+	var active *bool
+	if req.Active != nil {
+		v := req.Active.GetValue()
+		active = &v
+	}
+
+	var scopes *[]string
+	if req.Scopes != nil {
+		v := req.Scopes.GetScopes()
+		if err := authz.ValidateScopes(v); err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "%v", err)
+		}
+		scopes = &v
+	}
+
+	t, err := s.server.DB.UpdateAccessToken(req.Id, req.Username, active, scopes)
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Errorf(codes.NotFound, "access token %d not found for user '%s'", req.Id, req.Username)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to update access token: %v", err)
+	}
+
+	return &identityv1.UpdateAccessTokenResponse{Token: accessTokenToInfo(t)}, nil
 }
 
 // ListAccessTokens returns access token metadata (no raw tokens or hashes) for a user.
@@ -1472,27 +1514,32 @@ func (s *IdentityService) ListAccessTokens(ctx context.Context,
 
 	infos := make([]*identityv1.AccessTokenInfo, len(tokens))
 	for i, t := range tokens {
-		info := &identityv1.AccessTokenInfo{
-			Id:        t.ID,
-			Username:  t.Username,
-			Name:      t.Name,
-			Scopes:    t.Scopes,
-			CreatedAt: timestamppb.New(t.CreatedAt),
-			IsActive:  t.IsActive,
-		}
-		if t.ExpiresAt != nil {
-			info.ExpiresAt = timestamppb.New(*t.ExpiresAt)
-		}
-		if t.LastUsedAt != nil {
-			info.LastUsedAt = timestamppb.New(*t.LastUsedAt)
-		}
-		if t.TokenPreview != nil {
-			info.TokenPreview = *t.TokenPreview
-		}
-		infos[i] = info
+		infos[i] = accessTokenToInfo(t)
 	}
 
 	return &identityv1.ListAccessTokensResponse{Tokens: infos}, nil
+}
+
+// accessTokenToInfo converts a DB access token record to its proto representation.
+func accessTokenToInfo(t *models.AccessToken) *identityv1.AccessTokenInfo {
+	info := &identityv1.AccessTokenInfo{
+		Id:        t.ID,
+		Username:  t.Username,
+		Name:      t.Name,
+		Scopes:    t.Scopes,
+		CreatedAt: timestamppb.New(t.CreatedAt),
+		IsActive:  t.IsActive,
+	}
+	if t.ExpiresAt != nil {
+		info.ExpiresAt = timestamppb.New(*t.ExpiresAt)
+	}
+	if t.LastUsedAt != nil {
+		info.LastUsedAt = timestamppb.New(*t.LastUsedAt)
+	}
+	if t.TokenPreview != nil {
+		info.TokenPreview = *t.TokenPreview
+	}
+	return info
 }
 
 // RevokeAccessToken soft-deletes an access token by ID, enforcing username ownership.
@@ -1513,6 +1560,23 @@ func (s *IdentityService) RevokeAccessToken(ctx context.Context,
 	}
 
 	return &identityv1.RevokeAccessTokenResponse{Success: true}, nil
+}
+
+// DeleteAccessToken permanently deletes an access token by ID.
+func (s *IdentityService) DeleteAccessToken(ctx context.Context,
+	req *identityv1.DeleteAccessTokenRequest) (*identityv1.DeleteAccessTokenResponse, error) {
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured, cannot delete access token")
+	}
+
+	if err := s.server.DB.DeleteAccessToken(req.Id); err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Errorf(codes.NotFound, "access token %d not found", req.Id)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to delete access token: %v", err)
+	}
+
+	return &identityv1.DeleteAccessTokenResponse{Success: true}, nil
 }
 
 // ResolveAccessToken looks up a raw k8sh_ token, updates last_used_at, and returns

@@ -47,7 +47,7 @@ func previewToken(raw string) string {
 
 // CreateAccessToken generates a new PAT for username, stores its hash, and returns
 // the raw token (shown to the caller once) along with the new record's ID.
-func (d *DB) CreateAccessToken(username, name string, scopes []string, expiresAt *time.Time) (int64, string, error) {
+func (d *DB) CreateAccessToken(username, name string, scopes []string, expiresAt *time.Time, active bool) (int64, string, error) {
 	raw, err := generateRawToken()
 	if err != nil {
 		return 0, "", err
@@ -55,10 +55,10 @@ func (d *DB) CreateAccessToken(username, name string, scopes []string, expiresAt
 
 	var id int64
 	err = d.Pool.QueryRow(context.Background(),
-		`INSERT INTO identity.access_tokens (token_hash, username, name, scopes, expires_at, token_preview)
-		 VALUES ($1, $2, $3, $4, $5, $6)
+		`INSERT INTO identity.access_tokens (token_hash, username, name, scopes, expires_at, token_preview, is_active)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
 		 RETURNING id`,
-		hashToken(raw), username, name, scopes, expiresAt, previewToken(raw),
+		hashToken(raw), username, name, scopes, expiresAt, previewToken(raw), active,
 	).Scan(&id)
 	if err != nil {
 		return 0, "", fmt.Errorf("insert access token: %w", err)
@@ -67,9 +67,10 @@ func (d *DB) CreateAccessToken(username, name string, scopes []string, expiresAt
 	return id, raw, nil
 }
 
-// GetActiveAccessTokenByName looks up the active token owned by username with the
-// given name. Returns models.ErrUserNotFound if no such token exists.
-func (d *DB) GetActiveAccessTokenByName(username, name string) (*models.AccessToken, error) {
+// GetAccessTokenByName looks up the token owned by username with the given name,
+// active or not — (username, name) is unique, so at most one row can match.
+// Returns models.ErrUserNotFound if no such token exists.
+func (d *DB) GetAccessTokenByName(username, name string) (*models.AccessToken, error) {
 	var t models.AccessToken
 	var expiresAt *time.Time
 	var lastUsedAt *time.Time
@@ -78,7 +79,7 @@ func (d *DB) GetActiveAccessTokenByName(username, name string) (*models.AccessTo
 	err := d.Pool.QueryRow(context.Background(),
 		`SELECT id, username, name, scopes, expires_at, created_at, last_used_at, is_active, token_preview
 		 FROM identity.access_tokens
-		 WHERE username = $1 AND name = $2 AND is_active = TRUE`,
+		 WHERE username = $1 AND name = $2`,
 		username, name,
 	).Scan(
 		&t.ID,
@@ -106,6 +107,8 @@ func (d *DB) GetActiveAccessTokenByName(username, name string) (*models.AccessTo
 
 // RenewAccessToken rotates the raw token of an existing access token record in place,
 // applying the given scopes and expiry, and returns the new raw token (shown once).
+// The token is reactivated (is_active = TRUE) regardless of its prior state, since
+// renewing a revoked token is how its name is brought back into use.
 func (d *DB) RenewAccessToken(id int64, scopes []string, expiresAt *time.Time) (string, error) {
 	raw, err := generateRawToken()
 	if err != nil {
@@ -114,7 +117,7 @@ func (d *DB) RenewAccessToken(id int64, scopes []string, expiresAt *time.Time) (
 
 	_, err = d.Pool.Exec(context.Background(),
 		`UPDATE identity.access_tokens
-		 SET token_hash = $1, scopes = $2, expires_at = $3, last_used_at = NULL, token_preview = $4
+		 SET token_hash = $1, scopes = $2, expires_at = $3, last_used_at = NULL, token_preview = $4, is_active = TRUE
 		 WHERE id = $5`,
 		hashToken(raw), scopes, expiresAt, previewToken(raw), id,
 	)
@@ -123,6 +126,46 @@ func (d *DB) RenewAccessToken(id int64, scopes []string, expiresAt *time.Time) (
 	}
 
 	return raw, nil
+}
+
+// UpdateAccessToken partially updates an access token's active state and/or scopes,
+// enforcing that it belongs to username. Only non-nil fields are applied. Returns
+// models.ErrUserNotFound if no matching token owned by username exists.
+func (d *DB) UpdateAccessToken(id int64, username string, active *bool, scopes *[]string) (*models.AccessToken, error) {
+	var t models.AccessToken
+	var expiresAt *time.Time
+	var lastUsedAt *time.Time
+	var tokenPreview *string
+
+	err := d.Pool.QueryRow(context.Background(),
+		`UPDATE identity.access_tokens SET
+			is_active = COALESCE($3, is_active),
+			scopes    = COALESCE($4, scopes)
+		 WHERE id = $1 AND username = $2
+		 RETURNING id, username, name, scopes, expires_at, created_at, last_used_at, is_active, token_preview`,
+		id, username, active, scopes,
+	).Scan(
+		&t.ID,
+		&t.Username,
+		&t.Name,
+		&t.Scopes,
+		&expiresAt,
+		&t.CreatedAt,
+		&lastUsedAt,
+		&t.IsActive,
+		&tokenPreview,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, models.ErrUserNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("update access token: %w", err)
+	}
+
+	t.ExpiresAt = expiresAt
+	t.LastUsedAt = lastUsedAt
+	t.TokenPreview = tokenPreview
+	return &t, nil
 }
 
 // ResolveAccessToken looks up a token by its raw value, verifies it is active and
@@ -217,6 +260,22 @@ func (d *DB) RevokeAccessToken(id int64, username string) error {
 	)
 	if err != nil {
 		return fmt.Errorf("revoke access token: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return models.ErrUserNotFound
+	}
+	return nil
+}
+
+// DeleteAccessToken permanently removes an access token by ID, regardless of owner
+// or active state. Returns models.ErrUserNotFound if no such token exists.
+func (d *DB) DeleteAccessToken(id int64) error {
+	result, err := d.Pool.Exec(context.Background(),
+		`DELETE FROM identity.access_tokens WHERE id = $1`,
+		id,
+	)
+	if err != nil {
+		return fmt.Errorf("delete access token: %w", err)
 	}
 	if result.RowsAffected() == 0 {
 		return models.ErrUserNotFound
