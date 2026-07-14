@@ -498,6 +498,48 @@ func (s *Server) GetUserByUsername(username string, source string) (*models.User
 	return user, nil
 }
 
+// GetUserByEmail retrieves a user by email from the database. Unlike
+// GetUserByUsername it does not query identity providers directly (they have
+// no email-based lookup), but if the cached record is expired or invalid it
+// is refreshed from providers by username, same as GetUserByUsername.
+func (s *Server) GetUserByEmail(email string) (*models.User, error) {
+	if s.DB == nil {
+		for _, user := range s.getLocalUsers() {
+			if user.Email == email {
+				return user, nil
+			}
+		}
+		return nil, fmt.Errorf("user with email '%s' not found: %w", email, models.ErrUserNotFound)
+	}
+
+	user, err := s.DB.FindUserByEmail(email)
+	if err != nil && !errors.Is(err, models.ErrUserNotFound) {
+		return nil, fmt.Errorf("error occured when finding user with email '%s': %w", email, err)
+	}
+	if user == nil {
+		return nil, fmt.Errorf("user with email '%s' not found: %w", email, models.ErrUserNotFound)
+	}
+
+	user, err = s.refreshUser(user.Username, user.Source, user)
+	if err != nil {
+		switch status.Code(err) {
+		case codes.PermissionDenied, codes.Unauthenticated:
+			return nil, err
+		}
+		return nil, fmt.Errorf("error occured when refreshing user '%s': %w", user.Username, err)
+	}
+
+	if user == nil {
+		return nil, fmt.Errorf("user with email '%s' not found: %w", email, models.ErrUserNotFound)
+	}
+
+	if !user.IsValid {
+		return nil, fmt.Errorf("user '%s' is not valid: %w", user.Username, models.ErrUserIsNotValid)
+	}
+
+	return user, nil
+}
+
 // GetUserByAccessToken retrieves a user by verifying the provided JWT access token.
 // In the DB path the verified subject and source claims are used to look up the user.
 // In the file-provider path the subject claim is used directly.

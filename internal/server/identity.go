@@ -220,24 +220,32 @@ func (s *IdentityService) GetUsers(ctx context.Context, req *identityv1.GetUsers
 
 // FindUser looks up a user by username or access token.
 func (s *IdentityService) FindUser(ctx context.Context, req *identityv1.FindUserRequest) (*commonv1.User, error) {
-	if req.Username == "" {
-		return nil, status.Error(codes.InvalidArgument, "no username provided")
+	if req.Username == "" && req.Email == "" {
+		return nil, status.Error(codes.InvalidArgument,
+			"invalid request: must provide either username or email")
+	}
+	if req.Username != "" && req.Email != "" {
+		return nil, status.Error(codes.InvalidArgument,
+			"invalid request: must provide only one of username or email")
 	}
 
+	var (
+		user *models.User
+		err  error
+	)
 	if req.Username != "" {
-		user, err := s.server.GetUserByUsername(req.Username, "")
-		if err != nil {
-			if errors.Is(err, models.ErrUserNotFound) {
-				return nil, status.Error(codes.NotFound, "user not found")
-			}
-			s.log.Error().Err(err).Msg("failed to get user")
-			return nil, propagateOrInternal(err, "failed to get user")
-		}
-		return gapi.UserToProto(user), nil
+		user, err = s.server.GetUserByUsername(req.Username, "")
+	} else {
+		user, err = s.server.GetUserByEmail(req.Email)
 	}
-
-	return nil, status.Error(codes.InvalidArgument,
-		"invalid request: must provide either username or token")
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return nil, status.Error(codes.NotFound, "user not found")
+		}
+		s.log.Error().Err(err).Msg("failed to get user")
+		return nil, propagateOrInternal(err, "failed to get user")
+	}
+	return gapi.UserToProto(user), nil
 }
 
 // AuthUserPublicKey authenticates a user using an SSH public key. The key is
