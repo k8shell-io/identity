@@ -269,10 +269,24 @@ func (s *Server) refreshUser(username string, source string, user *models.User) 
 		invalidateUser := (foundUser == nil && user != nil)
 
 		if createUser {
+			existing, err := s.DB.FindUser(username, "")
+			if err != nil && !errors.Is(err, models.ErrUserNotFound) {
+				return nil, fmt.Errorf("failed to check for existing user '%s' in database: %w", username, err)
+			}
+			if existing != nil && existing.Source != foundUser.Source {
+				return nil, status.Errorf(codes.AlreadyExists,
+					"username '%s' is already registered under provider '%s', cannot onboard via provider '%s'",
+					username, existing.Source, foundUser.Source)
+			}
+
+			if err := s.checkEmailConflict(foundUser); err != nil {
+				return nil, err
+			}
+
 			if err := s.applyOnboardPolicy(foundUser); err != nil {
 				return nil, err
 			}
-			err := s.DB.CreateUser(foundUser)
+			err = s.DB.CreateUser(foundUser)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create user '%s' in database: %w", username, err)
 			}
@@ -301,6 +315,25 @@ func (s *Server) refreshUser(username string, source string, user *models.User) 
 	}
 
 	return user, nil
+}
+
+// checkEmailConflict returns codes.AlreadyExists when foundUser's email is
+// already registered to a different username. Empty emails are never checked,
+// since they are not unique identifiers.
+func (s *Server) checkEmailConflict(foundUser *models.User) error {
+	if foundUser.Email == "" {
+		return nil
+	}
+
+	existing, err := s.DB.FindUserByEmail(foundUser.Email)
+	if err != nil && !errors.Is(err, models.ErrUserNotFound) {
+		return fmt.Errorf("failed to check for existing email '%s' in database: %w", foundUser.Email, err)
+	}
+	if existing != nil && existing.Username != foundUser.Username {
+		return status.Errorf(codes.AlreadyExists,
+			"email '%s' is already registered to user '%s'", foundUser.Email, existing.Username)
+	}
+	return nil
 }
 
 // applyOnboardPolicy evaluates the user:onboard action against the authz
@@ -481,7 +514,7 @@ func (s *Server) GetUserByUsername(username string, source string) (*models.User
 	user, err = s.refreshUser(username, source, user)
 	if err != nil {
 		switch status.Code(err) {
-		case codes.PermissionDenied, codes.Unauthenticated:
+		case codes.PermissionDenied, codes.Unauthenticated, codes.AlreadyExists:
 			return nil, err
 		}
 		return nil, fmt.Errorf("error occured when refreshing user '%s': %w", username, err)

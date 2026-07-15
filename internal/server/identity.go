@@ -85,12 +85,12 @@ func unwrapWebFlowState(state string) (idpState, cliState string, createPat bool
 }
 
 // propagateOrInternal returns the error unchanged when its gRPC status code is
-// PermissionDenied or Unauthenticated (so upstream IDP rejections are forwarded
-// to the caller). All other errors are returned as codes.Internal with the
-// supplied message format.
+// PermissionDenied, Unauthenticated, NotFound, or AlreadyExists (so upstream
+// IDP rejections and onboarding conflicts are forwarded to the caller). All
+// other errors are returned as codes.Internal with the supplied message format.
 func propagateOrInternal(err error, format string, args ...interface{}) error {
 	switch status.Code(err) {
-	case codes.PermissionDenied, codes.Unauthenticated, codes.NotFound:
+	case codes.PermissionDenied, codes.Unauthenticated, codes.NotFound, codes.AlreadyExists:
 		return err
 	}
 	return status.Errorf(codes.Internal, format, args...)
@@ -1002,6 +1002,8 @@ func (s *IdentityService) CreateUser(ctx context.Context,
 			return nil, status.Errorf(codes.AlreadyExists, "user '%s' already exists", username)
 		case errors.Is(err, backend.ErrUIDExists):
 			return nil, status.Errorf(codes.AlreadyExists, "uid %d is already in use", uid)
+		case errors.Is(err, backend.ErrEmailExists):
+			return nil, status.Errorf(codes.AlreadyExists, "email '%s' is already in use", req.Email)
 		case errors.Is(err, models.ErrInvalidParameters):
 			return nil, status.Errorf(codes.InvalidArgument, "%v", err)
 		}

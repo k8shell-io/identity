@@ -153,6 +153,9 @@ var ErrUsernameExists = errors.New("username already exists")
 // ErrUIDExists is returned by CreateUser when the uid is already in use by another user.
 var ErrUIDExists = errors.New("uid already exists")
 
+// ErrEmailExists is returned by CreateUser when the email is already in use by another user.
+var ErrEmailExists = errors.New("email already exists")
+
 // CreateUser inserts a new user record into the database.
 // If the user's organization does not exist and is in the auto-create allowlist,
 // it is created automatically. Otherwise the insert will fail if the org is missing.
@@ -199,6 +202,8 @@ func (d *DB) CreateUser(user *models.User) error {
 				return fmt.Errorf("%w: %q", ErrUsernameExists, user.Username)
 			case "users_uid_key":
 				return fmt.Errorf("%w: %d", ErrUIDExists, user.UID)
+			case "idx_users_email_unique":
+				return fmt.Errorf("%w: %q", ErrEmailExists, user.Email)
 			}
 		}
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" && pgErr.ConstraintName == "users_organization_fkey" {

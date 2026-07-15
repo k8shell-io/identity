@@ -41,7 +41,10 @@ CREATE TABLE identity.users (
     blueprints     character varying[]           -- available k8shell blueprints
 );
 
-CREATE INDEX idx_users_email ON identity.users (email);
+-- Emails must be unique across users when present. Partial index so that
+-- users without an email (NULL or '') never collide with one another.
+CREATE UNIQUE INDEX idx_users_email_unique ON identity.users (email)
+    WHERE email IS NOT NULL AND email <> '';
 
 -- user_credentials stores credentials for external services.
 -- credential_source controls how the secret is resolved at request time
