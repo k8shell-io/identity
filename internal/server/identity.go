@@ -332,26 +332,29 @@ func (s *IdentityService) matchStoredAuthKey(username, normalizedKey string) (*i
 
 // checkUserPassword resolves a user by username and verifies password against
 // their stored bcrypt hash. It returns a nil user (with no error) when the
-// user cannot be found, is invalid, or the password does not match.
-func (s *IdentityService) checkUserPassword(username, password string) (*models.User, error) {
-	user, err := s.server.GetUserByUsername(username, "")
+// user cannot be found, is invalid, or the password does not match. exists
+// reports whether a valid account was found at all, regardless of whether
+// the password matched — used by AuthUserPassword to scope lockout tracking
+// to real accounts rather than arbitrary attempted usernames.
+func (s *IdentityService) checkUserPassword(username, password string) (user *models.User, exists bool, err error) {
+	u, err := s.server.GetUserByUsername(username, "")
 	if err != nil {
 		if errors.Is(err, models.ErrUserNotFound) || errors.Is(err, models.ErrUserIsNotValid) {
-			return nil, nil
+			return nil, false, nil
 		}
-		return nil, propagateOrInternal(err, "error occurred when finding user '%s': %s",
+		return nil, false, propagateOrInternal(err, "error occurred when finding user '%s': %s",
 			username, err.Error())
 	}
 
-	if user.Password == "" || password == "" {
-		return nil, nil
+	if u.Password == "" || password == "" {
+		return nil, true, nil
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
-		return nil, nil
+	if err := bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(password)); err != nil {
+		return nil, true, nil
 	}
 
-	return user, nil
+	return u, true, nil
 }
 
 // AuthUserPassword checks a password against the bcrypt password hash stored
@@ -366,18 +369,86 @@ func (s *IdentityService) checkUserPassword(username, password string) (*models.
 // password outside of login (e.g. requiring the current password before a
 // change) can also call this RPC directly, since it carries no login-specific
 // authorization of its own.
+//
+// Repeated failed attempts against an existing account lock it out of
+// password auth for a configurable window (see PasswordLockoutConfig),
+// tracked by username in identity's own storage so the lockout applies no
+// matter which caller invokes this RPC. Unknown usernames are never
+// tracked, to avoid growing the lockout store from arbitrary attempted
+// names. The response's Locked field distinguishes a lockout from an
+// ordinary invalid-credentials result so callers can show a consistent
+// "account temporarily locked" message.
 func (s *IdentityService) AuthUserPassword(ctx context.Context,
 	req *identityv1.AuthUserPasswordRequest) (*identityv1.AuthUserResponse, error) {
 
-	user, err := s.checkUserPassword(req.Username, req.Password)
+	locked, _, err := s.server.checkPasswordLockout(req.Username)
+	if err != nil {
+		s.log.Warn().Err(err).Str("username", req.Username).Msg("failed to check password lockout state")
+	} else if locked {
+		return &identityv1.AuthUserResponse{Valid: false, Locked: true}, nil
+	}
+
+	user, exists, err := s.checkUserPassword(req.Username, req.Password)
 	if err != nil {
 		return nil, err
 	}
+
 	if user == nil {
-		return &identityv1.AuthUserResponse{Valid: false}, nil
+		if !exists {
+			return &identityv1.AuthUserResponse{Valid: false}, nil
+		}
+		lockedNow, _, lockErr := s.server.recordPasswordFailure(req.Username)
+		if lockErr != nil {
+			s.log.Warn().Err(lockErr).Str("username", req.Username).Msg("failed to record password lockout failure")
+		}
+		return &identityv1.AuthUserResponse{Valid: false, Locked: lockedNow}, nil
+	}
+
+	if err := s.server.resetPasswordLockout(req.Username); err != nil {
+		s.log.Warn().Err(err).Str("username", req.Username).Msg("failed to reset password lockout state")
 	}
 
 	return &identityv1.AuthUserResponse{Valid: true, User: gapi.UserToProto(user)}, nil
+}
+
+// GetPasswordLockoutStatus returns the current password-lockout state for a
+// username. It lets api-server populate UserProfile.PasswordLocked/
+// PasswordLockedUntil without tracking lockout state itself — identity
+// remains the sole owner of that state.
+func (s *IdentityService) GetPasswordLockoutStatus(ctx context.Context,
+	req *identityv1.Username) (*identityv1.PasswordLockoutStatus, error) {
+	if req.Username == "" {
+		return nil, status.Error(codes.InvalidArgument, "username is required")
+	}
+
+	locked, until, err := s.server.checkPasswordLockout(req.Username)
+	if err != nil {
+		return nil, propagateOrInternal(err, "error occurred when checking password lockout state for '%s': %s",
+			req.Username, err.Error())
+	}
+
+	var lockedUntil int64
+	if locked {
+		lockedUntil = until.Unix()
+	}
+	return &identityv1.PasswordLockoutStatus{Locked: locked, LockedUntil: lockedUntil}, nil
+}
+
+// ClearPasswordLockout resets a username's password-lockout state
+// immediately, letting an admin (or the user) unstick a legitimate lockout
+// without waiting for it to expire naturally.
+func (s *IdentityService) ClearPasswordLockout(ctx context.Context,
+	req *identityv1.Username) (*identityv1.ClearPasswordLockoutResponse, error) {
+	if req.Username == "" {
+		return nil, status.Error(codes.InvalidArgument, "username is required")
+	}
+
+	if err := s.server.resetPasswordLockout(req.Username); err != nil {
+		return nil, propagateOrInternal(err, "error occurred when clearing password lockout state for '%s': %s",
+			req.Username, err.Error())
+	}
+
+	return &identityv1.ClearPasswordLockoutResponse{Success: true}, nil
 }
 
 // SetUserPassword sets or clears a user's local password. The password is

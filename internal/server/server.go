@@ -79,6 +79,14 @@ type Server struct {
 	grpc *gapi.Server
 	nats *natsc.NATSClient
 	log  *zerolog.Logger
+
+	// passwordLockoutKV stores per-username password brute-force tracking
+	// state (see PasswordLockoutState). It is nil when NATS is disabled, in
+	// which case password lockout tracking is skipped.
+	passwordLockoutKV *natsc.JetStreamKV
+
+	// passwordLockoutCfg is the resolved (defaults-applied) lockout config.
+	passwordLockoutCfg PasswordLockoutConfig
 }
 
 // NewServer initializes a new Server from the provided configuration file.
@@ -121,6 +129,22 @@ func NewServer(configFile string) (*Server, error) {
 
 	if server.nats == nil {
 		server.log.Warn().Msg("NATS client is not configured; caching and messaging features will be disabled")
+		server.log.Warn().Msg("password lockout tracking will be disabled without NATS")
+	} else {
+		server.passwordLockoutKV, err = server.nats.NewKV(natsc.BucketOptions{
+			Bucket: natsc.PASSWORD_LOCKOUT_BUCKET,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create password lockout KV bucket: %w", err)
+		}
+	}
+
+	server.passwordLockoutCfg = config.PasswordLockout
+	if server.passwordLockoutCfg.MaxAttempts == 0 {
+		server.passwordLockoutCfg.MaxAttempts = 5
+	}
+	if server.passwordLockoutCfg.LockDuration == 0 {
+		server.passwordLockoutCfg.LockDuration = 15 * time.Minute
 	}
 
 	server.log.Info().Msgf("Initializing JWT issuer: issuer=%s method=%s expiry=%s",
