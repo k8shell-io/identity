@@ -46,7 +46,7 @@ type FileUserProviderConfig struct {
 type FileUserProvider struct {
 	config       FileUserProviderConfig
 	log          *zerolog.Logger
-	users        map[string]*models.User
+	users        map[string]*fileUser
 	mutex        sync.RWMutex
 	name         string
 	capabilities []string
@@ -54,17 +54,27 @@ type FileUserProvider struct {
 	address      string
 }
 
+// fileUser extends the shared user model with SSH public keys loaded from
+// the user file. auth_keys is no longer part of models.User/common.v1.User
+// (auth keys are now managed as a first-class concept via
+// ListUserAuthKeys/AddUserAuthKeys/RemoveUserAuthKeys), so the file provider
+// keeps them locally instead.
+type fileUser struct {
+	models.User `yaml:",inline"`
+	AuthKeys    []string `yaml:"authKeys" json:"authKeys"`
+}
+
 // UserFile represents the schema of a user file.
 type UserFile struct {
 	// Users contains users loaded from the file.
-	Users []models.User `json:"users"`
+	Users []fileUser `json:"users"`
 }
 
 // NewFileUserProvider creates a new FileUserProvider and loads users from the configured files.
 func NewFileUserProvider(cfg FileUserProviderConfig, baseDir string) (*FileUserProvider, error) {
 	provider := &FileUserProvider{
 		config:       cfg,
-		users:        make(map[string]*models.User),
+		users:        make(map[string]*fileUser),
 		mutex:        sync.RWMutex{},
 		log:          logger.NewLogger("file-provider"),
 		name:         FILE_PROVIDER_NAME,
@@ -245,7 +255,8 @@ func (f *FileUserProvider) GetUsers() []*models.User {
 
 	var users []*models.User
 	for _, u := range f.users {
-		users = append(users, u)
+		user := u.User
+		users = append(users, &user)
 	}
 	return users
 }
@@ -271,7 +282,7 @@ func (f *FileUserProvider) FindUser(ctx context.Context, in *identityv1.FindUser
 	if !exists {
 		return nil, nil
 	}
-	return gapi.UserToProto(user), nil
+	return gapi.UserToProto(&user.User), nil
 }
 
 // OnboardCapability reports onboarding capability for the user.
@@ -289,9 +300,11 @@ func (f *FileUserProvider) OnboardUserDeviceFlow(ctx context.Context, in *identi
 // AuthUserPublicKey authenticates a user by SSH public key.
 func (f *FileUserProvider) AuthUserPublicKey(ctx context.Context, in *identityv1.AuthUserPublicKeyRequest,
 	opts ...grpc.CallOption) (*identityv1.AuthUserResponse, error) {
-	user, err := f.FindUser(ctx, &identityv1.FindUserRequest{Username: in.Username})
-	if err != nil {
-		return nil, err
+	f.mutex.RLock()
+	user, exists := f.users[in.Username]
+	f.mutex.RUnlock()
+	if !exists {
+		return nil, nil
 	}
 	f.log.Debug().Msgf("Authenticating user '%s' via public key", in.Username)
 
@@ -339,6 +352,12 @@ func (f *FileUserProvider) AuthUserPublicKey(ctx context.Context, in *identityv1
 func (f *FileUserProvider) GetUserGitToken(ctx context.Context, in *identityv1.Username,
 	opts ...grpc.CallOption) (*identityv1.UserToken, error) {
 	return nil, status.Errorf(codes.Unimplemented, "file user provider does not support git tokens")
+}
+
+// ListUserAuthKeys is not supported by the file-backed provider.
+func (f *FileUserProvider) ListUserAuthKeys(ctx context.Context, in *identityv1.Username,
+	opts ...grpc.CallOption) (*identityv1.ListUserAuthKeysResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "file user provider does not support listing auth keys")
 }
 
 // GetBlueprintByUserStr returns a blueprint for the provided user string.

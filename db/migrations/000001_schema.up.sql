@@ -33,7 +33,6 @@ CREATE TABLE identity.users (
 
     -- authentication
     password       varchar,                      -- hashed; NULL for external auth
-    auths          character varying[],          -- allowed auth methods
     auth_keys      character varying[],          -- authorized SSH public keys
 
     -- provider metadata
@@ -41,6 +40,11 @@ CREATE TABLE identity.users (
     roles          character varying[],          -- RBAC roles
     blueprints     character varying[]           -- available k8shell blueprints
 );
+
+-- Emails must be unique across users when present. Partial index so that
+-- users without an email (NULL or '') never collide with one another.
+CREATE UNIQUE INDEX idx_users_email_unique ON identity.users (email)
+    WHERE email IS NOT NULL AND email <> '';
 
 -- user_credentials stores credentials for external services.
 -- credential_source controls how the secret is resolved at request time
@@ -68,8 +72,8 @@ CREATE TABLE identity.user_credentials (
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    -- a user may have at most one credential per (service, scope, identity) tuple
-    UNIQUE (username, service_name, service_scope, subject),
+    -- a user may have at most one credential per (service, scope) pair, regardless of subject
+    CONSTRAINT user_credentials_uniq_key UNIQUE (username, service_name, service_scope),
 
     -- only known service types are accepted
     CONSTRAINT chk_service_name
@@ -99,15 +103,16 @@ CREATE INDEX idx_user_creds_service  ON identity.user_credentials (service_name)
 -- The raw token is never stored; only sha256(token) in hex is kept.
 -- Scopes cap the token to a subset of the owning user's policy permissions.
 CREATE TABLE identity.access_tokens (
-    id           BIGSERIAL   PRIMARY KEY,
-    token_hash   TEXT        NOT NULL UNIQUE,  -- hex(sha256(raw_token))
-    username     VARCHAR     NOT NULL REFERENCES identity.users(username) ON DELETE CASCADE,
-    name         TEXT        NOT NULL,          -- human label, e.g. "k8shell-cli laptop"
-    scopes       TEXT[]      NOT NULL,          -- allowed action scopes
-    expires_at   TIMESTAMPTZ,                   -- NULL = never expires
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    last_used_at TIMESTAMPTZ,
-    is_active    BOOLEAN     NOT NULL DEFAULT TRUE
+    id            BIGSERIAL   PRIMARY KEY,
+    token_hash    TEXT        NOT NULL UNIQUE,  -- hex(sha256(raw_token))
+    username      VARCHAR     NOT NULL REFERENCES identity.users(username) ON DELETE CASCADE,
+    name          TEXT        NOT NULL,          -- human label, e.g. "k8shell-cli laptop"
+    scopes        TEXT[]      NOT NULL,          -- allowed action scopes
+    expires_at    TIMESTAMPTZ,                   -- NULL = never expires
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_used_at  TIMESTAMPTZ,
+    is_active     BOOLEAN     NOT NULL DEFAULT TRUE,
+    token_preview VARCHAR(15)                     -- first chars of raw_token, for display only
 );
 
 CREATE INDEX idx_access_tokens_username ON identity.access_tokens (username);
@@ -115,4 +120,11 @@ CREATE INDEX idx_access_tokens_username ON identity.access_tokens (username);
 -- Seed the built-in organizations.
 INSERT INTO identity.organizations (name, description) VALUES
     ('default', 'Default organization');
+
+-- Only one access token may ever exist per (username, name) pair, regardless of
+-- active state. This makes "renew" (rotate the existing token in place) well-defined:
+-- there is at most one token to renew for a given name. A revoked token's name
+-- is reactivated (not duplicated) by renewing it.
+CREATE UNIQUE INDEX idx_access_tokens_username_name
+    ON identity.access_tokens (username, name);
 

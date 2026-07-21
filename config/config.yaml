@@ -20,6 +20,16 @@ nats:
   username: k8shell-service
   password: !file ${SECRET_FILES}/token_identity_test
 
+# Password brute-force lockout for AuthUserPassword, keyed by username in
+# identity's own NATS KV storage. Has no effect when nats.enabled is false.
+passwordLockout:
+  # maxAttempts is the number of consecutive failed password attempts
+  # before an account is locked. Defaults to 5 when unset.
+  maxAttempts: 5
+  # lockDuration is how long an account stays locked once maxAttempts is
+  # reached. Defaults to 15m when unset.
+  lockDuration: 15m
+
 # DB configuration
 db:
   enabled: true

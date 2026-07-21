@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -78,6 +79,14 @@ type Server struct {
 	grpc *gapi.Server
 	nats *natsc.NATSClient
 	log  *zerolog.Logger
+
+	// passwordLockoutKV stores per-username password brute-force tracking
+	// state (see PasswordLockoutState). It is nil when NATS is disabled, in
+	// which case password lockout tracking is skipped.
+	passwordLockoutKV *natsc.JetStreamKV
+
+	// passwordLockoutCfg is the resolved (defaults-applied) lockout config.
+	passwordLockoutCfg PasswordLockoutConfig
 }
 
 // NewServer initializes a new Server from the provided configuration file.
@@ -120,6 +129,22 @@ func NewServer(configFile string) (*Server, error) {
 
 	if server.nats == nil {
 		server.log.Warn().Msg("NATS client is not configured; caching and messaging features will be disabled")
+		server.log.Warn().Msg("password lockout tracking will be disabled without NATS")
+	} else {
+		server.passwordLockoutKV, err = server.nats.NewKV(natsc.BucketOptions{
+			Bucket: natsc.PASSWORD_LOCKOUT_BUCKET,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create password lockout KV bucket: %w", err)
+		}
+	}
+
+	server.passwordLockoutCfg = config.PasswordLockout
+	if server.passwordLockoutCfg.MaxAttempts == 0 {
+		server.passwordLockoutCfg.MaxAttempts = 5
+	}
+	if server.passwordLockoutCfg.LockDuration == 0 {
+		server.passwordLockoutCfg.LockDuration = 15 * time.Minute
 	}
 
 	server.log.Info().Msgf("Initializing JWT issuer: issuer=%s method=%s expiry=%s",
@@ -189,6 +214,7 @@ func (s *Server) Serve() error {
 	defer cancel()
 
 	s.startProviderRetryLoop(ctx)
+	s.startAccessTokenJanitor(ctx)
 
 	errChan := make(chan error, 1)
 	go func() {
@@ -266,28 +292,39 @@ func (s *Server) refreshUser(username string, source string, user *models.User) 
 		updateUser := (foundUser != nil && user != nil)
 		invalidateUser := (foundUser == nil && user != nil)
 
-		if createUser || updateUser {
-			if createUser {
-				if err := s.applyOnboardPolicy(foundUser); err != nil {
-					return nil, err
-				}
-				err := s.DB.CreateUser(foundUser)
-				if err != nil {
-					return nil, fmt.Errorf("failed to create user '%s' in database: %w", username, err)
-				}
-			} else if updateUser {
-				foundUser.Shell = user.Shell
-				foundUser.Sudo = user.Sudo
-				foundUser.Locked = user.Locked
-				foundUser.Roles = user.Roles
-				err := s.DB.UpdateUser(foundUser)
-				if err != nil {
-					return nil, fmt.Errorf("failed to update user '%s' in database: %w", username, err)
-				}
+		if createUser {
+			existing, err := s.DB.FindUser(username, "")
+			if err != nil && !errors.Is(err, models.ErrUserNotFound) {
+				return nil, fmt.Errorf("failed to check for existing user '%s' in database: %w", username, err)
+			}
+			if existing != nil && existing.Source != foundUser.Source {
+				return nil, status.Errorf(codes.AlreadyExists,
+					"username '%s' is already registered under provider '%s', cannot onboard via provider '%s'",
+					username, existing.Source, foundUser.Source)
 			}
 
-			return user, nil
+			if err := s.checkEmailConflict(foundUser); err != nil {
+				return nil, err
+			}
 
+			if err := s.applyOnboardPolicy(foundUser); err != nil {
+				return nil, err
+			}
+			err = s.DB.CreateUser(foundUser)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create user '%s' in database: %w", username, err)
+			}
+			return foundUser, nil
+		}
+
+		if updateUser {
+			user.IsValid = foundUser.IsValid
+			user.ExpiresAt = foundUser.ExpiresAt
+			err := s.DB.UpdateUser(user)
+			if err != nil {
+				return nil, fmt.Errorf("failed to update user '%s' in database: %w", username, err)
+			}
+			return user, nil
 		}
 
 		if invalidateUser {
@@ -302,6 +339,25 @@ func (s *Server) refreshUser(username string, source string, user *models.User) 
 	}
 
 	return user, nil
+}
+
+// checkEmailConflict returns codes.AlreadyExists when foundUser's email is
+// already registered to a different username. Empty emails are never checked,
+// since they are not unique identifiers.
+func (s *Server) checkEmailConflict(foundUser *models.User) error {
+	if foundUser.Email == "" {
+		return nil
+	}
+
+	existing, err := s.DB.FindUserByEmail(foundUser.Email)
+	if err != nil && !errors.Is(err, models.ErrUserNotFound) {
+		return fmt.Errorf("failed to check for existing email '%s' in database: %w", foundUser.Email, err)
+	}
+	if existing != nil && existing.Username != foundUser.Username {
+		return status.Errorf(codes.AlreadyExists,
+			"email '%s' is already registered to user '%s'", foundUser.Email, existing.Username)
+	}
+	return nil
 }
 
 // applyOnboardPolicy evaluates the user:onboard action against the authz
@@ -381,9 +437,11 @@ func (s *Server) applyTokenCreatePolicy(user *models.User, source authz.TokenCre
 	return authz.PolicyResultFromProto(resp), nil
 }
 
-// applyAuthPolicy evaluates the user:auth action against the authz service.
-// It is a no-op when the authz client or JWT issuer is not configured.
-func (s *Server) applyAuthPolicy(user *models.User, authCtx authz.UserAuthContext) error {
+// applyAuthPolicy evaluates the user:auth action against the authz service and
+// confirms that method is among the auth_methods the policy permits for the
+// user on the given surface. It is a no-op when the authz client or JWT
+// issuer is not configured.
+func (s *Server) applyAuthPolicy(user *models.User, method authz.UserAuthMethod, surface authz.AuthSurface) error {
 	if s.authzClient == nil || s.JWT == nil {
 		return nil
 	}
@@ -395,8 +453,7 @@ func (s *Server) applyAuthPolicy(user *models.User, authCtx authz.UserAuthContex
 
 	evalReq, err := authz.NewUserAuthEvalRequest(user.Username).
 		WithIDP(user.Source).
-		WithAuthMethod(authCtx.Method).
-		WithFingerprint(authCtx.Fingerprint).
+		WithSurface(surface).
 		Build()
 	if err != nil {
 		return fmt.Errorf("applyAuthPolicy: failed to build eval request for user '%s': %w", user.Username, err)
@@ -412,6 +469,11 @@ func (s *Server) applyAuthPolicy(user *models.User, authCtx authz.UserAuthContex
 	result := authz.PolicyResultFromProto(resp)
 	if !result.Allowed {
 		return fmt.Errorf("applyAuthPolicy: auth denied for user '%s': %s", user.Username, result.Reason)
+	}
+
+	obligation, ok := authz.ParseAuthMethodsObligation(result.Obligations)
+	if !ok || !slices.Contains(obligation.Methods, method) {
+		return fmt.Errorf("applyAuthPolicy: auth method '%s' not permitted for user '%s'", method, user.Username)
 	}
 	return nil
 }
@@ -476,7 +538,7 @@ func (s *Server) GetUserByUsername(username string, source string) (*models.User
 	user, err = s.refreshUser(username, source, user)
 	if err != nil {
 		switch status.Code(err) {
-		case codes.PermissionDenied, codes.Unauthenticated:
+		case codes.PermissionDenied, codes.Unauthenticated, codes.AlreadyExists:
 			return nil, err
 		}
 		return nil, fmt.Errorf("error occured when refreshing user '%s': %w", username, err)
@@ -493,9 +555,51 @@ func (s *Server) GetUserByUsername(username string, source string) (*models.User
 	return user, nil
 }
 
+// GetUserByEmail retrieves a user by email from the database. Unlike
+// GetUserByUsername it does not query identity providers directly (they have
+// no email-based lookup), but if the cached record is expired or invalid it
+// is refreshed from providers by username, same as GetUserByUsername.
+func (s *Server) GetUserByEmail(email string) (*models.User, error) {
+	if s.DB == nil {
+		for _, user := range s.getLocalUsers() {
+			if user.Email == email {
+				return user, nil
+			}
+		}
+		return nil, fmt.Errorf("user with email '%s' not found: %w", email, models.ErrUserNotFound)
+	}
+
+	user, err := s.DB.FindUserByEmail(email)
+	if err != nil && !errors.Is(err, models.ErrUserNotFound) {
+		return nil, fmt.Errorf("error occured when finding user with email '%s': %w", email, err)
+	}
+	if user == nil {
+		return nil, fmt.Errorf("user with email '%s' not found: %w", email, models.ErrUserNotFound)
+	}
+
+	user, err = s.refreshUser(user.Username, user.Source, user)
+	if err != nil {
+		switch status.Code(err) {
+		case codes.PermissionDenied, codes.Unauthenticated:
+			return nil, err
+		}
+		return nil, fmt.Errorf("error occured when refreshing user '%s': %w", user.Username, err)
+	}
+
+	if user == nil {
+		return nil, fmt.Errorf("user with email '%s' not found: %w", email, models.ErrUserNotFound)
+	}
+
+	if !user.IsValid {
+		return nil, fmt.Errorf("user '%s' is not valid: %w", user.Username, models.ErrUserIsNotValid)
+	}
+
+	return user, nil
+}
+
 // GetUserByAccessToken retrieves a user by verifying the provided JWT access token.
-// In the DB path the token's JTI is matched against the stored current_token_id to
-// support revocation. In the file-provider path the subject claim is used directly.
+// In the DB path the verified subject and source claims are used to look up the user.
+// In the file-provider path the subject claim is used directly.
 func (s *Server) GetUserByAccessToken(token string) (*models.User, error) {
 	if s.Verifier == nil {
 		return nil, fmt.Errorf("JWT verification is not configured")

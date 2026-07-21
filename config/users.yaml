@@ -8,7 +8,6 @@ users:
   #   email: vitvatom@fit.cvut.cz
   #   channels: [shell, pty, port_forward, sftp, scp, exec, forward_agent, system_exec]
   #   auth_providers: [self, fit-gitlab]
-  #   auths: [publickey]
   #   blueprints: ["*"]
   #   roles: [admin, workspace-admin]
 
@@ -25,7 +24,6 @@ users:
     sessionRequests: 
       ["shell", "pty-req", "exec", "auth-agent-req", "env", "window-change"]
     blueprints: [am1, dev, tex, am2, awd, ddw]
-    auths: [publickey, password]
     authKeys: !file /opt/shared/identity/secrets/vitvatom-key.pub
     # cvutfit95
     password: $2y$10$FJRWdVEBZRlPk8lW3qcEwejjbu18KM27P6l94.vHXbFPt7mH7DET2
@@ -41,7 +39,6 @@ users:
     locked: false
     channels:
       [session, shell, pty, port_forward, sftp, scp, exec, forward_agent, system_exec]
-    auths: [publickey]
     authKeys:
       - |
         ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCu+EJV5CuWzSgLsAZspIJzjwCvEJy3Cx9tFt9HUZV6U6VWy0qc73IDG978IUrdD1cEoDJ5DvBAk4haCBFSWDEqhaFbtdWndELswEKbklJp1fq1VsXIaHe3XzjmXE+MSy+WgS5PGh0705VuBPLdsQZRa/q+Klhsqr4WBa9987R7n2qQ2JynTnjehq4LgYV2sodaSkRLTDolnAqMGwx6z+pyVLCgSMoQnEvAJg2hvRHUyFS1ClhMC8y0/iZwbFsXiZmpEqiUiDrcClPnslmVgVDPue1M23XxxqDp6jvZpfHiYWkQB1AYO76GMkn13HRrU5v8XAzPYtTc8We2bC6vjQOGWUbJZdCVtF51ikyTNMtsN7T+t1RHRWSrBOYFydXDjg8gZaNBfa1ZQMNVmbdxrIy3DZrd11+AoBqVlwjqICXn5mW01eYGteFH1qLmHrxH9BZ9V0bFNL4+Wd1BfZYUSeBIJzhix0PpWa+swgUdZeUGg+UzO5qYMjd0DqvMxFEYG5E= petr@Petrs-MacBook-Pro.local

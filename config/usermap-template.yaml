@@ -6,7 +6,6 @@ user:
   uid: !cel "personalNumber"
   gid: !cel "personalNumber"
   email: !cel "preferredEmail"
-  auths: [publickey]
   shell: /bin/bash
   sudo: !cel |
     roles.exists(r, role.matches(".*-UCITEL.*"))

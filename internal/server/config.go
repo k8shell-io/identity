@@ -69,8 +69,26 @@ type Config struct {
 	// Authz configures the authorization gRPC client used for policy evaluation.
 	Authz gapi.ClientConfig `yaml:"authz"`
 
+	// PasswordLockout configures brute-force protection for AuthUserPassword.
+	PasswordLockout PasswordLockoutConfig `yaml:"passwordLockout"`
+
 	// configDir is the directory containing the loaded configuration file.
 	configDir string
+}
+
+// PasswordLockoutConfig configures brute-force protection for
+// AuthUserPassword. Tracking is keyed by username in identity's own NATS KV
+// storage, so it applies consistently regardless of which caller (SSH,
+// web login, or any other gRPC client) invokes AuthUserPassword. It has no
+// effect when NATS is disabled.
+type PasswordLockoutConfig struct {
+	// MaxAttempts is the number of consecutive failed password attempts
+	// before an account is locked. Defaults to 5 when zero.
+	MaxAttempts int `yaml:"maxAttempts" validate:"omitempty,gt=0"`
+
+	// LockDuration is how long an account stays locked once MaxAttempts is
+	// reached. Defaults to 15 minutes when zero.
+	LockDuration time.Duration `yaml:"lockDuration" validate:"omitempty,gt=0"`
 }
 
 // OrganizationsConfig configures organization management.
