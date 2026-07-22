@@ -22,7 +22,7 @@ var usersQueryDescriptor = query.NewDescriptor("users").
 		queryv1.Operator_OPERATOR_EQ, queryv1.Operator_OPERATOR_NE).
 	Field("email", queryv1.FieldType_FIELD_TYPE_STRING,
 		queryv1.Operator_OPERATOR_EQ, queryv1.Operator_OPERATOR_NE).
-	Field("org", queryv1.FieldType_FIELD_TYPE_STRING,
+	Field("organization", queryv1.FieldType_FIELD_TYPE_STRING,
 		queryv1.Operator_OPERATOR_EQ, queryv1.Operator_OPERATOR_NE).
 	Field("roles", queryv1.FieldType_FIELD_TYPE_STRING,
 		queryv1.Operator_OPERATOR_EQ, queryv1.Operator_OPERATOR_NE, queryv1.Operator_OPERATOR_IN).
@@ -46,9 +46,9 @@ var usersQueryDescriptor = query.NewDescriptor("users").
 // identity.users columns: a differing column name (org -> organization),
 // and/or marking a field as a Postgres array column (roles, blueprints).
 var usersQueryFieldMap = query.FieldMap{
-	"org":        {Name: "organization"},
-	"isValid":    {Name: "is_valid"},
-	"expiresAt":  {Name: "expires_at"},
-	"roles":      {Array: true},
-	"blueprints": {Array: true},
+	"organization": {Name: "organization"},
+	"isValid":      {Name: "is_valid"},
+	"expiresAt":    {Name: "expires_at"},
+	"roles":        {Array: true},
+	"blueprints":   {Array: true},
 }
