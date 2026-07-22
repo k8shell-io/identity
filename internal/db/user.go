@@ -11,8 +11,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	queryv1 "github.com/k8shell-io/common/pkg/api/gen/go/query/v1"
 	"github.com/k8shell-io/common/pkg/db"
 	"github.com/k8shell-io/common/pkg/models"
+	pkgquery "github.com/k8shell-io/common/pkg/query"
 )
 
 // FindUser retrieves a user by username. If source is empty, the search is not filtered by source.
@@ -382,6 +384,54 @@ func (d *DB) ListUsers(limit, offset int, roles, blueprints []string, org string
 	}
 	defer rows.Close()
 
+	return scanUsers(rows)
+}
+
+// ListUsersQuery returns a paginated list of users matching a generic
+// query.v1.Payload, built against desc/fm via common/pkg/query. Callers
+// must have already run query.Validate(desc, payload) — ListUsersQuery
+// trusts the payload has been checked and only translates it to SQL.
+//
+// obligationRoles/obligationBlueprints/obligationOrg are parsed by the
+// caller from the payload's authz obligations (see
+// common/pkg/authz Parse{Roles,Blueprints,Org}Obligation) and are enforced
+// as a mandatory AND onto the Filters-derived WHERE, regardless of the
+// client's own Filters.op — an obligation must never be diluted by a
+// client-chosen OR.
+func (d *DB) ListUsersQuery(desc *queryv1.Descriptor, fm pkgquery.FieldMap, payload *queryv1.Payload,
+	obligationRoles, obligationBlueprints []string, obligationOrg string) ([]*models.User, error) {
+	limit, offset := db.AdjustListLimit(int(payload.GetPage().GetLimit()), int(payload.GetPage().GetOffset()))
+
+	const selectSQL = `
+		SELECT username, is_valid, expires_at, uid, gid, fullname,
+		       email, COALESCE(password, '') AS password, shell, sudo, locked,
+		       roles, blueprints, source, organization
+		FROM identity.users
+	`
+
+	mandatory := []pkgquery.Mandatory{
+		{Column: "roles", Array: true, Values: obligationRoles},
+		{Column: "blueprints", Array: true, Values: obligationBlueprints},
+	}
+	if obligationOrg != "" {
+		mandatory = append(mandatory, pkgquery.Mandatory{Column: "organization", Values: []string{obligationOrg}})
+	}
+
+	sqlQuery, args, err := pkgquery.BuildQuery(selectSQL, desc, fm, payload, mandatory, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := d.Pool.Query(context.Background(), sqlQuery, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return scanUsers(rows)
+}
+
+func scanUsers(rows pgx.Rows) ([]*models.User, error) {
 	var users []*models.User
 	for rows.Next() {
 		var user models.User

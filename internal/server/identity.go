@@ -18,9 +18,11 @@ import (
 
 	commonv1 "github.com/k8shell-io/common/pkg/api/gen/go/common/v1"
 	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
+	queryv1 "github.com/k8shell-io/common/pkg/api/gen/go/query/v1"
 	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
+	"github.com/k8shell-io/common/pkg/query"
 	"github.com/k8shell-io/common/pkg/userstr"
 	"github.com/k8shell-io/common/pkg/utils"
 	backend "github.com/k8shell-io/identity/internal/db"
@@ -206,6 +208,51 @@ func (s *IdentityService) GetUsers(ctx context.Context, req *identityv1.GetUsers
 	}
 
 	users, err := s.server.DB.ListUsers(int(req.Limit), int(req.Offset), req.Roles, req.Blueprints, req.Org)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to list users: %v", err)
+	}
+
+	pbUsers := make([]*commonv1.User, len(users))
+	for i, user := range users {
+		pbUsers[i] = gapi.UserToProto(user)
+	}
+
+	return &identityv1.UserList{Users: pbUsers}, nil
+}
+
+// GetUsersQuerySchema returns the descriptor advertising which user fields
+// are queryable/sortable via QueryUsers, and which operators are valid on
+// each.
+func (s *IdentityService) GetUsersQuerySchema(ctx context.Context, req *identityv1.GetUsersQuerySchemaRequest) (*queryv1.Descriptor, error) {
+	return usersQueryDescriptor, nil
+}
+
+// QueryUsers retrieves users matching a generic query.v1.Payload, as
+// advertised by GetUsersQuerySchema. req.Query.Obligations carries the
+// authz obligations map from the gateway's policy evaluation (never
+// client-supplied — see the field's doc in query.proto) and is enforced as
+// a mandatory scoping constraint independent of the caller's own Filters,
+// the same way GetUsersRequest's typed Roles/Blueprints/Org fields already are.
+func (s *IdentityService) QueryUsers(ctx context.Context, req *identityv1.QueryUsersRequest) (*identityv1.UserList, error) {
+	if err := query.Validate(usersQueryDescriptor, req.Query); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid query: %v", err)
+	}
+
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "user query requires a database backend")
+	}
+
+	obligations := req.Query.GetObligations()
+	rolesOb, _ := authz.ParseRolesObligation(obligations)
+	blueprintsOb, _ := authz.ParseBlueprintsObligation(obligations)
+	orgOb, _ := authz.ParseOrgObligation(obligations)
+
+	roles := make([]string, len(rolesOb.Roles))
+	for i, r := range rolesOb.Roles {
+		roles[i] = string(r)
+	}
+
+	users, err := s.server.DB.ListUsersQuery(usersQueryDescriptor, usersQueryFieldMap, req.Query, roles, blueprintsOb.Blueprints, orgOb.Org)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to list users: %v", err)
 	}
