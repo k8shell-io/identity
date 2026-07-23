@@ -1319,6 +1319,19 @@ func (s *IdentityService) RemoveUserBlueprints(ctx context.Context,
 	return gapi.UserToProto(user), nil
 }
 
+// authKeysEqual reports whether two SSH authorized-key strings refer to the
+// same key. Keys are compared by their parsed, marshaled material so that
+// differing comments or whitespace don't cause a false mismatch. Falls back
+// to a trimmed string comparison if either side fails to parse.
+func authKeysEqual(a, b string) bool {
+	parsedA, _, _, _, errA := ssh.ParseAuthorizedKey([]byte(a))
+	parsedB, _, _, _, errB := ssh.ParseAuthorizedKey([]byte(b))
+	if errA != nil || errB != nil {
+		return strings.TrimSpace(a) == strings.TrimSpace(b)
+	}
+	return bytes.Equal(parsedA.Marshal(), parsedB.Marshal())
+}
+
 // formatAuthKey renders an SSH public key as either its raw material or its
 // SHA256 fingerprint, depending on format. Keys that fail to parse are
 // returned unchanged.
@@ -1435,7 +1448,7 @@ func (s *IdentityService) AddUserAuthKeys(ctx context.Context,
 
 	for _, upstream := range s.listUpstreamAuthKeys(ctx, authUser) {
 		for _, k := range req.GetAuthKeys() {
-			if k == upstream.GetKey() {
+			if authKeysEqual(k, upstream.GetKey()) {
 				return nil, status.Errorf(codes.AlreadyExists,
 					"auth key %q already exists for user '%s' via provider '%s'",
 					k, req.Username, upstream.GetSource())
