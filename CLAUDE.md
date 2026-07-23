@@ -92,6 +92,8 @@ Defined in `github.com/k8shell-io/common`:
 - `IdentityService` (`identity.proto`) — consumed by other k8shell services
 - `IdentityProviderService` (`idp.proto`) — implemented by remote providers; identity connects as a client
 
+If a `go.work` file is present and links `common` to a local filesystem path (e.g. `/opt/shared/common`), that checkout is a separate git repository from `identity`. Any proto/Go changes needed in `common` (new RPCs, messages, etc.) should be made directly in that local checkout and regenerated there with `make proto` — do not vendor or hand-copy generated code into `identity`. Do not `git commit` or push changes inside that `common` checkout unless the user explicitly asks — it's a shared module consumed by other services, and publishing a new version is the user's call, not something to do as a side effect of an `identity` change.
+
 ### Database schema
 
 Schema lives in `db/migrations/` (golang-migrate). Tables: `identity.organizations`, `identity.users`, `identity.user_credentials`, `identity.access_tokens`. The `identity.users` record caches provider data and expires at `expires_at`; `is_valid=false` disables login without deletion.
