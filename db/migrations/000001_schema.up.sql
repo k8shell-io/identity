@@ -71,6 +71,7 @@ CREATE TABLE identity.user_credentials (
     is_active         BOOLEAN     NOT NULL DEFAULT TRUE,
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_used_at      TIMESTAMPTZ,            -- set when the credential's secret is resolved for use
 
     -- a user may have at most one credential per (service, scope) pair, regardless of subject
     CONSTRAINT user_credentials_uniq_key UNIQUE (username, service_name, service_scope),

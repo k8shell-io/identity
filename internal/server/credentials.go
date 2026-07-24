@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/k8shell-io/common/pkg/api/client/identity"
 	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
@@ -88,6 +89,13 @@ func (s *Server) ResolveCredential(ctx context.Context, username, serviceName, s
 			return nil, fmt.Errorf("get git token for user '%s' from provider '%s': %w", username, provider.Name(), err)
 		}
 		cred.Secret = gitToken.GetToken()
+	}
+
+	if err := s.DB.TouchUserCredentialLastUsed(cred.ID); err != nil {
+		s.log.Warn().Err(err).Msgf("ResolveCredential: failed to update last_used_at for credential id %d", cred.ID)
+	} else {
+		now := time.Now()
+		cred.LastUsedAt = &now
 	}
 	return cred, nil
 }

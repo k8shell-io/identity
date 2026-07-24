@@ -574,7 +574,7 @@ func (d *DB) AddRegistryUserCredential(username, scope, subject, secret string) 
 // matching active credential exists.
 func (d *DB) GetUserCredential(username, serviceName, serviceScope string) (*models.UserCredential, error) {
 	query := `SELECT id, username, service_name, service_scope, subject,
-			COALESCE(secret, '') AS secret, credential_source, is_active, created_at, updated_at
+			COALESCE(secret, '') AS secret, credential_source, is_active, created_at, updated_at, last_used_at
 		FROM identity.user_credentials
 			WHERE username=$1 AND service_name=$2 AND service_scope=$3 AND is_active=true
 		LIMIT 1`
@@ -591,6 +591,7 @@ func (d *DB) GetUserCredential(username, serviceName, serviceScope string) (*mod
 		&cred.IsActive,
 		&cred.CreatedAt,
 		&cred.UpdatedAt,
+		&cred.LastUsedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, models.ErrUserNotFound
@@ -601,11 +602,20 @@ func (d *DB) GetUserCredential(username, serviceName, serviceScope string) (*mod
 	return &cred, nil
 }
 
+// TouchUserCredentialLastUsed sets last_used_at to the current time for the credential
+// identified by id. Called after a credential's secret has actually been resolved for use
+// (see Server.ResolveCredential) — not from existence checks such as provisionGitCredential.
+func (d *DB) TouchUserCredentialLastUsed(id uint32) error {
+	_, err := d.Pool.Exec(context.Background(),
+		`UPDATE identity.user_credentials SET last_used_at = NOW() WHERE id=$1`, id)
+	return err
+}
+
 // ListUserCredentials retrieves all credentials for the given username. If id
 // is non-zero, the result is filtered to the credential with that ID.
 func (d *DB) ListUserCredentials(username string, id uint32) ([]*models.UserCredential, error) {
 	query := `SELECT id, username, service_name, service_scope, subject,
-			credential_source, is_active, created_at, updated_at
+			credential_source, is_active, created_at, updated_at, last_used_at
 		FROM identity.user_credentials
 			WHERE username=$1 AND ($2 = 0 OR id = $2)`
 
@@ -628,6 +638,7 @@ func (d *DB) ListUserCredentials(username string, id uint32) ([]*models.UserCred
 			&cred.IsActive,
 			&cred.CreatedAt,
 			&cred.UpdatedAt,
+			&cred.LastUsedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -719,7 +730,7 @@ func (d *DB) UpdateUserCredential(id uint32, scope, subject, secret *string, act
 			updated_at    = NOW()
 		WHERE id=$1
 		RETURNING id, username, service_name, service_scope, subject,
-			COALESCE(secret, '') AS secret, credential_source, is_active, created_at, updated_at`
+			COALESCE(secret, '') AS secret, credential_source, is_active, created_at, updated_at, last_used_at`
 
 	var cred models.UserCredential
 	err = d.Pool.QueryRow(context.Background(), query, id, scope, subject, secret, active).Scan(
@@ -733,6 +744,7 @@ func (d *DB) UpdateUserCredential(id uint32, scope, subject, secret *string, act
 		&cred.IsActive,
 		&cred.CreatedAt,
 		&cred.UpdatedAt,
+		&cred.LastUsedAt,
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
