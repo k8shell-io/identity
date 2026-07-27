@@ -38,8 +38,7 @@ CREATE UNIQUE INDEX idx_roles_global_name_uniq ON identity.roles (name) WHERE or
 -- which is circular for the very first org-admin.
 INSERT INTO identity.roles (name, description) VALUES
     ('admin', 'Full administrative access globally'),
-    ('org-admin', 'Full administrative access within an organization'),
-    ('user', 'Standard user');
+    ('org-admin', 'Full administrative access within an organization');
 
 -- users is the central identity table.
 -- A record is created on first login and refreshed from the configured identity
