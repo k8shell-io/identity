@@ -89,31 +89,23 @@ func (d *DB) UpdateRole(name, org string, description *string) (*models.RoleInfo
 	return role, nil
 }
 
-// ListRoles returns roles in the registry ordered by name. When org is
-// non-empty, the result is restricted to roles scoped to that org plus
-// global roles (org IS NULL) — an org-scoped caller must still see the
-// global roles it may assign. An empty org imposes no restriction.
-// UserCount is computed via a left join against identity.users rather than
-// stored: identity.users has no index on roles, so joining role-per-role
-// (r.name = ANY(u.roles)) would rescan the users table once per role;
-// unnesting each user's roles once up front and joining on equality instead
-// scans identity.users a single time regardless of role count.
-func (d *DB) ListRoles(org string) ([]*models.RoleInfo, error) {
-	query := `SELECT r.name, COALESCE(r.description, ''), COALESCE(r.org, ''), r.created_at, COUNT(ur.username)
-		FROM identity.roles r
-		LEFT JOIN (SELECT username, unnest(roles) AS role_name FROM identity.users) ur
-			ON ur.role_name = r.name`
-	args := []any{}
-	if org != "" {
-		query += ` WHERE r.org = $1 OR r.org IS NULL`
-		args = append(args, org)
-	}
-	query += ` GROUP BY r.name, r.description, r.org, r.created_at ORDER BY r.name`
+// rolesBaseQuery selects a role registry row alongside its computed
+// UserCount. UserCount is computed via a left join against identity.users
+// rather than stored: identity.users has no index on roles, so joining
+// role-per-role (r.name = ANY(u.roles)) would rescan the users table once
+// per role; unnesting each user's roles once up front and joining on
+// equality instead scans identity.users a single time regardless of role
+// count. Callers append a WHERE clause and must keep the GROUP BY/ORDER BY
+// suffix below.
+const rolesBaseQuery = `SELECT r.name, COALESCE(r.description, ''), COALESCE(r.org, ''), r.created_at, COUNT(ur.username)
+	FROM identity.roles r
+	LEFT JOIN (SELECT username, unnest(roles) AS role_name FROM identity.users) ur
+		ON ur.role_name = r.name`
 
-	rows, err := d.Pool.Query(context.Background(), query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list roles: %w", err)
-	}
+const rolesGroupOrderSuffix = ` GROUP BY r.name, r.description, r.org, r.created_at ORDER BY r.name`
+
+// scanRoleRows reads the rows produced by rolesBaseQuery into RoleInfo values.
+func scanRoleRows(rows pgx.Rows) ([]*models.RoleInfo, error) {
 	defer rows.Close()
 
 	var roles []*models.RoleInfo
@@ -125,6 +117,32 @@ func (d *DB) ListRoles(org string) ([]*models.RoleInfo, error) {
 		roles = append(roles, &role)
 	}
 	return roles, rows.Err()
+}
+
+// ListRoles returns the roles assignable within org, ordered by name: those
+// scoped to org plus all global roles (org IS NULL) — an org-scoped caller
+// must still see the global roles it may assign. org must be non-empty; use
+// ListGlobalRoles to list global roles on their own.
+func (d *DB) ListRoles(org string) ([]*models.RoleInfo, error) {
+	query := rolesBaseQuery + ` WHERE r.org = $1 OR r.org IS NULL` + rolesGroupOrderSuffix
+
+	rows, err := d.Pool.Query(context.Background(), query, org)
+	if err != nil {
+		return nil, fmt.Errorf("list roles: %w", err)
+	}
+	return scanRoleRows(rows)
+}
+
+// ListGlobalRoles returns the roles assignable across every organization
+// (org IS NULL), ordered by name.
+func (d *DB) ListGlobalRoles() ([]*models.RoleInfo, error) {
+	query := rolesBaseQuery + ` WHERE r.org IS NULL` + rolesGroupOrderSuffix
+
+	rows, err := d.Pool.Query(context.Background(), query)
+	if err != nil {
+		return nil, fmt.Errorf("list global roles: %w", err)
+	}
+	return scanRoleRows(rows)
 }
 
 // DeleteRole removes a role from the registry, refusing to do so while any

@@ -51,10 +51,13 @@ func (s *IdentityService) validateRoleAssignment(roles []string) error {
 	return nil
 }
 
-// ListRoles returns the roles that may be assigned to users, optionally
-// filtered by organization.
+// ListRoles returns the roles assignable within req.Org: those scoped to it
+// plus all global roles.
 func (s *IdentityService) ListRoles(ctx context.Context,
 	req *identityv1.ListRolesRequest) (*identityv1.RoleList, error) {
+	if req.GetOrg() == "" {
+		return nil, status.Error(codes.InvalidArgument, "org is required")
+	}
 	if s.server.DB == nil {
 		return nil, status.Error(codes.Unavailable, "database is not configured")
 	}
@@ -72,11 +75,36 @@ func (s *IdentityService) ListRoles(ctx context.Context,
 	return &identityv1.RoleList{Roles: pbRoles}, nil
 }
 
-// CreateRole registers a new assignable role.
+// ListGlobalRoles returns the roles assignable across every organization.
+// Global roles can only be listed, never created, updated, or deleted.
+func (s *IdentityService) ListGlobalRoles(ctx context.Context,
+	req *identityv1.ListGlobalRolesRequest) (*identityv1.RoleList, error) {
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured")
+	}
+
+	roles, err := s.server.DB.ListGlobalRoles()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to list global roles: %v", err)
+	}
+
+	pbRoles := make([]*identityv1.Role, len(roles))
+	for i, r := range roles {
+		pbRoles[i] = roleToProto(r)
+	}
+
+	return &identityv1.RoleList{Roles: pbRoles}, nil
+}
+
+// CreateRole registers a new assignable role scoped to org. Global roles
+// cannot be created through this RPC — only listed, via ListGlobalRoles.
 func (s *IdentityService) CreateRole(ctx context.Context,
 	req *identityv1.CreateRoleRequest) (*identityv1.Role, error) {
 	if req.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+	if req.GetOrg() == "" {
+		return nil, status.Error(codes.InvalidArgument, "org is required")
 	}
 	if s.server.DB == nil {
 		return nil, status.Error(codes.Unavailable, "database is not configured")
@@ -97,11 +125,15 @@ func (s *IdentityService) CreateRole(ctx context.Context,
 }
 
 // UpdateRole updates a role's description. Name and org are immutable and
-// cannot be changed.
+// cannot be changed. org is required; global roles cannot be updated through
+// this RPC.
 func (s *IdentityService) UpdateRole(ctx context.Context,
 	req *identityv1.UpdateRoleRequest) (*identityv1.Role, error) {
 	if req.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+	if req.GetOrg() == "" {
+		return nil, status.Error(codes.InvalidArgument, "org is required")
 	}
 	if s.server.DB == nil {
 		return nil, status.Error(codes.Unavailable, "database is not configured")
@@ -125,11 +157,15 @@ func (s *IdentityService) UpdateRole(ctx context.Context,
 
 // DeleteRole removes a role from the registry. Fails if any user still holds
 // the role, since cascading the role off every user would be a silent
-// privilege change.
+// privilege change. org is required; global roles cannot be removed through
+// this RPC.
 func (s *IdentityService) DeleteRole(ctx context.Context,
 	req *identityv1.DeleteRoleRequest) (*identityv1.DeleteRoleResponse, error) {
 	if req.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+	if req.GetOrg() == "" {
+		return nil, status.Error(codes.InvalidArgument, "org is required")
 	}
 	if s.server.DB == nil {
 		return nil, status.Error(codes.Unavailable, "database is not configured")
