@@ -284,6 +284,7 @@ func (s *Server) refreshUser(username string, source string, user *models.User) 
 			if foundUser != nil {
 				s.normalizeUser(foundUser)
 				foundUser.ExpiresAt = time.Now().Add(time.Duration(provider.UserMaxAge()) * time.Second)
+				foundUser.Roles = s.filterKnownRoles(foundUser.Username, foundUser.Roles)
 				break
 			}
 		}
@@ -339,6 +340,46 @@ func (s *Server) refreshUser(username string, source string, user *models.User) 
 	}
 
 	return user, nil
+}
+
+// filterKnownRoles drops roles returned by an identity provider that are not
+// registered in the role registry, logging a warning for each. This is the
+// only role ingress path that isn't one of the four explicit role-assignment
+// RPCs (which reject unknown roles outright via validateRoleAssignment) — a
+// misconfigured or malicious IdP must not be able to silently mint roles by
+// way of onboarding or login, but an unknown role here should never block
+// the login/onboarding itself, so it is dropped rather than rejected.
+func (s *Server) filterKnownRoles(username string, roles []models.Role) []models.Role {
+	if len(roles) == 0 {
+		return roles
+	}
+
+	names := make([]string, len(roles))
+	for i, r := range roles {
+		names[i] = string(r)
+	}
+	missing, err := s.DB.MissingRoles(names)
+	if err != nil {
+		s.log.Warn().Err(err).Msgf("filterKnownRoles: failed to validate roles for user '%s', keeping as returned", username)
+		return roles
+	}
+	if len(missing) == 0 {
+		return roles
+	}
+
+	unknown := make(map[string]struct{}, len(missing))
+	for _, m := range missing {
+		unknown[m] = struct{}{}
+	}
+	kept := make([]models.Role, 0, len(roles))
+	for _, r := range roles {
+		if _, ok := unknown[string(r)]; ok {
+			s.log.Warn().Msgf("dropping unknown role '%s' for user '%s' returned by identity provider", r, username)
+			continue
+		}
+		kept = append(kept, r)
+	}
+	return kept
 }
 
 // checkEmailConflict returns codes.AlreadyExists when foundUser's email is
