@@ -10,6 +10,7 @@ import (
 
 	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
 	"github.com/k8shell-io/common/pkg/models"
+	"github.com/k8shell-io/common/pkg/utils"
 	backend "github.com/k8shell-io/identity/internal/db"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -26,7 +27,7 @@ func roleToProto(r *models.RoleInfo) *identityv1.Role {
 		Description: r.Description,
 		Org:         r.Org,
 		CreatedAt:   timestamppb.New(r.CreatedAt),
-		UserCount:   int32(r.UserCount),
+		UserCount:   utils.SafeIntToInt32(r.UserCount),
 	}
 }
 

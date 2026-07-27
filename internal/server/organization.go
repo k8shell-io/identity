@@ -9,6 +9,7 @@ import (
 
 	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
 	"github.com/k8shell-io/common/pkg/models"
+	"github.com/k8shell-io/common/pkg/utils"
 	backend "github.com/k8shell-io/identity/internal/db"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -25,7 +26,7 @@ func organizationToProto(o *models.Organization) *identityv1.Organization {
 		Description:    o.Description,
 		CreatedAt:      timestamppb.New(o.CreatedAt),
 		AdminUsernames: o.AdminUsernames,
-		UserCount:      int32(o.UserCount),
+		UserCount:      utils.SafeIntToInt32(o.UserCount),
 	}
 }
 
