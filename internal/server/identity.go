@@ -1167,15 +1167,26 @@ func (s *IdentityService) UpdateUser(ctx context.Context,
 	if v := req.GetShell(); v != nil {
 		user.Shell = v.GetValue()
 	}
-	if len(req.GetRoles()) > 0 {
+	rolesExplicit := len(req.GetRoles()) > 0
+	if rolesExplicit {
 		roles := make([]models.Role, len(req.GetRoles()))
 		for i, r := range req.GetRoles() {
 			roles[i] = models.Role(r)
 		}
 		user.Roles = roles
 	}
+	// A bare role name on the user record carries no org qualifier of its
+	// own, so nothing on the old role list — global or org-scoped — can be
+	// assumed to still be the caller's intent once the user moves to a
+	// different organization. Clear roles on an org change, unless the
+	// caller replaced the role list in this same request — that's an
+	// explicit choice to take precedence over this.
 	if v := req.GetOrg(); v != nil {
-		user.Organization = v.GetValue()
+		newOrg := v.GetValue()
+		if !rolesExplicit && newOrg != user.Organization {
+			user.Roles = nil
+		}
+		user.Organization = newOrg
 	}
 	if v := req.GetEmail(); v != nil {
 		user.Email = v.GetValue()

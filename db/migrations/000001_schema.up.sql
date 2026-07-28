@@ -66,6 +66,11 @@ CREATE UNIQUE INDEX idx_role_blueprints_org_uniq ON identity.role_blueprints (ro
 CREATE UNIQUE INDEX idx_role_blueprints_global_uniq ON identity.role_blueprints (role, blueprint) WHERE org IS NULL;
 CREATE INDEX idx_role_blueprints_role ON identity.role_blueprints (role);
 
+-- Seed full ("*") blueprint access for the baseline roles above.
+INSERT INTO identity.role_blueprints (role, org, blueprint) VALUES
+    ('admin', NULL, '*'),
+    ('org-admin', NULL, '*');
+
 -- users is the central identity table.
 -- A record is created on first login and refreshed from the configured identity
 -- provider when the cached record expires (expires_at).

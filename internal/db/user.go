@@ -21,10 +21,14 @@ import (
 // of blueprints granted by every role in u.roles: an org-scoped
 // identity.role_blueprints entry for the user's own organization, or any
 // globally-scoped (org IS NULL) entry — the same org-scoped-or-global
-// resolution ListRoles already uses. Every query selecting from
-// identity.users must alias the table as "u" for this to resolve.
+// resolution ListRoles already uses. If any granted role contributes the
+// "*" (all) blueprint, the effective set collapses to just ["*"] rather
+// than listing it alongside the other, now-redundant, blueprints. Every
+// query selecting from identity.users must alias the table as "u" for
+// this to resolve.
 const UserBlueprintsExpr = `COALESCE((
-	SELECT array_agg(DISTINCT rb.blueprint)
+	SELECT CASE WHEN bool_or(rb.blueprint = '*') THEN ARRAY['*']::varchar[]
+	       ELSE array_agg(DISTINCT rb.blueprint) END
 	FROM identity.role_blueprints rb
 	WHERE rb.role = ANY(u.roles) AND (rb.org = u.organization OR rb.org IS NULL)
 ), ARRAY[]::varchar[])`
