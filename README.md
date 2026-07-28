@@ -49,7 +49,7 @@ When a credential with `credential_source: kubernetes` is resolved, the service 
 
 The service integrates with an external authz service (gRPC) to enforce OPA/Rego policies at key lifecycle points:
 
-- **`user:onboard`** — evaluated before a new user is persisted. Can deny onboarding or attach obligations (sudo, roles, blueprints).
+- **`user:onboard`** — evaluated before a new user is persisted. Can deny onboarding or attach obligations (sudo, roles). Blueprint access is derived from whichever roles are granted, not a direct obligation.
 - **`user:auth`** — evaluated on each authentication attempt.
 - **`token:create`** — evaluated before issuing a PAT. Can restrict scopes or maximum expiry.
 

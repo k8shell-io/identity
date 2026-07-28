@@ -1113,7 +1113,6 @@ func (s *IdentityService) CreateUser(ctx context.Context,
 		Sudo:         req.Sudo,
 		Locked:       req.Locked,
 		Roles:        roles,
-		Blueprints:   req.GetBlueprints(),
 		Source:       localUserSource,
 	}
 
@@ -1174,9 +1173,6 @@ func (s *IdentityService) UpdateUser(ctx context.Context,
 			roles[i] = models.Role(r)
 		}
 		user.Roles = roles
-	}
-	if len(req.GetBlueprints()) > 0 {
-		user.Blueprints = req.GetBlueprints()
 	}
 	if v := req.GetOrg(); v != nil {
 		user.Organization = v.GetValue()
@@ -1275,54 +1271,6 @@ func (s *IdentityService) RemoveUserRoles(ctx context.Context,
 			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
 		}
 		return nil, status.Errorf(codes.Internal, "failed to remove roles for user '%s': %v", req.Username, err)
-	}
-
-	return gapi.UserToProto(user), nil
-}
-
-// AddUserBlueprints grants a user access to one or more blueprints.
-func (s *IdentityService) AddUserBlueprints(ctx context.Context,
-	req *identityv1.UserBlueprintsRequest) (*commonv1.User, error) {
-	if req.Username == "" {
-		return nil, status.Error(codes.InvalidArgument, "username is required")
-	}
-	if len(req.GetBlueprints()) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "at least one blueprint is required")
-	}
-	if s.server.DB == nil {
-		return nil, status.Error(codes.Unavailable, "database is not configured")
-	}
-
-	user, err := s.server.DB.AddUserBlueprints(req.Username, req.GetBlueprints())
-	if err != nil {
-		if errors.Is(err, models.ErrUserNotFound) {
-			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
-		}
-		return nil, status.Errorf(codes.Internal, "failed to add blueprints for user '%s': %v", req.Username, err)
-	}
-
-	return gapi.UserToProto(user), nil
-}
-
-// RemoveUserBlueprints revokes access to one or more blueprints from a user.
-func (s *IdentityService) RemoveUserBlueprints(ctx context.Context,
-	req *identityv1.UserBlueprintsRequest) (*commonv1.User, error) {
-	if req.Username == "" {
-		return nil, status.Error(codes.InvalidArgument, "username is required")
-	}
-	if len(req.GetBlueprints()) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "at least one blueprint is required")
-	}
-	if s.server.DB == nil {
-		return nil, status.Error(codes.Unavailable, "database is not configured")
-	}
-
-	user, err := s.server.DB.RemoveUserBlueprints(req.Username, req.GetBlueprints())
-	if err != nil {
-		if errors.Is(err, models.ErrUserNotFound) {
-			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
-		}
-		return nil, status.Errorf(codes.Internal, "failed to remove blueprints for user '%s': %v", req.Username, err)
 	}
 
 	return gapi.UserToProto(user), nil

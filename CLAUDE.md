@@ -58,7 +58,7 @@ Providers are stored in `Server.IdentityProviders` (name → client). Remote pro
 
 ### User lifecycle
 
-Users are lazy-loaded: on first `GetUserByUsername`, if not in DB (or expired/invalid), `refreshUser` queries providers in order and upserts the record. On-boarding policy (`applyOnboardPolicy`) is evaluated against the authz service before a new user is persisted — it can grant/deny and attach obligations (sudo, roles, blueprints).
+Users are lazy-loaded: on first `GetUserByUsername`, if not in DB (or expired/invalid), `refreshUser` queries providers in order and upserts the record. On-boarding policy (`applyOnboardPolicy`) is evaluated against the authz service before a new user is persisted — it can grant/deny and attach obligations (sudo, roles). A user's blueprint access is derived from whichever roles they hold (`identity.role_blueprints`), not a direct per-user grant.
 
 Without a DB (`db.enabled: false`), the server falls back to `getLocalUsers()` (file provider only) — all user lookups and token operations that require the DB return `codes.Unavailable`.
 

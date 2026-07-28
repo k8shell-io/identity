@@ -17,6 +17,18 @@ import (
 	pkgquery "github.com/k8shell-io/common/pkg/query"
 )
 
+// UserBlueprintsExpr computes a user's effective blueprint set as the union
+// of blueprints granted by every role in u.roles: an org-scoped
+// identity.role_blueprints entry for the user's own organization, or any
+// globally-scoped (org IS NULL) entry — the same org-scoped-or-global
+// resolution ListRoles already uses. Every query selecting from
+// identity.users must alias the table as "u" for this to resolve.
+const UserBlueprintsExpr = `COALESCE((
+	SELECT array_agg(DISTINCT rb.blueprint)
+	FROM identity.role_blueprints rb
+	WHERE rb.role = ANY(u.roles) AND (rb.org = u.organization OR rb.org IS NULL)
+), ARRAY[]::varchar[])`
+
 // FindUser retrieves a user by username. If source is empty, the search is not filtered by source.
 func (d *DB) FindUser(username string, source string) (*models.User, error) {
 	var (
@@ -27,8 +39,8 @@ func (d *DB) FindUser(username string, source string) (*models.User, error) {
 		query = `
 			SELECT username, is_valid, expires_at, uid, gid, fullname,
 			       email, password, shell, sudo, locked,
-			       roles, blueprints, source, organization
-			FROM identity.users
+			       roles, ` + UserBlueprintsExpr + ` AS blueprints, source, organization
+			FROM identity.users u
 			WHERE username=$1
 		`
 		args = []any{username}
@@ -36,8 +48,8 @@ func (d *DB) FindUser(username string, source string) (*models.User, error) {
 		query = `
 			SELECT username, is_valid, expires_at, uid, gid, fullname,
 			       email, password, shell, sudo, locked,
-			       roles, blueprints, source, organization
-			FROM identity.users
+			       roles, ` + UserBlueprintsExpr + ` AS blueprints, source, organization
+			FROM identity.users u
 			WHERE username=$1 AND source=$2
 		`
 		args = []any{username, source}
@@ -80,8 +92,8 @@ func (d *DB) FindUserByEmail(email string) (*models.User, error) {
 	query := `
 		SELECT username, is_valid, expires_at, uid, gid, fullname,
 		       email, password, shell, sudo, locked,
-		       roles, blueprints, source, organization
-		FROM identity.users
+		       roles, ` + UserBlueprintsExpr + ` AS blueprints, source, organization
+		FROM identity.users u
 		WHERE email=$1
 	`
 
@@ -117,8 +129,8 @@ func (d *DB) FindUserByUsernameAndSource(ctx context.Context, username string, s
 	query := `
 		SELECT username, is_valid, expires_at, uid, gid, fullname,
 		       email, COALESCE(password, '') AS password, shell, sudo, locked,
-		       roles, blueprints, source, organization
-		FROM identity.users
+		       roles, ` + UserBlueprintsExpr + ` AS blueprints, source, organization
+		FROM identity.users u
 		WHERE username=$1 and source=$2
 	`
 
@@ -189,13 +201,13 @@ func (d *DB) CreateUser(user *models.User) error {
 	_, err = tx.Exec(ctx, `INSERT INTO identity.users (
 		username, is_valid, expires_at, uid, gid, fullname,
 		email, password, shell, sudo, locked,
-		roles, blueprints, source, organization
+		roles, source, organization
 	) VALUES (
-		$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+		$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
 	)`,
 		user.Username, user.IsValid, user.ExpiresAt, user.UID, user.GID, user.Fullname,
 		user.Email, user.Password, user.Shell, user.Sudo, user.Locked,
-		user.Roles, user.Blueprints, user.Source, user.Organization)
+		user.Roles, user.Source, user.Organization)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -267,10 +279,9 @@ func (d *DB) UpdateUser(user *models.User) error {
 		sudo=$9,
 		locked=$10,
 		roles=$11,
-		blueprints=$12,
-		source=$13,
-		organization=$14
-	WHERE username=$15`
+		source=$12,
+		organization=$13
+	WHERE username=$14`
 
 	_, err := d.Pool.Exec(context.Background(), query,
 		user.IsValid,
@@ -284,7 +295,6 @@ func (d *DB) UpdateUser(user *models.User) error {
 		user.Sudo,
 		user.Locked,
 		user.Roles,
-		user.Blueprints,
 		user.Source,
 		user.Organization,
 		user.Username,
@@ -351,8 +361,8 @@ func (d *DB) ListUsers(limit, offset int, roles, blueprints []string, org string
 	query := `
 		SELECT username, is_valid, expires_at, uid, gid, fullname,
 		       email, COALESCE(password, '') AS password, shell, sudo, locked,
-		       roles, blueprints, source, organization
-		FROM identity.users
+		       roles, ` + UserBlueprintsExpr + ` AS blueprints, source, organization
+		FROM identity.users u
 	`
 
 	var (
@@ -365,7 +375,7 @@ func (d *DB) ListUsers(limit, offset int, roles, blueprints []string, org string
 	}
 	if len(blueprints) > 0 {
 		args = append(args, blueprints)
-		conditions = append(conditions, fmt.Sprintf("blueprints && $%d", len(args)))
+		conditions = append(conditions, fmt.Sprintf("(%s) && $%d", UserBlueprintsExpr, len(args)))
 	}
 	if org != "" {
 		args = append(args, org)
@@ -402,16 +412,16 @@ func (d *DB) ListUsersQuery(desc *queryv1.Descriptor, fm pkgquery.FieldMap, payl
 	obligationRoles, obligationBlueprints []string, obligationOrg string) ([]*models.User, error) {
 	limit, offset := db.AdjustListLimit(int(payload.GetPage().GetLimit()), int(payload.GetPage().GetOffset()))
 
-	const selectSQL = `
+	selectSQL := `
 		SELECT username, is_valid, expires_at, uid, gid, fullname,
 		       email, COALESCE(password, '') AS password, shell, sudo, locked,
-		       roles, blueprints, source, organization
-		FROM identity.users
+		       roles, ` + UserBlueprintsExpr + ` AS blueprints, source, organization
+		FROM identity.users u
 	`
 
 	mandatory := []pkgquery.Mandatory{
 		{Column: "roles", Array: true, Values: obligationRoles},
-		{Column: "blueprints", Array: true, Values: obligationBlueprints},
+		{Column: UserBlueprintsExpr, Array: true, Values: obligationBlueprints},
 	}
 	if obligationOrg != "" {
 		mandatory = append(mandatory, pkgquery.Mandatory{Column: "organization", Values: []string{obligationOrg}})
@@ -795,16 +805,6 @@ func (d *DB) AddUserRoles(username string, roles []string) (*models.User, error)
 // RemoveUserRoles removes the given roles from the user.
 func (d *DB) RemoveUserRoles(username string, roles []string) (*models.User, error) {
 	return d.removeUserArrayField(username, "roles", roles)
-}
-
-// AddUserBlueprints appends the given blueprints to the user, skipping duplicates.
-func (d *DB) AddUserBlueprints(username string, blueprints []string) (*models.User, error) {
-	return d.addUserArrayField(username, "blueprints", blueprints)
-}
-
-// RemoveUserBlueprints removes the given blueprints from the user.
-func (d *DB) RemoveUserBlueprints(username string, blueprints []string) (*models.User, error) {
-	return d.removeUserArrayField(username, "blueprints", blueprints)
 }
 
 // ListUserAuthKeys returns the SSH public keys stored for a user, in the

@@ -90,17 +90,26 @@ func (d *DB) UpdateRole(name, org string, description *string) (*models.RoleInfo
 }
 
 // rolesBaseQuery selects a role registry row alongside its computed
-// UserCount. UserCount is computed via a left join against identity.users
-// rather than stored: identity.users has no index on roles, so joining
-// role-per-role (r.name = ANY(u.roles)) would rescan the users table once
-// per role; unnesting each user's roles once up front and joining on
-// equality instead scans identity.users a single time regardless of role
-// count. Callers append a WHERE clause and must keep the GROUP BY/ORDER BY
-// suffix below.
-const rolesBaseQuery = `SELECT r.name, COALESCE(r.description, ''), COALESCE(r.org, ''), r.created_at, COUNT(ur.username)
+// UserCount and Blueprints. UserCount is computed via a left join against
+// identity.users rather than stored: identity.users has no index on roles,
+// so joining role-per-role (r.name = ANY(u.roles)) would rescan the users
+// table once per role; unnesting each user's roles once up front and
+// joining on equality instead scans identity.users a single time regardless
+// of role count. Blueprints is joined from identity.role_blueprints on an
+// exact (role, org) match — a role's own grants, not the org-scoped-or-global
+// union used when resolving a user's effective blueprints (see
+// UserBlueprintsExpr in internal/db/user.go). Both joins are one-to-many off
+// the same role row, so COUNT(DISTINCT ...)/array_agg(DISTINCT ...) are
+// required to undo the row fan-out from combining them. Callers append a
+// WHERE clause and must keep the GROUP BY/ORDER BY suffix below.
+const rolesBaseQuery = `SELECT r.name, COALESCE(r.description, ''), COALESCE(r.org, ''), r.created_at,
+		COUNT(DISTINCT ur.username),
+		COALESCE(array_agg(DISTINCT rb.blueprint) FILTER (WHERE rb.blueprint IS NOT NULL), ARRAY[]::varchar[])
 	FROM identity.roles r
 	LEFT JOIN (SELECT username, unnest(roles) AS role_name FROM identity.users) ur
-		ON ur.role_name = r.name`
+		ON ur.role_name = r.name
+	LEFT JOIN identity.role_blueprints rb
+		ON rb.role = r.name AND rb.org IS NOT DISTINCT FROM r.org`
 
 const rolesGroupOrderSuffix = ` GROUP BY r.name, r.description, r.org, r.created_at ORDER BY r.name`
 
@@ -111,12 +120,38 @@ func scanRoleRows(rows pgx.Rows) ([]*models.RoleInfo, error) {
 	var roles []*models.RoleInfo
 	for rows.Next() {
 		var role models.RoleInfo
-		if err := rows.Scan(&role.Name, &role.Description, &role.Org, &role.CreatedAt, &role.UserCount); err != nil {
+		if err := rows.Scan(&role.Name, &role.Description, &role.Org, &role.CreatedAt, &role.UserCount, &role.Blueprints); err != nil {
 			return nil, err
 		}
 		roles = append(roles, &role)
 	}
 	return roles, rows.Err()
+}
+
+// getRole retrieves a single role by name and org (org must match exactly;
+// empty means the global role, not "any org"), including its computed
+// UserCount and Blueprints. Returns ErrRoleNotFound when no matching role
+// exists.
+func (d *DB) getRole(name, org string) (*models.RoleInfo, error) {
+	query := rolesBaseQuery + ` WHERE r.name=$1 AND r.org IS NOT DISTINCT FROM $2` + rolesGroupOrderSuffix
+
+	var orgVal *string
+	if org != "" {
+		orgVal = &org
+	}
+
+	rows, err := d.Pool.Query(context.Background(), query, name, orgVal)
+	if err != nil {
+		return nil, fmt.Errorf("get role: %w", err)
+	}
+	roles, err := scanRoleRows(rows)
+	if err != nil {
+		return nil, err
+	}
+	if len(roles) == 0 {
+		return nil, fmt.Errorf("%w: %q", ErrRoleNotFound, name)
+	}
+	return roles[0], nil
 }
 
 // ListRoles returns the roles assignable within org, ordered by name: those
@@ -180,6 +215,14 @@ func (d *DB) DeleteRole(name, org string) error {
 		return fmt.Errorf("%w: %q", ErrRoleInUse, name)
 	}
 
+	// No FK/cascade ties role_blueprints to roles (see the comment on
+	// identity.role_blueprints in db/migrations/000001_schema.up.sql), so its
+	// rows for this role are cleaned up explicitly here.
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM identity.role_blueprints WHERE role=$1 AND org IS NOT DISTINCT FROM $2`, name, orgVal); err != nil {
+		return fmt.Errorf("delete role blueprints: %w", err)
+	}
+
 	result, err := tx.Exec(ctx,
 		`DELETE FROM identity.roles WHERE name=$1 AND org IS NOT DISTINCT FROM $2`, name, orgVal)
 	if err != nil {
@@ -190,6 +233,61 @@ func (d *DB) DeleteRole(name, org string) error {
 	}
 
 	return tx.Commit(ctx)
+}
+
+// AddRoleBlueprints grants a role one or more blueprints, skipping
+// duplicates. org must match exactly (empty means the global role). Returns
+// ErrRoleNotFound when no matching role exists.
+func (d *DB) AddRoleBlueprints(name, org string, blueprints []string) (*models.RoleInfo, error) {
+	ctx := context.Background()
+
+	var orgVal *string
+	if org != "" {
+		orgVal = &org
+	}
+
+	// role_blueprints has no FK to identity.roles (see the comment on the
+	// table in db/migrations/000001_schema.up.sql), so existence is checked
+	// explicitly here to avoid inserting orphaned rows for an unknown role.
+	var exists bool
+	if err := d.Pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM identity.roles WHERE name=$1 AND org IS NOT DISTINCT FROM $2)`,
+		name, orgVal).Scan(&exists); err != nil {
+		return nil, fmt.Errorf("check role exists: %w", err)
+	}
+	if !exists {
+		return nil, fmt.Errorf("%w: %q", ErrRoleNotFound, name)
+	}
+
+	batch := &pgx.Batch{}
+	for _, bp := range blueprints {
+		batch.Queue(`INSERT INTO identity.role_blueprints (role, org, blueprint) VALUES ($1, $2, $3)
+			ON CONFLICT DO NOTHING`, name, orgVal, bp)
+	}
+	if err := d.Pool.SendBatch(ctx, batch).Close(); err != nil {
+		return nil, fmt.Errorf("add role blueprints: %w", err)
+	}
+
+	return d.getRole(name, org)
+}
+
+// RemoveRoleBlueprints revokes one or more blueprints from a role. org must
+// match exactly (empty means the global role). Returns ErrRoleNotFound when
+// no matching role exists.
+func (d *DB) RemoveRoleBlueprints(name, org string, blueprints []string) (*models.RoleInfo, error) {
+	var orgVal *string
+	if org != "" {
+		orgVal = &org
+	}
+
+	_, err := d.Pool.Exec(context.Background(),
+		`DELETE FROM identity.role_blueprints WHERE role=$1 AND org IS NOT DISTINCT FROM $2 AND blueprint = ANY($3)`,
+		name, orgVal, blueprints)
+	if err != nil {
+		return nil, fmt.Errorf("remove role blueprints: %w", err)
+	}
+
+	return d.getRole(name, org)
 }
 
 // MissingRoles reports which of the given role names are not registered in

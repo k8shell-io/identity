@@ -6,6 +6,7 @@ package server
 import (
 	queryv1 "github.com/k8shell-io/common/pkg/api/gen/go/query/v1"
 	"github.com/k8shell-io/common/pkg/query"
+	backend "github.com/k8shell-io/identity/internal/db"
 )
 
 // usersQueryDescriptor advertises which user fields are queryable/sortable
@@ -13,10 +14,12 @@ import (
 // reused to validate incoming queries so the two can never drift apart.
 //
 // roles and blueprints are FIELD_TYPE_STRING like any other text field —
-// they're Postgres character varying[] columns underneath, but that's a
-// storage detail expressed only in usersQueryFieldMap (Array: true), which
-// changes eq/ne/in to array-membership/overlap operators. The client-facing
-// schema doesn't need to know the column shape.
+// roles is a Postgres character varying[] column and blueprints is a
+// computed array expression (backend.UserBlueprintsExpr, derived from the
+// user's roles), but that's a storage detail expressed only in
+// usersQueryFieldMap (Array: true), which changes eq/ne/in to
+// array-membership/overlap operators. The client-facing schema doesn't need
+// to know the column shape.
 var usersQueryDescriptor = query.NewDescriptor("users").
 	Field("username", queryv1.FieldType_FIELD_TYPE_STRING,
 		queryv1.Operator_OPERATOR_EQ, queryv1.Operator_OPERATOR_NE).
@@ -50,5 +53,5 @@ var usersQueryFieldMap = query.FieldMap{
 	"isValid":      {Name: "is_valid"},
 	"expiresAt":    {Name: "expires_at"},
 	"roles":        {Array: true},
-	"blueprints":   {Array: true},
+	"blueprints":   {Name: backend.UserBlueprintsExpr, Array: true},
 }

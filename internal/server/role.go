@@ -28,6 +28,7 @@ func roleToProto(r *models.RoleInfo) *identityv1.Role {
 		Org:         r.Org,
 		CreatedAt:   timestamppb.New(r.CreatedAt),
 		UserCount:   utils.SafeIntToInt32(r.UserCount),
+		Blueprints:  r.Blueprints,
 	}
 }
 
@@ -184,4 +185,61 @@ func (s *IdentityService) DeleteRole(ctx context.Context,
 	}
 
 	return &identityv1.DeleteRoleResponse{Success: true}, nil
+}
+
+// AddRoleBlueprints grants a role one or more blueprints; every user holding
+// the role gains access to them. org is required; global roles are not
+// supported through this RPC.
+func (s *IdentityService) AddRoleBlueprints(ctx context.Context,
+	req *identityv1.RoleBlueprintsRequest) (*identityv1.Role, error) {
+	if req.GetName() == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+	if req.GetOrg() == "" {
+		return nil, status.Error(codes.InvalidArgument, "org is required")
+	}
+	if len(req.GetBlueprints()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "at least one blueprint is required")
+	}
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured")
+	}
+
+	role, err := s.server.DB.AddRoleBlueprints(req.GetName(), req.GetOrg(), req.GetBlueprints())
+	if err != nil {
+		if errors.Is(err, backend.ErrRoleNotFound) {
+			return nil, status.Errorf(codes.NotFound, "role '%s' not found", req.GetName())
+		}
+		return nil, status.Errorf(codes.Internal, "failed to add blueprints for role '%s': %v", req.GetName(), err)
+	}
+
+	return roleToProto(role), nil
+}
+
+// RemoveRoleBlueprints revokes one or more blueprints from a role. org is
+// required; global roles are not supported through this RPC.
+func (s *IdentityService) RemoveRoleBlueprints(ctx context.Context,
+	req *identityv1.RoleBlueprintsRequest) (*identityv1.Role, error) {
+	if req.GetName() == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+	if req.GetOrg() == "" {
+		return nil, status.Error(codes.InvalidArgument, "org is required")
+	}
+	if len(req.GetBlueprints()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "at least one blueprint is required")
+	}
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured")
+	}
+
+	role, err := s.server.DB.RemoveRoleBlueprints(req.GetName(), req.GetOrg(), req.GetBlueprints())
+	if err != nil {
+		if errors.Is(err, backend.ErrRoleNotFound) {
+			return nil, status.Errorf(codes.NotFound, "role '%s' not found", req.GetName())
+		}
+		return nil, status.Errorf(codes.Internal, "failed to remove blueprints for role '%s': %v", req.GetName(), err)
+	}
+
+	return roleToProto(role), nil
 }

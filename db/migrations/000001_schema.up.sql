@@ -40,6 +40,32 @@ INSERT INTO identity.roles (name, description) VALUES
     ('admin', 'Full administrative access globally'),
     ('org-admin', 'Full administrative access within an organization');
 
+-- role_blueprints maps a role to the blueprints it grants. A user's
+-- effective blueprint set (see FindUser/ListUsers in internal/db/user.go) is
+-- the union of blueprints across every role in identity.users.roles,
+-- resolved org-scoped-or-global the same way identity.roles itself is
+-- (an org-scoped entry for the user's own organization, plus any global
+-- entries). No FK to identity.roles(name, org): identity.users.roles already
+-- stores plain role names with no org qualifier and no FK (see DeleteRole's
+-- in-use check), so role_blueprints follows the same precedent and is kept
+-- in sync at the application layer instead — DeleteRole removes a role's
+-- role_blueprints rows in the same transaction it deletes the role.
+CREATE TABLE identity.role_blueprints (
+    id          SERIAL      PRIMARY KEY,
+    role        varchar     not null,
+    org         varchar references identity.organizations(name), -- NULL = global role
+    blueprint   varchar     not null,
+    created_at  TIMESTAMPTZ not null default now()
+);
+
+-- Same dual-index pattern as idx_roles_org_name/idx_roles_global_name_uniq
+-- above: a plain UNIQUE(role, org, blueprint) index doesn't dedupe NULL-org
+-- rows against each other, so a separate partial index enforces uniqueness
+-- for global (org IS NULL) entries.
+CREATE UNIQUE INDEX idx_role_blueprints_org_uniq ON identity.role_blueprints (role, org, blueprint);
+CREATE UNIQUE INDEX idx_role_blueprints_global_uniq ON identity.role_blueprints (role, blueprint) WHERE org IS NULL;
+CREATE INDEX idx_role_blueprints_role ON identity.role_blueprints (role);
+
 -- users is the central identity table.
 -- A record is created on first login and refreshed from the configured identity
 -- provider when the cached record expires (expires_at).
@@ -68,8 +94,7 @@ CREATE TABLE identity.users (
 
     -- provider metadata
     source         varchar,                      -- owning identity provider name
-    roles          character varying[],          -- RBAC roles
-    blueprints     character varying[]           -- available k8shell blueprints
+    roles          character varying[]           -- RBAC roles
 );
 
 -- Emails must be unique across users when present. Partial index so that
