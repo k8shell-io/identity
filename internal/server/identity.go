@@ -370,7 +370,7 @@ func (s *IdentityService) matchStoredAuthKey(username, normalizedKey string) (*i
 		return nil, err
 	}
 	for _, k := range keys {
-		if strings.TrimSpace(k) == normalizedKey {
+		if authKeysEqual(k, normalizedKey) {
 			return &identityv1.AuthUserResponse{Valid: true}, nil
 		}
 	}
@@ -1037,6 +1037,9 @@ func (s *IdentityService) CreateUser(ctx context.Context,
 	if s.server.DB == nil {
 		return nil, status.Error(codes.Unavailable, "database is not configured")
 	}
+	if err := s.validateRoleAssignment(req.GetRoles()); err != nil {
+		return nil, err
+	}
 
 	username := strings.ToLower(req.Username)
 
@@ -1141,6 +1144,9 @@ func (s *IdentityService) UpdateUser(ctx context.Context,
 	if s.server.DB == nil {
 		return nil, status.Error(codes.Unavailable, "database is not configured")
 	}
+	if err := s.validateRoleAssignment(req.GetRoles()); err != nil {
+		return nil, err
+	}
 
 	user, err := s.server.DB.FindUser(req.Username, "")
 	if err != nil {
@@ -1234,6 +1240,9 @@ func (s *IdentityService) AddUserRoles(ctx context.Context,
 	}
 	if s.server.DB == nil {
 		return nil, status.Error(codes.Unavailable, "database is not configured")
+	}
+	if err := s.validateRoleAssignment(req.GetRoles()); err != nil {
+		return nil, err
 	}
 
 	user, err := s.server.DB.AddUserRoles(req.Username, req.GetRoles())

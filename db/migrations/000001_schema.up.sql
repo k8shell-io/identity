@@ -6,8 +6,39 @@ CREATE SCHEMA IF NOT EXISTS identity;
 -- Every user must belong to exactly one organization.
 CREATE TABLE identity.organizations (
     name          varchar  not null primary key,  -- short unique identifier
-    description   text                            -- human-readable description
+    description   text,                           -- human-readable description
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Role registry for the k8Shell Identity service.
+--
+-- Roles are flat, opaque name strings assignable to identity.users.roles.
+-- This table answers only whether a role exists; any meaning encoded in its
+-- name (e.g. the "<group>-admin" convention) is interpreted at the policy
+-- layer, not here.
+--
+-- A role name is scoped to its organization: the same name may be defined
+-- independently by different organizations (idx_roles_org_name enforces
+-- uniqueness per org). org IS NULL means the role is global, assignable
+-- regardless of a user's organization; idx_roles_global_name_uniq keeps
+-- global role names unique on their own, since a plain UNIQUE(org, name)
+-- index does not treat two NULLs as equal.
+CREATE TABLE identity.roles (
+    name        varchar     not null,
+    description text,
+    org         varchar references identity.organizations(name), -- NULL = global
+    created_at  TIMESTAMPTZ not null default now()
+);
+
+CREATE UNIQUE INDEX idx_roles_org_name ON identity.roles (org, name);
+CREATE UNIQUE INDEX idx_roles_global_name_uniq ON identity.roles (name) WHERE org IS NULL;
+
+-- Seed baseline roles outside the CreateRole RPC path, since role creation
+-- will eventually require an authz decision based on the caller's roles,
+-- which is circular for the very first org-admin.
+INSERT INTO identity.roles (name, description) VALUES
+    ('admin', 'Full administrative access globally'),
+    ('org-admin', 'Full administrative access within an organization');
 
 -- users is the central identity table.
 -- A record is created on first login and refreshed from the configured identity
