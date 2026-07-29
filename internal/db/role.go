@@ -290,6 +290,52 @@ func (d *DB) RemoveRoleBlueprints(name, org string, blueprints []string) (*model
 	return d.getRole(name, org)
 }
 
+// GlobalRoles reports which of the given role names are registered as
+// global (org IS NULL) roles in identity.roles, preserving names as given
+// (deduplicated). Used by UpdateUser to decide which of a user's roles
+// survive an organization change: an org-scoped role has no meaning outside
+// the org it belonged to, but a global role (e.g. the seeded "admin" role)
+// is assignable regardless of org, so it should be carried over rather than
+// stripped along with the rest.
+func (d *DB) GlobalRoles(names []string) ([]string, error) {
+	if len(names) == 0 {
+		return nil, nil
+	}
+
+	rows, err := d.Pool.Query(context.Background(),
+		`SELECT name FROM identity.roles WHERE name = ANY($1) AND org IS NULL`, names)
+	if err != nil {
+		return nil, fmt.Errorf("check global roles: %w", err)
+	}
+	defer rows.Close()
+
+	found := make(map[string]struct{})
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		found[name] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]struct{}, len(names))
+	var global []string
+	for _, n := range names {
+		if _, ok := found[n]; !ok {
+			continue
+		}
+		if _, dup := seen[n]; dup {
+			continue
+		}
+		seen[n] = struct{}{}
+		global = append(global, n)
+	}
+	return global, nil
+}
+
 // MissingRoles reports which of the given role names are not registered in
 // identity.roles, preserving names as given (deduplicated). Used to validate
 // role assignment in bulk so a single error can name every offending role at

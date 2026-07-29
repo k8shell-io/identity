@@ -1181,15 +1181,30 @@ func (s *IdentityService) UpdateUser(ctx context.Context,
 		user.Roles = roles
 	}
 	// A bare role name on the user record carries no org qualifier of its
-	// own, so nothing on the old role list — global or org-scoped — can be
-	// assumed to still be the caller's intent once the user moves to a
-	// different organization. Clear roles on an org change, unless the
-	// caller replaced the role list in this same request — that's an
-	// explicit choice to take precedence over this.
+	// own, so nothing org-scoped on the old role list can be assumed to
+	// still be the caller's intent once the user moves to a different
+	// organization — those are dropped on an org change, unless the caller
+	// replaced the role list in this same request (an explicit choice that
+	// takes precedence over this). Global roles (org IS NULL, e.g. the
+	// seeded "admin" role) are assignable regardless of org, so they carry
+	// over rather than being stripped along with the rest.
 	if v := req.GetOrg(); v != nil {
 		newOrg := v.GetValue()
-		if !rolesExplicit && newOrg != user.Organization {
-			user.Roles = nil
+		if !rolesExplicit && newOrg != user.Organization && len(user.Roles) > 0 {
+			names := make([]string, len(user.Roles))
+			for i, r := range user.Roles {
+				names[i] = string(r)
+			}
+			globalNames, err := s.server.DB.GlobalRoles(names)
+			if err != nil {
+				return nil, status.Errorf(codes.Internal,
+					"failed to resolve global roles for user '%s': %v", req.Username, err)
+			}
+			roles := make([]models.Role, len(globalNames))
+			for i, n := range globalNames {
+				roles[i] = models.Role(n)
+			}
+			user.Roles = roles
 		}
 		user.Organization = newOrg
 	}

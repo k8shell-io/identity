@@ -30,6 +30,7 @@ func organizationToProto(o *models.Organization) *identityv1.Organization {
 		CreatedAt:      timestamppb.New(o.CreatedAt),
 		AdminUsernames: o.AdminUsernames,
 		UserCount:      utils.SafeIntToInt32(o.UserCount),
+		ReadOnly:       o.ReadOnly,
 	}
 }
 
@@ -51,6 +52,27 @@ func (s *IdentityService) ListOrganizations(ctx context.Context,
 	}
 
 	return &identityv1.OrganizationList{Organizations: pbOrgs}, nil
+}
+
+// GetOrganization retrieves a single organization by name.
+func (s *IdentityService) GetOrganization(ctx context.Context,
+	req *identityv1.GetOrganizationRequest) (*identityv1.Organization, error) {
+	if req.GetName() == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured")
+	}
+
+	org, err := s.server.DB.GetOrganization(req.GetName())
+	if err != nil {
+		if errors.Is(err, backend.ErrOrganizationNotFound) {
+			return nil, status.Errorf(codes.NotFound, "organization '%s' not found", req.GetName())
+		}
+		return nil, status.Errorf(codes.Internal, "failed to get organization '%s': %v", req.GetName(), err)
+	}
+
+	return organizationToProto(org), nil
 }
 
 // GetOrganizationsQuerySchema returns the descriptor advertising which
@@ -115,7 +137,8 @@ func (s *IdentityService) CreateOrganization(ctx context.Context,
 }
 
 // UpdateOrganization updates an organization's description. The name is
-// immutable and used only to identify the organization.
+// immutable and used only to identify the organization. Fails for the
+// built-in "default" organization, which is read-only.
 func (s *IdentityService) UpdateOrganization(ctx context.Context,
 	req *identityv1.UpdateOrganizationRequest) (*identityv1.Organization, error) {
 	if req.GetName() == "" {
@@ -132,8 +155,12 @@ func (s *IdentityService) UpdateOrganization(ctx context.Context,
 
 	org, err := s.server.DB.UpdateOrganization(req.GetName(), description)
 	if err != nil {
-		if errors.Is(err, backend.ErrOrganizationNotFound) {
+		switch {
+		case errors.Is(err, backend.ErrOrganizationNotFound):
 			return nil, status.Errorf(codes.NotFound, "organization '%s' not found", req.GetName())
+		case errors.Is(err, backend.ErrOrganizationReadOnly):
+			return nil, status.Errorf(codes.FailedPrecondition,
+				"organization '%s' is read-only and cannot be updated", req.GetName())
 		}
 		return nil, status.Errorf(codes.Internal, "failed to update organization '%s': %v", req.GetName(), err)
 	}
@@ -141,8 +168,9 @@ func (s *IdentityService) UpdateOrganization(ctx context.Context,
 	return organizationToProto(org), nil
 }
 
-// DeleteOrganization removes an organization from the registry. Fails if any
-// user or role still references it.
+// DeleteOrganization removes an organization from the registry, cascading
+// its org-scoped roles. Fails if any user still belongs to it, or if it's
+// the built-in "default" organization, which is read-only.
 func (s *IdentityService) DeleteOrganization(ctx context.Context,
 	req *identityv1.DeleteOrganizationRequest) (*identityv1.DeleteOrganizationResponse, error) {
 	if req.GetName() == "" {
@@ -158,7 +186,10 @@ func (s *IdentityService) DeleteOrganization(ctx context.Context,
 			return nil, status.Errorf(codes.NotFound, "organization '%s' not found", req.GetName())
 		case errors.Is(err, backend.ErrOrganizationInUse):
 			return nil, status.Errorf(codes.FailedPrecondition,
-				"organization '%s' is still referenced by at least one user or role", req.GetName())
+				"organization '%s' is still referenced by at least one user", req.GetName())
+		case errors.Is(err, backend.ErrOrganizationReadOnly):
+			return nil, status.Errorf(codes.FailedPrecondition,
+				"organization '%s' is read-only and cannot be deleted", req.GetName())
 		}
 		return nil, status.Errorf(codes.Internal, "failed to delete organization '%s': %v", req.GetName(), err)
 	}

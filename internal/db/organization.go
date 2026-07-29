@@ -26,12 +26,24 @@ var ErrOrganizationExists = errors.New("organization already exists")
 var ErrOrganizationNotFound = errors.New("organization not found")
 
 // ErrOrganizationInUse is returned by DeleteOrganization when at least one
-// user or role still references the organization.
-var ErrOrganizationInUse = errors.New("organization is still referenced by at least one user or role")
+// user still belongs to the organization. Org-scoped roles no longer block
+// deletion — DeleteOrganization cascades those itself.
+var ErrOrganizationInUse = errors.New("organization is still referenced by at least one user")
+
+// ErrOrganizationReadOnly is returned by UpdateOrganization and
+// DeleteOrganization when called against DefaultOrganizationName.
+var ErrOrganizationReadOnly = errors.New("organization is read-only and cannot be modified")
+
+// DefaultOrganizationName is the built-in organization every k8Shell
+// deployment is seeded with (see db/migrations/000001_schema.up.sql), and
+// the only organization whose models.Organization.ReadOnly is true — it
+// can never be updated or deleted, since it's the fallback organization the
+// system itself depends on existing.
+const DefaultOrganizationName = "default"
 
 // CreateOrganization registers a new organization.
 func (d *DB) CreateOrganization(name, description string) (*models.Organization, error) {
-	org := &models.Organization{Name: name, Description: description}
+	org := &models.Organization{Name: name, Description: description, ReadOnly: name == DefaultOrganizationName}
 	err := d.Pool.QueryRow(context.Background(),
 		`INSERT INTO identity.organizations (name, description)
 		 VALUES ($1, $2)
@@ -52,8 +64,13 @@ func (d *DB) CreateOrganization(name, description string) (*models.Organization,
 // UpdateOrganization updates an organization's description. The name is
 // immutable and used only to identify the organization; pass a nil
 // description to leave it unchanged. Returns ErrOrganizationNotFound when no
-// organization with that name exists.
+// organization with that name exists, or ErrOrganizationReadOnly for
+// DefaultOrganizationName.
 func (d *DB) UpdateOrganization(name string, description *string) (*models.Organization, error) {
+	if name == DefaultOrganizationName {
+		return nil, fmt.Errorf("%w: %q", ErrOrganizationReadOnly, name)
+	}
+
 	org := &models.Organization{Name: name}
 	err := d.Pool.QueryRow(context.Background(),
 		`UPDATE identity.organizations SET description = COALESCE($2, description)
@@ -87,6 +104,26 @@ func (d *DB) ListOrganizations() ([]*models.Organization, error) {
 	defer rows.Close()
 
 	return scanOrganizations(rows)
+}
+
+// GetOrganization retrieves a single organization by name, with the same
+// computed AdminUsernames/UserCount fields as ListOrganizations. Returns
+// ErrOrganizationNotFound when no organization with that name exists.
+func (d *DB) GetOrganization(name string) (*models.Organization, error) {
+	sqlQuery := organizationsSelectSQL + "WHERE o.name = $2\nGROUP BY o.name, o.description, o.created_at"
+
+	var org models.Organization
+	err := d.Pool.QueryRow(context.Background(), sqlQuery, orgAdminRoleName, name).Scan(
+		&org.Name, &org.Description, &org.CreatedAt, &org.AdminUsernames, &org.UserCount)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("%w: %q", ErrOrganizationNotFound, name)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get organization: %w", err)
+	}
+	org.ReadOnly = org.Name == DefaultOrganizationName
+
+	return &org, nil
 }
 
 // OrganizationAdminUsernamesExpr computes an organization's org-admin
@@ -201,19 +238,58 @@ func scanOrganizations(rows pgx.Rows) ([]*models.Organization, error) {
 			&org.AdminUsernames, &org.UserCount); err != nil {
 			return nil, err
 		}
+		org.ReadOnly = org.Name == DefaultOrganizationName
 		orgs = append(orgs, &org)
 	}
 	return orgs, rows.Err()
 }
 
-// DeleteOrganization removes an organization from the registry. Both
-// identity.users.organization and identity.roles.org carry a foreign key
-// referencing this table (with no ON DELETE CASCADE), so Postgres itself
-// refuses the delete while any row still references it — that FK violation
-// is translated to ErrOrganizationInUse rather than requiring an explicit
-// pre-check.
+// DeleteOrganization removes an organization from the registry, cascading
+// its org-scoped roles and their role_blueprints — mirroring DeleteRole's
+// own role_blueprints cleanup, just applied in bulk to every role scoped to
+// this org instead of one at a time, since a role (and its granted
+// blueprints) has no meaning once the org it's scoped to is gone.
+//
+// Any user still belonging to the org is deliberately not cascaded:
+// identity.users.organization carries a NOT NULL foreign key to
+// identity.organizations(name) with no ON DELETE CASCADE, so Postgres
+// itself refuses the delete while any user remains — that FK violation is
+// translated to ErrOrganizationInUse. Deleting user accounts (and their
+// credentials, access tokens, POSIX identity) is a much more destructive
+// decision than pruning role definitions, and this method does not make it
+// on the caller's behalf; the caller must reassign or delete those users
+// first.
+//
+// Returns ErrOrganizationReadOnly for DefaultOrganizationName without
+// touching the database — it can never be deleted.
 func (d *DB) DeleteOrganization(name string) error {
-	result, err := d.Pool.Exec(context.Background(), `DELETE FROM identity.organizations WHERE name=$1`, name)
+	if name == DefaultOrganizationName {
+		return fmt.Errorf("%w: %q", ErrOrganizationReadOnly, name)
+	}
+
+	ctx := context.Background()
+
+	tx, err := d.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			d.log.Error().Err(err).Msg("rollback transaction")
+		}
+	}()
+
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM identity.role_blueprints WHERE org=$1`, name); err != nil {
+		return fmt.Errorf("delete organization role blueprints: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM identity.roles WHERE org=$1`, name); err != nil {
+		return fmt.Errorf("delete organization roles: %w", err)
+	}
+
+	result, err := tx.Exec(ctx, `DELETE FROM identity.organizations WHERE name=$1`, name)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
@@ -224,5 +300,6 @@ func (d *DB) DeleteOrganization(name string) error {
 	if result.RowsAffected() == 0 {
 		return fmt.Errorf("%w: %q", ErrOrganizationNotFound, name)
 	}
-	return nil
+
+	return tx.Commit(ctx)
 }
