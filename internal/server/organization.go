@@ -8,7 +8,10 @@ import (
 	"errors"
 
 	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
+	queryv1 "github.com/k8shell-io/common/pkg/api/gen/go/query/v1"
+	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/common/pkg/models"
+	"github.com/k8shell-io/common/pkg/query"
 	"github.com/k8shell-io/common/pkg/utils"
 	backend "github.com/k8shell-io/identity/internal/db"
 	"google.golang.org/grpc/codes"
@@ -40,6 +43,46 @@ func (s *IdentityService) ListOrganizations(ctx context.Context,
 	orgs, err := s.server.DB.ListOrganizations()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to list organizations: %v", err)
+	}
+
+	pbOrgs := make([]*identityv1.Organization, len(orgs))
+	for i, o := range orgs {
+		pbOrgs[i] = organizationToProto(o)
+	}
+
+	return &identityv1.OrganizationList{Organizations: pbOrgs}, nil
+}
+
+// GetOrganizationsQuerySchema returns the descriptor advertising which
+// organization fields are queryable/sortable via QueryOrganizations, and
+// which operators are valid on each.
+func (s *IdentityService) GetOrganizationsQuerySchema(ctx context.Context,
+	req *identityv1.GetOrganizationsQuerySchemaRequest) (*queryv1.Descriptor, error) {
+	return organizationsQueryDescriptor, nil
+}
+
+// QueryOrganizations retrieves organizations matching a generic
+// query.v1.Payload, as advertised by GetOrganizationsQuerySchema.
+// req.Query.Obligations carries the authz obligations map from the
+// gateway's policy evaluation (never client-supplied — see the field's doc
+// in query.proto) and is enforced as a mandatory scoping constraint,
+// independent of the caller's own Filters, the same way QueryUsers already
+// enforces its obligations.
+func (s *IdentityService) QueryOrganizations(ctx context.Context,
+	req *identityv1.QueryOrganizationsRequest) (*identityv1.OrganizationList, error) {
+	if err := query.Validate(organizationsQueryDescriptor, req.Query); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid query: %v", err)
+	}
+
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "organization query requires a database backend")
+	}
+
+	orgOb, _ := authz.ParseOrgObligation(req.Query.GetObligations())
+
+	orgs, err := s.server.DB.ListOrganizationsQuery(organizationsQueryDescriptor, organizationsQueryFieldMap, req.Query, orgOb.Org)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to query organizations: %v", err)
 	}
 
 	pbOrgs := make([]*identityv1.Organization, len(orgs))
