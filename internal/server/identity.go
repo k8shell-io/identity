@@ -1146,6 +1146,9 @@ func (s *IdentityService) UpdateUser(ctx context.Context,
 	if err := s.validateRoleAssignment(req.GetRoles()); err != nil {
 		return nil, err
 	}
+	if req.GetClearRoles() && len(req.GetRoles()) > 0 {
+		return nil, status.Error(codes.InvalidArgument, "clear_roles cannot be set together with roles")
+	}
 
 	user, err := s.server.DB.FindUser(req.Username, "")
 	if err != nil {
@@ -1167,8 +1170,10 @@ func (s *IdentityService) UpdateUser(ctx context.Context,
 	if v := req.GetShell(); v != nil {
 		user.Shell = v.GetValue()
 	}
-	rolesExplicit := len(req.GetRoles()) > 0
-	if rolesExplicit {
+	rolesExplicit := req.GetClearRoles() || len(req.GetRoles()) > 0
+	if req.GetClearRoles() {
+		user.Roles = nil
+	} else if len(req.GetRoles()) > 0 {
 		roles := make([]models.Role, len(req.GetRoles()))
 		for i, r := range req.GetRoles() {
 			roles[i] = models.Role(r)
