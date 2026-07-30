@@ -20,6 +20,14 @@ var ErrRoleExists = errors.New("role already exists")
 // ErrRoleNotFound is returned by DeleteRole when no role with the given name exists.
 var ErrRoleNotFound = errors.New("role not found")
 
+// ErrRoleIsGlobal is returned by UpdateRole, DeleteRole, AddRoleBlueprints,
+// and RemoveRoleBlueprints when name matches a registered role, but only as
+// a global role (org IS NULL) — not one scoped to the org the caller passed.
+// Global roles are managed independently of any org and are not mutable
+// through these org-scoped calls; without this distinction such calls would
+// be indistinguishable from the name not being registered at all.
+var ErrRoleIsGlobal = errors.New("role is global and cannot be modified through this org-scoped call")
+
 // ErrRoleInUse is returned by DeleteRole when at least one user still holds the role.
 var ErrRoleInUse = errors.New("role is still assigned to at least one user")
 
@@ -65,7 +73,8 @@ func (d *DB) CreateRole(name, description, org string) (*models.RoleInfo, error)
 // UpdateRole updates a role's description. Name and org together identify
 // the role and are immutable; pass a nil description to leave it unchanged.
 // org must match exactly (empty means the global role, not "any org").
-// Returns ErrRoleNotFound when no matching role exists.
+// Returns ErrRoleNotFound when no role by that name is registered at all, or
+// ErrRoleIsGlobal when it is registered but only as a global role.
 func (d *DB) UpdateRole(name, org string, description *string) (*models.RoleInfo, error) {
 	var orgVal *string
 	if org != "" {
@@ -80,13 +89,36 @@ func (d *DB) UpdateRole(name, org string, description *string) (*models.RoleInfo
 		name, orgVal, description,
 	).Scan(&role.Description, &role.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, fmt.Errorf("%w: %q", ErrRoleNotFound, name)
+		return nil, d.roleNotFoundOrGlobal(name, org)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("update role: %w", err)
 	}
 
 	return role, nil
+}
+
+// roleNotFoundOrGlobal distinguishes "no role by this name is registered at
+// all" from "a role by this name is registered, but only as a global role"
+// when an org-scoped mutation (UpdateRole, DeleteRole, AddRoleBlueprints,
+// RemoveRoleBlueprints) matches zero rows for (name, org). Without this
+// check both cases collapse into ErrRoleNotFound, which is misleading for a
+// role that does exist but simply isn't scoped to the given org.
+func (d *DB) roleNotFoundOrGlobal(name, org string) error {
+	if org == "" {
+		return fmt.Errorf("%w: %q", ErrRoleNotFound, name)
+	}
+
+	var isGlobal bool
+	if err := d.Pool.QueryRow(context.Background(),
+		`SELECT EXISTS(SELECT 1 FROM identity.roles WHERE name=$1 AND org IS NULL)`, name,
+	).Scan(&isGlobal); err != nil {
+		return fmt.Errorf("check global role: %w", err)
+	}
+	if isGlobal {
+		return fmt.Errorf("%w: %q", ErrRoleIsGlobal, name)
+	}
+	return fmt.Errorf("%w: %q", ErrRoleNotFound, name)
 }
 
 // rolesBaseQuery selects a role registry row alongside its computed
@@ -130,8 +162,9 @@ func scanRoleRows(rows pgx.Rows) ([]*models.RoleInfo, error) {
 
 // getRole retrieves a single role by name and org (org must match exactly;
 // empty means the global role, not "any org"), including its computed
-// UserCount and Blueprints. Returns ErrRoleNotFound when no matching role
-// exists.
+// UserCount and Blueprints. Returns ErrRoleNotFound when no role by that name
+// is registered at all, or ErrRoleIsGlobal when it is registered but only as
+// a global role.
 func (d *DB) getRole(name, org string) (*models.RoleInfo, error) {
 	query := rolesBaseQuery + ` WHERE r.name=$1 AND r.org IS NOT DISTINCT FROM $2` + rolesGroupOrderSuffix
 
@@ -149,7 +182,7 @@ func (d *DB) getRole(name, org string) (*models.RoleInfo, error) {
 		return nil, err
 	}
 	if len(roles) == 0 {
-		return nil, fmt.Errorf("%w: %q", ErrRoleNotFound, name)
+		return nil, d.roleNotFoundOrGlobal(name, org)
 	}
 	return roles[0], nil
 }
@@ -185,7 +218,9 @@ func (d *DB) ListGlobalRoles() ([]*models.RoleInfo, error) {
 // every user that has it) is worse than a failed call. org must match
 // exactly (empty means the global role, not "any org"); the in-use check
 // itself is by name only, since identity.users.roles stores plain names
-// without an org qualifier.
+// without an org qualifier. Returns ErrRoleNotFound when no role by that name
+// is registered at all, or ErrRoleIsGlobal when it is registered but only as
+// a global role.
 func (d *DB) DeleteRole(name, org string) error {
 	ctx := context.Background()
 
@@ -229,7 +264,7 @@ func (d *DB) DeleteRole(name, org string) error {
 		return fmt.Errorf("delete role: %w", err)
 	}
 	if result.RowsAffected() == 0 {
-		return fmt.Errorf("%w: %q", ErrRoleNotFound, name)
+		return d.roleNotFoundOrGlobal(name, org)
 	}
 
 	return tx.Commit(ctx)
@@ -237,7 +272,8 @@ func (d *DB) DeleteRole(name, org string) error {
 
 // AddRoleBlueprints grants a role one or more blueprints, skipping
 // duplicates. org must match exactly (empty means the global role). Returns
-// ErrRoleNotFound when no matching role exists.
+// ErrRoleNotFound when no role by that name is registered at all, or
+// ErrRoleIsGlobal when it is registered but only as a global role.
 func (d *DB) AddRoleBlueprints(name, org string, blueprints []string) (*models.RoleInfo, error) {
 	ctx := context.Background()
 
@@ -256,7 +292,7 @@ func (d *DB) AddRoleBlueprints(name, org string, blueprints []string) (*models.R
 		return nil, fmt.Errorf("check role exists: %w", err)
 	}
 	if !exists {
-		return nil, fmt.Errorf("%w: %q", ErrRoleNotFound, name)
+		return nil, d.roleNotFoundOrGlobal(name, org)
 	}
 
 	batch := &pgx.Batch{}
@@ -273,7 +309,8 @@ func (d *DB) AddRoleBlueprints(name, org string, blueprints []string) (*models.R
 
 // RemoveRoleBlueprints revokes one or more blueprints from a role. org must
 // match exactly (empty means the global role). Returns ErrRoleNotFound when
-// no matching role exists.
+// no role by that name is registered at all, or ErrRoleIsGlobal when it is
+// registered but only as a global role (both via the getRole lookup below).
 func (d *DB) RemoveRoleBlueprints(name, org string, blueprints []string) (*models.RoleInfo, error) {
 	var orgVal *string
 	if org != "" {
@@ -349,6 +386,52 @@ func (d *DB) MissingRoles(names []string) ([]string, error) {
 		`SELECT name FROM identity.roles WHERE name = ANY($1)`, names)
 	if err != nil {
 		return nil, fmt.Errorf("check known roles: %w", err)
+	}
+	defer rows.Close()
+
+	found := make(map[string]struct{})
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		found[name] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]struct{}, len(names))
+	var missing []string
+	for _, n := range names {
+		if _, ok := found[n]; ok {
+			continue
+		}
+		if _, dup := seen[n]; dup {
+			continue
+		}
+		seen[n] = struct{}{}
+		missing = append(missing, n)
+	}
+	return missing, nil
+}
+
+// MissingRolesForOrg reports which of the given role names are not
+// assignable within org, preserving names as given (deduplicated). Unlike
+// MissingRoles (which accepts any registered role regardless of org), this
+// only accepts roles scoped to org plus global roles — the same
+// org-scoped-or-global resolution ListRoles(org) uses. Used to validate
+// OnboardRule.Roles: a rule places users into a specific org, so its roles
+// must actually be assignable there.
+func (d *DB) MissingRolesForOrg(names []string, org string) ([]string, error) {
+	if len(names) == 0 {
+		return nil, nil
+	}
+
+	rows, err := d.Pool.Query(context.Background(),
+		`SELECT name FROM identity.roles WHERE name = ANY($1) AND (org = $2 OR org IS NULL)`, names, org)
+	if err != nil {
+		return nil, fmt.Errorf("check known roles for org: %w", err)
 	}
 	defer rows.Close()
 

@@ -87,12 +87,14 @@ func unwrapWebFlowState(state string) (idpState, cliState string, createPat bool
 }
 
 // propagateOrInternal returns the error unchanged when its gRPC status code is
-// PermissionDenied, Unauthenticated, NotFound, or AlreadyExists (so upstream
-// IDP rejections and onboarding conflicts are forwarded to the caller). All
-// other errors are returned as codes.Internal with the supplied message format.
+// PermissionDenied, Unauthenticated, NotFound, AlreadyExists, or
+// FailedPrecondition (so upstream IDP rejections, onboarding conflicts, and a
+// waitlisted onboarding attempt are forwarded to the caller as themselves,
+// not masked as an internal error). All other errors are returned as
+// codes.Internal with the supplied message format.
 func propagateOrInternal(err error, format string, args ...interface{}) error {
 	switch status.Code(err) {
-	case codes.PermissionDenied, codes.Unauthenticated, codes.NotFound, codes.AlreadyExists:
+	case codes.PermissionDenied, codes.Unauthenticated, codes.NotFound, codes.AlreadyExists, codes.FailedPrecondition:
 		return err
 	}
 	return status.Errorf(codes.Internal, format, args...)
@@ -1246,11 +1248,29 @@ func (s *IdentityService) DeleteUser(ctx context.Context,
 		return nil, status.Error(codes.Unavailable, "database is not configured")
 	}
 
+	// Fetched before deletion so its source/organization are available
+	// afterward to reset any onboard_rules tracking row (see below) — once
+	// the user row is gone there's no other way to recover them.
+	user, err := s.server.DB.FindUser(req.Username, "")
+	if err != nil && !errors.Is(err, models.ErrUserNotFound) {
+		return nil, status.Errorf(codes.Internal, "failed to look up user '%s': %v", req.Username, err)
+	}
+
 	if err := s.server.DB.DeleteUser(req.Username); err != nil {
 		if errors.Is(err, models.ErrUserNotFound) {
 			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
 		}
 		return nil, status.Errorf(codes.Internal, "failed to delete user '%s': %v", req.Username, err)
+	}
+
+	// Best-effort: revoke the user's onboard rule so a deleted account
+	// can't quietly onboard again on its next login without a fresh
+	// admin decision. Failing to do this must not undo (or fail to
+	// report) the delete that already succeeded.
+	if user != nil {
+		if err := s.server.DB.RevokeOnboardRule(user.Source, user.Username, user.Organization); err != nil {
+			s.log.Warn().Err(err).Msgf("failed to revoke onboard rule for deleted user '%s'", req.Username)
+		}
 	}
 
 	return &identityv1.DeleteUserResponse{Success: true}, nil

@@ -190,3 +190,65 @@ INSERT INTO identity.organizations (name, description) VALUES
 CREATE UNIQUE INDEX idx_access_tokens_username_name
     ON identity.access_tokens (username, name);
 
+-- onboard_rules controls whether a new user may onboard, and what they get
+-- when they do. A row is either:
+--   - a pattern rule (username_pattern contains '*'), admin-authored, e.g.
+--     idp='github', username_pattern='*', action='waitlist' as that idp's
+--     catch-all/default; or
+--   - a concrete decision (username_pattern has no '*'), either
+--     admin-authored (a one-off allow/reject for a specific person) or
+--     system-inserted the first time that exact user hits a 'waitlist'
+--     pattern rule.
+--
+-- org is the destination org a matching user is placed into (NOT a scope
+-- filter like identity.roles.org) — it always names exactly one
+-- organization, replacing whatever the identity provider itself reported.
+-- roles/sudo are the attributes applied to the user when a row resolves to
+-- 'allow'
+CREATE TABLE identity.onboard_rules (
+    id                SERIAL PRIMARY KEY,
+    idp               varchar     not null,  -- provider name, 'local', or '*' (any)
+    username_pattern  varchar     not null,  -- exact username, or a pattern containing '*'
+    org               varchar     not null references identity.organizations(name),
+    action            varchar     not null,  -- 'allow' | 'reject' | 'waitlist'
+    priority          integer     not null default 100, -- lower wins among matching rows of the same specificity
+
+    -- status tracks the outcome of an actual onboarding attempt against this
+    -- row, separate from action (the configured policy/decision): 'none'
+    -- (no attempt yet — the default for admin-authored rules), 'pending'
+    -- (a user hit this as a 'waitlist' decision, no admin decision yet),
+    -- 'rejected' (a user was rejected, either directly by an action='reject'
+    -- rule or by an admin rejecting a waitlisted request), 'onboarded' (the
+    -- user was actually created in identity.users). Set by the application
+    -- layer as onboarding attempts resolve, not admin-editable directly.
+    status            varchar     not null default 'none',
+
+    -- attributes applied to the user when this row resolves to 'allow'.
+    -- roles must be valid within org (org-scoped-or-global, same
+    -- resolution as ListRoles(org)) — enforced at the application layer by
+    -- CreateOnboardRule/UpdateOnboardRule, same precedent as
+    -- identity.role_blueprints having no FK to identity.roles.
+    roles             varchar[]   not null default '{}',
+    sudo              boolean     not null default false,
+
+    -- display metadata for system-inserted (waitlist-hit) rows, so an admin
+    -- can see who's asking without a fresh provider round-trip
+    fullname          varchar,
+    email             varchar,
+
+    note              text,                  -- admin comment / rejection reason
+    requested_at      TIMESTAMPTZ,           -- set only for system-inserted rows
+    decided_at        TIMESTAMPTZ,           -- set when action moves out of 'waitlist'
+    decided_by        varchar,               -- admin username who approved/rejected
+
+    created_at        TIMESTAMPTZ not null default now(),
+    updated_at        TIMESTAMPTZ not null default now(),
+
+    CONSTRAINT chk_onboard_rule_action CHECK (action IN ('allow', 'reject', 'waitlist')),
+    CONSTRAINT chk_onboard_rule_status CHECK (status IN ('none', 'pending', 'rejected', 'onboarded')),
+    CONSTRAINT onboard_rules_uniq UNIQUE (idp, username_pattern)
+);
+
+-- Speeds up both ResolveOnboardDecision's per-idp candidate fetch and
+-- listing the waitlist (action = 'waitlist') for the admin approval queue.
+CREATE INDEX idx_onboard_rules_idp_action ON identity.onboard_rules (idp, action);

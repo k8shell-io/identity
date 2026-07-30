@@ -308,13 +308,58 @@ func (s *Server) refreshUser(username string, source string, user *models.User) 
 				return nil, err
 			}
 
-			if err := s.applyOnboardPolicy(foundUser); err != nil {
-				return nil, err
+			decision, err := s.DB.ResolveOnboardDecision(foundUser.Source, foundUser.Username)
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve onboard decision for user '%s': %w", username, err)
 			}
+			switch decision.Action {
+			case models.OnboardActionReject:
+				// decision.Org is only empty in the fail-closed "nothing
+				// matched at all" case (see ResolveOnboardDecision) — there's
+				// no rule and no org to record a rejection against, so it's
+				// deliberately not persisted. A real matched reject rule
+				// always has decision.Org set.
+				if decision.Org != "" {
+					if err := s.DB.MarkRejectedByRule(foundUser.Source, foundUser.Username, decision.Org,
+						decision.Roles, decision.Sudo, foundUser.Fullname, foundUser.Email); err != nil {
+						s.log.Warn().Err(err).Msgf("failed to record onboard rejection for user '%s'", username)
+					}
+				}
+				return nil, status.Errorf(codes.PermissionDenied,
+					"onboarding not permitted for user '%s' via provider '%s'", username, foundUser.Source)
+			case models.OnboardActionWaitlist:
+				if err := s.DB.UpsertWaitlistEntry(foundUser.Source, foundUser.Username, decision.Org,
+					decision.Roles, decision.Sudo, foundUser.Fullname, foundUser.Email); err != nil {
+					return nil, fmt.Errorf("failed to add user '%s' to onboarding waitlist: %w", username, err)
+				}
+				return nil, status.Errorf(codes.FailedPrecondition,
+					"user '%s' has been added to the onboarding waitlist and is awaiting admin approval: %v",
+					username, models.ErrOnboardingPending)
+			case models.OnboardActionAllow:
+				foundUser.Organization = decision.Org
+				if len(decision.Roles) > 0 {
+					roles := make([]models.Role, len(decision.Roles))
+					for i, r := range decision.Roles {
+						roles[i] = models.Role(r)
+					}
+					foundUser.Roles = s.filterKnownRoles(foundUser.Username, roles)
+				}
+				foundUser.Sudo = decision.Sudo
+			}
+
 			err = s.DB.CreateUser(foundUser)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create user '%s' in database: %w", username, err)
 			}
+
+			// Status bookkeeping is best-effort: the user is already
+			// created, so a failure here must not fail the onboarding
+			// itself or risk it being retried into a duplicate-user error.
+			if err := s.DB.MarkOnboarded(foundUser.Source, foundUser.Username, foundUser.Organization,
+				decision.Roles, decision.Sudo, foundUser.Fullname, foundUser.Email); err != nil {
+				s.log.Warn().Err(err).Msgf("failed to record onboarded status for user '%s'", username)
+			}
+
 			return foundUser, nil
 		}
 
@@ -397,49 +442,6 @@ func (s *Server) checkEmailConflict(foundUser *models.User) error {
 	if existing != nil && existing.Username != foundUser.Username {
 		return status.Errorf(codes.AlreadyExists,
 			"email '%s' is already registered to user '%s'", foundUser.Email, existing.Username)
-	}
-	return nil
-}
-
-// applyOnboardPolicy evaluates the user:onboard action against the authz
-// service. It returns an error when the policy denies onboarding. On allow it
-// applies any resulting obligations (e.g. sudo) to the user before it is
-// persisted. It is a no-op when the authz client or JWT issuer is not
-// configured.
-func (s *Server) applyOnboardPolicy(user *models.User) error {
-	if s.authzClient == nil || s.JWT == nil {
-		return nil
-	}
-
-	token, err := s.issueUserToken(user)
-	if err != nil {
-		return fmt.Errorf("applyOnboardPolicy: failed to issue token for user '%s': %w", user.Username, err)
-	}
-
-	evalReq, err := authz.NewUserOnboardEvalRequest(user.Username).
-		WithIDP(user.Source).
-		Build()
-	if err != nil {
-		return fmt.Errorf("applyOnboardPolicy: failed to build eval request for user '%s': %w", user.Username, err)
-	}
-
-	evalProto := evalReq.ToProto(token)
-	evalProto.Package = "user"
-	resp, err := s.authzClient.Evaluate(context.Background(), evalProto)
-	if err != nil {
-		return fmt.Errorf("applyOnboardPolicy: authz evaluation failed for user '%s': %w", user.Username, err)
-	}
-
-	result := authz.PolicyResultFromProto(resp)
-	if !result.Allowed {
-		return fmt.Errorf("applyOnboardPolicy: onboarding denied for user '%s': %s", user.Username, result.Reason)
-	}
-
-	if sudo, ok := authz.ParseSudoObligation(result.Obligations); ok {
-		user.Sudo = sudo.Granted
-	}
-	if roles, ok := authz.ParseRolesObligation(result.Obligations); ok {
-		user.Roles = roles.Roles
 	}
 	return nil
 }
@@ -576,7 +578,7 @@ func (s *Server) GetUserByUsername(username string, source string) (*models.User
 	user, err = s.refreshUser(username, source, user)
 	if err != nil {
 		switch status.Code(err) {
-		case codes.PermissionDenied, codes.Unauthenticated, codes.AlreadyExists:
+		case codes.PermissionDenied, codes.Unauthenticated, codes.AlreadyExists, codes.FailedPrecondition:
 			return nil, err
 		}
 		return nil, fmt.Errorf("error occured when refreshing user '%s': %w", username, err)

@@ -248,7 +248,10 @@ func scanOrganizations(rows pgx.Rows) ([]*models.Organization, error) {
 // its org-scoped roles and their role_blueprints — mirroring DeleteRole's
 // own role_blueprints cleanup, just applied in bulk to every role scoped to
 // this org instead of one at a time, since a role (and its granted
-// blueprints) has no meaning once the org it's scoped to is gone.
+// blueprints) has no meaning once the org it's scoped to is gone. Its
+// onboard_rules are cascaded for the same reason: org there is a NOT NULL
+// destination, not an optional scope, so a rule naming this org has nothing
+// left to place users into once it's gone.
 //
 // Any user still belonging to the org is deliberately not cascaded:
 // identity.users.organization carries a NOT NULL foreign key to
@@ -287,6 +290,16 @@ func (d *DB) DeleteOrganization(name string) error {
 	if _, err := tx.Exec(ctx,
 		`DELETE FROM identity.roles WHERE org=$1`, name); err != nil {
 		return fmt.Errorf("delete organization roles: %w", err)
+	}
+
+	// onboard_rules.org is a NOT NULL destination (see
+	// db/migrations/000002_onboard_rules.up.sql), not an optional scope —
+	// a rule that places users into this org has no meaning once the org
+	// is gone, so it's cascaded here the same way role/role_blueprints are,
+	// rather than blocking the delete like a real user account would.
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM identity.onboard_rules WHERE org=$1`, name); err != nil {
+		return fmt.Errorf("delete organization onboard rules: %w", err)
 	}
 
 	result, err := tx.Exec(ctx, `DELETE FROM identity.organizations WHERE name=$1`, name)

@@ -148,8 +148,12 @@ func (s *IdentityService) UpdateRole(ctx context.Context,
 
 	role, err := s.server.DB.UpdateRole(req.GetName(), req.GetOrg(), description)
 	if err != nil {
-		if errors.Is(err, backend.ErrRoleNotFound) {
+		switch {
+		case errors.Is(err, backend.ErrRoleNotFound):
 			return nil, status.Errorf(codes.NotFound, "role '%s' not found", req.GetName())
+		case errors.Is(err, backend.ErrRoleIsGlobal):
+			return nil, status.Errorf(codes.FailedPrecondition,
+				"role '%s' is a global role and cannot be updated through this RPC", req.GetName())
 		}
 		return nil, status.Errorf(codes.Internal, "failed to update role '%s': %v", req.GetName(), err)
 	}
@@ -177,6 +181,9 @@ func (s *IdentityService) DeleteRole(ctx context.Context,
 		switch {
 		case errors.Is(err, backend.ErrRoleNotFound):
 			return nil, status.Errorf(codes.NotFound, "role '%s' not found", req.GetName())
+		case errors.Is(err, backend.ErrRoleIsGlobal):
+			return nil, status.Errorf(codes.FailedPrecondition,
+				"role '%s' is a global role and cannot be deleted through this RPC", req.GetName())
 		case errors.Is(err, backend.ErrRoleInUse):
 			return nil, status.Errorf(codes.FailedPrecondition,
 				"role '%s' is still assigned to at least one user", req.GetName())
@@ -207,8 +214,12 @@ func (s *IdentityService) AddRoleBlueprints(ctx context.Context,
 
 	role, err := s.server.DB.AddRoleBlueprints(req.GetName(), req.GetOrg(), req.GetBlueprints())
 	if err != nil {
-		if errors.Is(err, backend.ErrRoleNotFound) {
+		switch {
+		case errors.Is(err, backend.ErrRoleNotFound):
 			return nil, status.Errorf(codes.NotFound, "role '%s' not found", req.GetName())
+		case errors.Is(err, backend.ErrRoleIsGlobal):
+			return nil, status.Errorf(codes.FailedPrecondition,
+				"role '%s' is a global role and cannot be granted blueprints through this RPC", req.GetName())
 		}
 		return nil, status.Errorf(codes.Internal, "failed to add blueprints for role '%s': %v", req.GetName(), err)
 	}
@@ -235,8 +246,12 @@ func (s *IdentityService) RemoveRoleBlueprints(ctx context.Context,
 
 	role, err := s.server.DB.RemoveRoleBlueprints(req.GetName(), req.GetOrg(), req.GetBlueprints())
 	if err != nil {
-		if errors.Is(err, backend.ErrRoleNotFound) {
+		switch {
+		case errors.Is(err, backend.ErrRoleNotFound):
 			return nil, status.Errorf(codes.NotFound, "role '%s' not found", req.GetName())
+		case errors.Is(err, backend.ErrRoleIsGlobal):
+			return nil, status.Errorf(codes.FailedPrecondition,
+				"role '%s' is a global role and cannot have blueprints revoked through this RPC", req.GetName())
 		}
 		return nil, status.Errorf(codes.Internal, "failed to remove blueprints for role '%s': %v", req.GetName(), err)
 	}
