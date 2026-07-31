@@ -121,27 +121,47 @@ func (d *DB) roleNotFoundOrGlobal(name, org string) error {
 	return fmt.Errorf("%w: %q", ErrRoleNotFound, name)
 }
 
-// rolesBaseQuery selects a role registry row alongside its computed
-// UserCount and Blueprints. UserCount is computed via a left join against
-// identity.users rather than stored: identity.users has no index on roles,
-// so joining role-per-role (r.name = ANY(u.roles)) would rescan the users
-// table once per role; unnesting each user's roles once up front and
-// joining on equality instead scans identity.users a single time regardless
-// of role count. Blueprints is joined from identity.role_blueprints on an
-// exact (role, org) match — a role's own grants, not the org-scoped-or-global
-// union used when resolving a user's effective blueprints (see
-// UserBlueprintsExpr in internal/db/user.go). Both joins are one-to-many off
-// the same role row, so COUNT(DISTINCT ...)/array_agg(DISTINCT ...) are
-// required to undo the row fan-out from combining them. Callers append a
-// WHERE clause and must keep the GROUP BY/ORDER BY suffix below.
-const rolesBaseQuery = `SELECT r.name, COALESCE(r.description, ''), COALESCE(r.org, ''), r.created_at,
+// rolesSelectColumns and rolesBlueprintsJoin are the parts of the role
+// registry query shared regardless of how UserCount's ur join is scoped (see
+// rolesBaseQuery and rolesOrgScopedQuery below). Blueprints is joined from
+// identity.role_blueprints on an exact (role, org) match — a role's own
+// grants, not the org-scoped-or-global union used when resolving a user's
+// effective blueprints (see UserBlueprintsExpr in internal/db/user.go). Both
+// the blueprints join and the ur join are one-to-many off the same role row,
+// so COUNT(DISTINCT ...)/array_agg(DISTINCT ...) are required to undo the
+// row fan-out from combining them. Callers append a WHERE clause and must
+// keep the GROUP BY/ORDER BY suffix below.
+const rolesSelectColumns = `SELECT r.name, COALESCE(r.description, ''), COALESCE(r.org, ''), r.created_at,
 		COUNT(DISTINCT ur.username),
 		COALESCE(array_agg(DISTINCT rb.blueprint) FILTER (WHERE rb.blueprint IS NOT NULL), ARRAY[]::varchar[])
-	FROM identity.roles r
-	LEFT JOIN (SELECT username, unnest(roles) AS role_name FROM identity.users) ur
-		ON ur.role_name = r.name
+	FROM identity.roles r`
+
+const rolesBlueprintsJoin = `
 	LEFT JOIN identity.role_blueprints rb
 		ON rb.role = r.name AND rb.org IS NOT DISTINCT FROM r.org`
+
+// rolesBaseQuery computes UserCount as every user holding the role, across
+// every org — unnesting each user's roles once up front (rather than joining
+// role-per-role via r.name = ANY(u.roles), which has no index and would
+// rescan identity.users once per role). Used only by ListGlobalRoles, an
+// admin-wide view with no single requesting org to scope the count to.
+const rolesBaseQuery = rolesSelectColumns + `
+	LEFT JOIN (SELECT username, unnest(roles) AS role_name FROM identity.users) ur
+		ON ur.role_name = r.name` + rolesBlueprintsJoin
+
+// rolesOrgScopedQuery is rolesBaseQuery with UserCount additionally
+// restricted to users whose organization matches orgPlaceholder (a bind
+// parameter reference such as "$1", chosen by the caller to reuse whatever
+// parameter already carries the requesting org). Used by ListRoles and
+// getRole, which always run in the context of one requesting org: a global
+// role's UserCount there should reflect how many of THAT org's users hold
+// it, not the role's usage worldwide — otherwise an org admin managing a
+// global role would see every other org's assignments mixed into the count.
+func rolesOrgScopedQuery(orgPlaceholder string) string {
+	return rolesSelectColumns + `
+	LEFT JOIN (SELECT username, organization, unnest(roles) AS role_name FROM identity.users) ur
+		ON ur.role_name = r.name AND (ur.organization = ` + orgPlaceholder + ` OR ` + orgPlaceholder + ` IS NULL)` + rolesBlueprintsJoin
+}
 
 const rolesGroupOrderSuffix = ` GROUP BY r.name, r.description, r.org, r.created_at ORDER BY r.name`
 
@@ -162,11 +182,12 @@ func scanRoleRows(rows pgx.Rows) ([]*models.RoleInfo, error) {
 
 // getRole retrieves a single role by name and org (org must match exactly;
 // empty means the global role, not "any org"), including its computed
-// UserCount and Blueprints. Returns ErrRoleNotFound when no role by that name
-// is registered at all, or ErrRoleIsGlobal when it is registered but only as
-// a global role.
+// UserCount and Blueprints — UserCount scoped to org's users (see
+// rolesOrgScopedQuery). Returns ErrRoleNotFound when no role by that name is
+// registered at all, or ErrRoleIsGlobal when it is registered but only as a
+// global role.
 func (d *DB) getRole(name, org string) (*models.RoleInfo, error) {
-	query := rolesBaseQuery + ` WHERE r.name=$1 AND r.org IS NOT DISTINCT FROM $2` + rolesGroupOrderSuffix
+	query := rolesOrgScopedQuery("$2") + ` WHERE r.name=$1 AND r.org IS NOT DISTINCT FROM $2` + rolesGroupOrderSuffix
 
 	var orgVal *string
 	if org != "" {
@@ -189,10 +210,13 @@ func (d *DB) getRole(name, org string) (*models.RoleInfo, error) {
 
 // ListRoles returns the roles assignable within org, ordered by name: those
 // scoped to org plus all global roles (org IS NULL) — an org-scoped caller
-// must still see the global roles it may assign. org must be non-empty; use
-// ListGlobalRoles to list global roles on their own.
+// must still see the global roles it may assign. UserCount is scoped to
+// org's users (see rolesOrgScopedQuery), so a global role's count reflects
+// only how many of org's users hold it. org must be non-empty; use
+// ListGlobalRoles to list global roles (and their worldwide UserCount) on
+// their own.
 func (d *DB) ListRoles(org string) ([]*models.RoleInfo, error) {
-	query := rolesBaseQuery + ` WHERE r.org = $1 OR r.org IS NULL` + rolesGroupOrderSuffix
+	query := rolesOrgScopedQuery("$1") + ` WHERE r.org = $1 OR r.org IS NULL` + rolesGroupOrderSuffix
 
 	rows, err := d.Pool.Query(context.Background(), query, org)
 	if err != nil {
@@ -202,7 +226,9 @@ func (d *DB) ListRoles(org string) ([]*models.RoleInfo, error) {
 }
 
 // ListGlobalRoles returns the roles assignable across every organization
-// (org IS NULL), ordered by name.
+// (org IS NULL), ordered by name, with UserCount reflecting every user
+// holding the role worldwide (there is no single requesting org to scope it
+// to — see rolesBaseQuery).
 func (d *DB) ListGlobalRoles() ([]*models.RoleInfo, error) {
 	query := rolesBaseQuery + ` WHERE r.org IS NULL` + rolesGroupOrderSuffix
 

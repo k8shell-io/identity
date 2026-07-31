@@ -1052,8 +1052,9 @@ func (s *IdentityService) CreateUser(ctx context.Context,
 	}
 
 	if req.Email != "" {
-		if _, err := s.server.DB.FindUserByEmail(req.Email); err == nil {
-			return nil, status.Errorf(codes.AlreadyExists, "a user with email '%s' already exists", req.Email)
+		if existing, err := s.server.DB.FindUserByEmail(req.Email); err == nil {
+			return nil, status.Errorf(codes.AlreadyExists,
+				"email '%s' is already in use by user '%s'", req.Email, existing.Username)
 		} else if !errors.Is(err, models.ErrUserNotFound) {
 			return nil, status.Errorf(codes.Internal, "failed to check for existing email '%s': %v", req.Email, err)
 		}
@@ -1190,6 +1191,7 @@ func (s *IdentityService) UpdateUser(ctx context.Context,
 	// takes precedence over this). Global roles (org IS NULL, e.g. the
 	// seeded "admin" role) are assignable regardless of org, so they carry
 	// over rather than being stripped along with the rest.
+	oldOrg := user.Organization
 	if v := req.GetOrg(); v != nil {
 		newOrg := v.GetValue()
 		if !rolesExplicit && newOrg != user.Organization && len(user.Roles) > 0 {
@@ -1225,6 +1227,17 @@ func (s *IdentityService) UpdateUser(ctx context.Context,
 			return nil, status.Errorf(codes.InvalidArgument, "failed to update user '%s': %v", req.Username, err)
 		}
 		return nil, status.Errorf(codes.Internal, "failed to update user '%s': %v", req.Username, err)
+	}
+
+	// Best-effort: follow the user's own onboard_rules tracking row (if any)
+	// over to the new org and clear its roles, so it doesn't keep pointing a
+	// future onboarding resolution at the org the user just left, carrying
+	// role names that may not even be valid there. Failing this must not
+	// undo (or fail to report) the user update that already succeeded.
+	if user.Organization != oldOrg {
+		if err := s.server.DB.MoveOnboardRuleOrg(user.Source, user.Username, oldOrg, user.Organization); err != nil {
+			s.log.Warn().Err(err).Msgf("failed to move onboard rule for user '%s' to org '%s'", req.Username, user.Organization)
+		}
 	}
 
 	return gapi.UserToProto(user), nil

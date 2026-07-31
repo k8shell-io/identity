@@ -401,6 +401,31 @@ func (d *DB) RevokeOnboardRule(idp, username, org string) error {
 	return nil
 }
 
+// MoveOnboardRuleOrg updates a concrete (exact-username) onboard rule's org
+// to follow the user it tracks after an admin moves that user to a
+// different organization — otherwise the tracking row would keep pointing
+// at an org the user no longer belongs to, and a later onboarding attempt
+// resolving through this row (e.g. after the account is deleted and would
+// re-onboard) would place them back into the org they were moved out of.
+// roles is cleared at the same time: identity.onboard_rules.roles is only
+// validated against the rule's own org at the application layer (see
+// MissingRolesForOrg), so nothing on the old role list can be assumed valid
+// once the rule belongs to a different org — mirrors the same drop UpdateUser
+// applies to the user's own role list on an org change. It's a no-op (not an
+// error) if there is no matching row at all — a user onboarded without going
+// through the onboard_rules flow (e.g. created directly via CreateUser) has
+// no tracking row to move.
+func (d *DB) MoveOnboardRuleOrg(idp, username, oldOrg, newOrg string) error {
+	_, err := d.Pool.Exec(context.Background(),
+		`UPDATE identity.onboard_rules SET org=$4, roles='{}', updated_at=now()
+		 WHERE idp=$1 AND username_pattern=$2 AND org=$3`,
+		idp, username, oldOrg, newOrg)
+	if err != nil {
+		return fmt.Errorf("move onboard rule org: %w", err)
+	}
+	return nil
+}
+
 // ApproveWaitlistEntry flips a pending onboard rule's action to 'allow' and
 // records who decided it. Returns ErrOnboardRuleNotFound when no rule with
 // that id is currently in the waitlist action (already decided, or never
