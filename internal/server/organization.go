@@ -89,9 +89,9 @@ func (s *IdentityService) GetOrganizationsQuerySchema(ctx context.Context,
 // gateway's policy evaluation (never client-supplied — see the field's doc
 // in query.proto) and is enforced as a mandatory scoping constraint,
 // independent of the caller's own Filters, the same way QueryUsers already
-// enforces its obligations. org:list's obligation key is "orgs" (a set of
-// organizations, see authz.ParseOrgsObligation) — distinct from the "org"
-// key user:list uses for a single organization.
+// enforces its obligations. org:list reuses the same "org" key as
+// user:list/session:list (see authz.ParseOrgObligation) — a subject belongs
+// to exactly one organization, so this is a single value, not a list.
 func (s *IdentityService) QueryOrganizations(ctx context.Context,
 	req *identityv1.QueryOrganizationsRequest) (*identityv1.OrganizationList, error) {
 	if err := query.Validate(organizationsQueryDescriptor, req.Query); err != nil {
@@ -102,9 +102,9 @@ func (s *IdentityService) QueryOrganizations(ctx context.Context,
 		return nil, status.Error(codes.Unavailable, "organization query requires a database backend")
 	}
 
-	orgsOb, _ := authz.ParseOrgsObligation(req.Query.GetObligations())
+	orgOb, _ := authz.ParseOrgObligation(req.Query.GetObligations())
 
-	orgs, err := s.server.DB.ListOrganizationsQuery(organizationsQueryDescriptor, organizationsQueryFieldMap, req.Query, orgsOb.Orgs)
+	orgs, err := s.server.DB.ListOrganizationsQuery(organizationsQueryDescriptor, organizationsQueryFieldMap, req.Query, orgOb.Org)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to query organizations: %v", err)
 	}

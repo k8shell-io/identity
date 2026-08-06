@@ -181,13 +181,12 @@ const organizationsSelectSQL = `
 // — unlike ListUsersQuery, which has no aggregation at all and uses
 // query.BuildQuery as-is with a normal WHERE.
 //
-// obligationOrgs is parsed by the caller from the payload's authz
-// obligations (see common/pkg/authz.ParseOrgsObligation) and is enforced as
-// a mandatory AND onto the Filters-derived HAVING, regardless of the
-// client's own Filters.op — an obligation must never be diluted by a
-// client-chosen OR.
+// obligationOrg is parsed by the caller from the payload's authz obligations
+// (see common/pkg/authz.ParseOrgObligation) and is enforced as a mandatory
+// AND onto the Filters-derived HAVING, regardless of the client's own
+// Filters.op — an obligation must never be diluted by a client-chosen OR.
 func (d *DB) ListOrganizationsQuery(desc *queryv1.Descriptor, fm pkgquery.FieldMap, payload *queryv1.Payload,
-	obligationOrgs []string) ([]*models.Organization, error) {
+	obligationOrg string) ([]*models.Organization, error) {
 	limit, offset := db.AdjustListLimit(int(payload.GetPage().GetLimit()), int(payload.GetPage().GetOffset()))
 
 	// $1 is reserved for orgAdminRoleName, used inside the SELECT's
@@ -204,9 +203,9 @@ func (d *DB) ListOrganizationsQuery(desc *queryv1.Descriptor, fm pkgquery.FieldM
 	if having != "" {
 		conditions = append(conditions, "("+having+")")
 	}
-	if len(obligationOrgs) > 0 {
-		args = append(args, obligationOrgs)
-		conditions = append(conditions, fmt.Sprintf("o.name = ANY($%d)", len(args)))
+	if obligationOrg != "" {
+		args = append(args, obligationOrg)
+		conditions = append(conditions, fmt.Sprintf("o.name = $%d", len(args)))
 	}
 
 	sqlQuery := organizationsSelectSQL
