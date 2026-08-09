@@ -373,6 +373,19 @@ func (f *FileUserProvider) ResolvePullRequestToRef(ctx context.Context, in *iden
 		"file user provider does not support resolving pull requests to refs")
 }
 
+// ListRepoOwners is not supported by the file-backed provider: it has no
+// upstream account to enumerate repository owners from.
+func (f *FileUserProvider) ListRepoOwners(ctx context.Context, in *identityv1.Username,
+	opts ...grpc.CallOption) (*identityv1.RepoOwnerList, error) {
+	return nil, status.Errorf(codes.Unimplemented, "file user provider does not support listing repo owners")
+}
+
+// ListRepos is not supported by the file-backed provider.
+func (f *FileUserProvider) ListRepos(ctx context.Context, in *identityv1.ListReposRequest,
+	opts ...grpc.CallOption) (*identityv1.RepoList, error) {
+	return nil, status.Errorf(codes.Unimplemented, "file user provider does not support listing repos")
+}
+
 // CompleteUserWebFlow completes web-flow onboarding and returns the user.
 func (f *FileUserProvider) CompleteUserWebFlow(ctx context.Context, in *identityv1.CompleteUserWebFlowRequest,
 	opts ...grpc.CallOption) (*commonv1.User, error) {
