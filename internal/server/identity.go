@@ -828,9 +828,12 @@ func (s *IdentityService) GetUserCredential(ctx context.Context,
 
 	cred, err := s.server.ResolveCredential(ctx, req.Username, req.ServiceName, req.ServiceScope)
 	if err != nil {
-		if errors.Is(err, models.ErrUserNotFound) {
+		switch {
+		case errors.Is(err, models.ErrUserNotFound):
 			return nil, status.Errorf(codes.NotFound, "credential not found for user '%s', service '%s', scope '%s'",
 				req.Username, req.ServiceName, req.ServiceScope)
+		case errors.Is(err, ErrServiceAccountNotFound):
+			return nil, status.Errorf(codes.NotFound, "failed to resolve credential: %v", err)
 		}
 		return nil, status.Errorf(codes.Internal, "failed to resolve credential: %v", err)
 	}
