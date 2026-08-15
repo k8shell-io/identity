@@ -427,13 +427,15 @@ func (d *DB) MoveOnboardRuleOrg(idp, username, oldOrg, newOrg string) error {
 }
 
 // ApproveWaitlistEntry flips a pending onboard rule's action to 'allow' and
-// records who decided it. Returns ErrOnboardRuleNotFound when no rule with
-// that id is currently in the waitlist action (already decided, or never
-// requested).
+// status to 'approved', and records who decided it. Status moves to
+// 'onboarded' separately, by MarkOnboarded, once the user actually logs in —
+// approval alone does not onboard them. Returns ErrOnboardRuleNotFound when
+// no rule with that id is currently in the waitlist action (already decided,
+// or never requested).
 func (d *DB) ApproveWaitlistEntry(id int32, decidedBy string) (*models.OnboardRule, error) {
 	row := d.Pool.QueryRow(context.Background(),
 		`UPDATE identity.onboard_rules
-		 SET action='allow', decided_at=now(), decided_by=$2, updated_at=now()
+		 SET action='allow', status='approved', decided_at=now(), decided_by=$2, updated_at=now()
 		 WHERE id=$1 AND action='waitlist'
 		 RETURNING `+onboardRuleSelectColumns,
 		id, decidedBy,

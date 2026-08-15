@@ -671,18 +671,21 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 		return nil, status.Errorf(codes.NotFound,
 			"no suitable identity provider found to complete web flow for provider '%s'", provider)
 	}
-	username, err := p.CompleteUserWebFlow(context.Background(), &identityv1.CompleteUserWebFlowRequest{
+	flowResult, err := p.CompleteUserWebFlow(context.Background(), &identityv1.CompleteUserWebFlowRequest{
 		State: idpState,
 		Code:  req.Code,
 	})
 	if err != nil {
 		return nil, propagateOrInternal(err, "failed to complete web flow for provider '%s': %v", provider, err)
 	}
+	onboardRule := flowResult.GetOnboardRule()
+	username := onboardRule.GetUsername()
+	hint := gapi.ProtoToOnboardUserRule(onboardRule)
 
-	user, err := s.server.GetUserByUsername(username.GetUsername(), provider)
+	user, freshlyOnboarded, err := s.server.GetUserByUsernameWithOnboardHint(username, provider, hint)
 	if err != nil {
 		return nil, propagateOrInternal(err, "failed to get user '%s' after completing web flow for provider '%s': %v",
-			username.GetUsername(), provider, err)
+			username, provider, err)
 	}
 
 	token, err := s.server.issueUserToken(user)
@@ -691,6 +694,9 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 	}
 
 	resp := &identityv1.CompleteUserWebFlowResponse{UserToken: token}
+	if freshlyOnboarded {
+		resp.FollowUp = flowResult.GetFollowUp()
+	}
 
 	if createPat {
 		scopes := []string{"*"}
@@ -699,11 +705,11 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 		policyResult, err := s.server.applyTokenCreatePolicy(user, authz.TokenCreateSourceWebFlow)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to evaluate token create policy for user '%s': %v",
-				username.GetUsername(), err)
+				username, err)
 		}
 		if policyResult != nil && !policyResult.Allowed {
 			resp.PatError = fmt.Sprintf("Create token not allowed for user '%s'. %s",
-				username.GetUsername(), policyResult.Reason)
+				username, policyResult.Reason)
 			resp.CliState = cliState
 		} else {
 			if policyResult != nil {
@@ -720,21 +726,21 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 			suffix, err := randomTokenSuffix()
 			if err != nil {
 				return nil, status.Errorf(codes.Internal, "failed to create access token for user '%s': %v",
-					username.GetUsername(), err)
+					username, err)
 			}
 
-			_, raw, err := s.server.DB.CreateAccessToken(username.GetUsername(),
+			_, raw, err := s.server.DB.CreateAccessToken(username,
 				"OAuth-"+suffix, scopes, patExpiresAt, true)
 			if err != nil {
 				return nil, status.Errorf(codes.Internal, "failed to create access token for user '%s': %v",
-					username.GetUsername(), err)
+					username, err)
 			}
 			resp.Pat = raw
 			resp.CliState = cliState
 		}
 	}
 
-	s.server.provisionGitCredential(ctx, username.GetUsername(), p)
+	s.server.provisionGitCredential(ctx, username, p)
 
 	return resp, nil
 }

@@ -388,7 +388,7 @@ func (f *FileUserProvider) ListRepos(ctx context.Context, in *identityv1.ListRep
 
 // CompleteUserWebFlow completes web-flow onboarding and returns the user.
 func (f *FileUserProvider) CompleteUserWebFlow(ctx context.Context, in *identityv1.CompleteUserWebFlowRequest,
-	opts ...grpc.CallOption) (*commonv1.User, error) {
+	opts ...grpc.CallOption) (*commonv1.CompleteUserWebFlowResult, error) {
 	return nil, status.Errorf(codes.Unimplemented,
 		"file user provider does not support onboarding via web flow")
 }

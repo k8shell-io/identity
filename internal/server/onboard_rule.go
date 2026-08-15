@@ -11,7 +11,6 @@ import (
 	commonv1 "github.com/k8shell-io/common/pkg/api/gen/go/common/v1"
 	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
 	queryv1 "github.com/k8shell-io/common/pkg/api/gen/go/query/v1"
-	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
 	"github.com/k8shell-io/common/pkg/query"
 	backend "github.com/k8shell-io/identity/internal/db"
@@ -224,10 +223,15 @@ func (s *IdentityService) QueryOnboardRules(ctx context.Context,
 	return &identityv1.OnboardRuleList{Rules: pbRules}, nil
 }
 
-// ApproveOnboardRequest approves a pending ("waitlist") onboard rule,
-// flipping its action to "allow", and immediately onboards the user it
-// names — via the same refreshUser/ResolveOnboardDecision path a login
-// attempt would take — rather than waiting for their next login attempt.
+// ApproveOnboardRequest approves a pending ("waitlist") onboard rule, flipping
+// its action to "allow". It deliberately does not onboard the user itself —
+// that happens lazily on their next login/web-flow attempt via the normal
+// refreshUser/ResolveOnboardDecision path, same as any other allow rule.
+// Onboarding eagerly here, at approval time, would pre-empt that: e.g.
+// CompleteUserWebFlow's freshly-onboarded signal (used to deliver a
+// provider's follow-up action exactly once) is derived from the user record
+// being created during that call, which never happens if approval already
+// created it out of band.
 func (s *IdentityService) ApproveOnboardRequest(ctx context.Context,
 	req *identityv1.ApproveOnboardRuleRequest) (*commonv1.User, error) {
 	if req.GetId() == 0 {
@@ -237,21 +241,14 @@ func (s *IdentityService) ApproveOnboardRequest(ctx context.Context,
 		return nil, status.Error(codes.Unavailable, "database is not configured")
 	}
 
-	rule, err := s.server.DB.ApproveWaitlistEntry(req.GetId(), req.GetDecidedBy())
-	if err != nil {
+	if _, err := s.server.DB.ApproveWaitlistEntry(req.GetId(), req.GetDecidedBy()); err != nil {
 		if errors.Is(err, backend.ErrOnboardRuleNotFound) {
 			return nil, status.Errorf(codes.NotFound, "no pending onboard request '%d' found", req.GetId())
 		}
 		return nil, status.Errorf(codes.Internal, "failed to approve onboard request '%d': %v", req.GetId(), err)
 	}
 
-	user, err := s.server.GetUserByUsername(rule.UsernamePattern, rule.IDP)
-	if err != nil {
-		return nil, propagateOrInternal(err, "onboard request '%d' approved but failed to onboard user '%s': %v",
-			req.GetId(), rule.UsernamePattern, err)
-	}
-
-	return gapi.UserToProto(user), nil
+	return &commonv1.User{}, nil
 }
 
 // RejectOnboardRequest rejects a pending ("waitlist") onboard rule,

@@ -245,7 +245,7 @@ CREATE TABLE identity.onboard_rules (
     updated_at        TIMESTAMPTZ not null default now(),
 
     CONSTRAINT chk_onboard_rule_action CHECK (action IN ('allow', 'reject', 'waitlist')),
-    CONSTRAINT chk_onboard_rule_status CHECK (status IN ('none', 'pending', 'rejected', 'onboarded')),
+    CONSTRAINT chk_onboard_rule_status CHECK (status IN ('none', 'pending', 'approved', 'rejected', 'onboarded')),
     CONSTRAINT onboard_rules_uniq UNIQUE (idp, username_pattern)
 );
 
