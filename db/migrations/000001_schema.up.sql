@@ -88,10 +88,11 @@ CREATE TABLE identity.users (
     gid            integer      not null,        -- primary POSIX GID
 
     -- profile
-    fullname       varchar,
-    email          varchar,
-    shell          varchar,                      -- login shell path
-    sudo           boolean      not null default false, -- sudo access
+    fullname         varchar,
+    email            varchar,
+    shell            varchar,                 -- login shell path
+    sudo             boolean not null default false, -- sudo access
+    manage_info_url  varchar,                 -- optional management link from an identity provider's onboarding decision
 
     -- authentication
     password       varchar,                      -- hashed; NULL for external auth

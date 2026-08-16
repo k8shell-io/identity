@@ -39,6 +39,12 @@ type OnboardDecision struct {
 	Roles  []string
 	Sudo   bool
 	RuleID int32
+
+	// Fullname, when non-empty, overrides the display fullname recorded
+	// against the onboard_rules row this decision is persisted to (see
+	// Server.applyOnboardHint) — otherwise the provider's FindUser-reported
+	// fullname is used, as before.
+	Fullname string
 }
 
 // onboardRuleSelectColumns is the shared column list for reading a full

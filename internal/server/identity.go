@@ -688,15 +688,25 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 			username, provider, err)
 	}
 
+	// manage_info is recorded on the user's own profile rather than forwarded
+	// downstream: it's only meaningful the one time the user is freshly
+	// onboarded, and a client reconnecting later has no way to ask for it again
+	// once it's gone unless it's persisted somewhere.
+	if freshlyOnboarded {
+		if mi := flowResult.GetManageInfo(); mi != nil && mi.GetUrl() != "" {
+			user.ManageInfoURL = mi.GetUrl()
+			if err := s.server.DB.UpdateUser(user); err != nil {
+				s.log.Warn().Err(err).Msgf("failed to store manage info for user '%s'", username)
+			}
+		}
+	}
+
 	token, err := s.server.issueUserToken(user)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to issue token for user '%s'", user.Username)
 	}
 
-	resp := &identityv1.CompleteUserWebFlowResponse{UserToken: token}
-	if freshlyOnboarded {
-		resp.FollowUp = flowResult.GetFollowUp()
-	}
+	resp := &identityv1.CompleteUserWebFlowResponse{UserToken: token, NewUser: freshlyOnboarded}
 
 	if createPat {
 		scopes := []string{"*"}

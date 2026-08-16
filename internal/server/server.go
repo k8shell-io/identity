@@ -264,11 +264,13 @@ func (s *Server) getLocalUsers() []*models.User {
 // filterRolesForOrg) — a provider can't grant a role the org doesn't recognize.
 // hint.Sudo, when non-nil, replaces decision.Sudo — proto3 optional gives the
 // provider a way to say nothing about sudo (nil, defer to the db) as distinct from
-// explicitly granting or revoking it (non-nil). decision.Org is never touched: the
-// provider has no say in org placement, and if nothing in identity.onboard_rules
-// matched this idp at all (the fail-closed case, decision.Org == ""), the hint is
-// ignored entirely — there is no org to place the user into regardless of what the
-// provider decided.
+// explicitly granting or revoking it (non-nil). hint.Fullname, when non-empty,
+// replaces decision.Fullname, overriding the display fullname that would otherwise
+// be recorded against the matched onboard_rules row (see refreshUser). decision.Org
+// is never touched: the provider has no say in org placement, and if nothing in
+// identity.onboard_rules matched this idp at all (the fail-closed case,
+// decision.Org == ""), the hint is ignored entirely — there is no org to place the
+// user into regardless of what the provider decided.
 func (s *Server) applyOnboardHint(decision *backend.OnboardDecision, username string, hint *models.OnboardUserRule) {
 	if hint == nil || decision.Org == "" {
 		return
@@ -282,6 +284,9 @@ func (s *Server) applyOnboardHint(decision *backend.OnboardDecision, username st
 	}
 	if hint.Sudo != nil {
 		decision.Sudo = *hint.Sudo
+	}
+	if hint.Fullname != "" {
+		decision.Fullname = hint.Fullname
 	}
 }
 
@@ -388,6 +393,15 @@ func (s *Server) refreshUser(username string, source string, user *models.User,
 			}
 			s.applyOnboardHint(decision, foundUser.Username, hint)
 
+			// decision.Fullname carries an identity provider's onboarding-hint
+			// override (see applyOnboardHint); fall back to the fullname the
+			// provider reported for the user's own record when the hint didn't
+			// set one.
+			ruleFullname := foundUser.Fullname
+			if decision.Fullname != "" {
+				ruleFullname = decision.Fullname
+			}
+
 			switch decision.Action {
 			case models.OnboardActionReject:
 				// decision.Org is only empty in the fail-closed "nothing
@@ -397,7 +411,7 @@ func (s *Server) refreshUser(username string, source string, user *models.User,
 				// always has decision.Org set.
 				if decision.Org != "" {
 					if err := s.DB.MarkRejectedByRule(foundUser.Source, foundUser.Username, decision.Org,
-						decision.Roles, decision.Sudo, foundUser.Fullname, foundUser.Email); err != nil {
+						decision.Roles, decision.Sudo, ruleFullname, foundUser.Email); err != nil {
 						s.log.Warn().Err(err).Msgf("failed to record onboard rejection for user '%s'", username)
 					}
 				}
@@ -405,7 +419,7 @@ func (s *Server) refreshUser(username string, source string, user *models.User,
 					"onboarding not permitted for user '%s' via provider '%s'", username, foundUser.Source)
 			case models.OnboardActionWaitlist:
 				if err := s.DB.UpsertWaitlistEntry(foundUser.Source, foundUser.Username, decision.Org,
-					decision.Roles, decision.Sudo, foundUser.Fullname, foundUser.Email); err != nil {
+					decision.Roles, decision.Sudo, ruleFullname, foundUser.Email); err != nil {
 					return nil, false, fmt.Errorf("failed to add user '%s' to onboarding waitlist: %w", username, err)
 				}
 				return nil, false, status.Errorf(codes.FailedPrecondition,
@@ -432,7 +446,7 @@ func (s *Server) refreshUser(username string, source string, user *models.User,
 			// created, so a failure here must not fail the onboarding
 			// itself or risk it being retried into a duplicate-user error.
 			if err := s.DB.MarkOnboarded(foundUser.Source, foundUser.Username, foundUser.Organization,
-				decision.Roles, decision.Sudo, foundUser.Fullname, foundUser.Email); err != nil {
+				decision.Roles, decision.Sudo, ruleFullname, foundUser.Email); err != nil {
 				s.log.Warn().Err(err).Msgf("failed to record onboarded status for user '%s'", username)
 			}
 
@@ -646,8 +660,8 @@ func (s *Server) GetUserByUsername(username string, source string) (*models.User
 // already exist, folds it into the onboarding decision otherwise resolved purely from
 // identity.onboard_rules (see refreshUser). The second return value reports whether
 // this call actually created the user (as opposed to finding an existing one) — used
-// by callers that must only act on a fresh onboarding once, such as attaching a
-// provider-supplied follow-up action to the response.
+// by callers that must only act on a fresh onboarding once, such as recording a
+// provider-supplied manage_info link on the user's profile.
 func (s *Server) GetUserByUsernameWithOnboardHint(username string, source string,
 	hint *models.OnboardUserRule) (*models.User, bool, error) {
 	return s.getUserByUsername(username, source, hint)
