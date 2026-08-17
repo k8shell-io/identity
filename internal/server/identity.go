@@ -799,10 +799,34 @@ func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context,
 		Userstr: userStr.Raw(),
 	})
 	if err != nil {
+		if isBlueprintNotFoundErr(err) {
+			return nil, status.Errorf(codes.NotFound, "blueprint not found for '%s' with provider '%s': %v",
+				userStr.Username(), provider.Name(), err)
+		}
 		return nil, propagateOrInternal(err, "failed to get custom blueprint for '%s' with provider '%s': %v",
 			userStr.Username(), provider.Name(), err)
 	}
 	return blueprintpb, nil
+}
+
+// blueprintNotFoundMarkers are substrings the remote idp-github provider
+// currently embeds in a codes.Internal error when a user's blueprint
+// repository or ref cannot be found, instead of returning codes.NotFound
+// itself. Matched here so callers (e.g. the provisioner) can detect the
+// condition and fall back to a default blueprint.
+var blueprintNotFoundMarkers = []string{
+	"does not exist or is not accessible",
+	"not found in repository",
+}
+
+func isBlueprintNotFoundErr(err error) bool {
+	msg := err.Error()
+	for _, marker := range blueprintNotFoundMarkers {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // ListUserCredentials returns stored credentials for a user, or a single
