@@ -372,6 +372,12 @@ func (s *Server) refreshUser(username string, source string, user *models.User,
 		}
 
 		if foundUser == nil && lookupErr != nil {
+			if user != nil {
+				s.log.Warn().Msgf(
+					"Provider lookup for user '%s' failed (%v); serving cached record from before the outage",
+					username, lookupErr)
+				return user, false, nil
+			}
 			return nil, false, lookupErr
 		}
 
