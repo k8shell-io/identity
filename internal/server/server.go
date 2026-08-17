@@ -267,10 +267,14 @@ func (s *Server) getLocalUsers() []*models.User {
 // explicitly granting or revoking it (non-nil). hint.Fullname, when non-empty,
 // replaces decision.Fullname, overriding the display fullname that would otherwise
 // be recorded against the matched onboard_rules row (see refreshUser). decision.Org
-// is never touched: the provider has no say in org placement, and if nothing in
-// identity.onboard_rules matched this idp at all (the fail-closed case,
-// decision.Org == ""), the hint is ignored entirely — there is no org to place the
-// user into regardless of what the provider decided.
+// is never touched here: org placement is decided earlier, by which org
+// ResolveOnboardDecision was scoped to (hint.Organization, or
+// DefaultOrganizationName when the provider reported none — see refreshUser). A
+// provider can therefore only ever land a user in an org that already has a
+// matching onboard_rules row for it; it cannot invent or auto-create one. If
+// nothing in identity.onboard_rules matched idp within that org at all (the
+// fail-closed case, decision.Org == ""), the hint is ignored entirely — there is
+// no org to place the user into regardless of what the provider decided.
 func (s *Server) applyOnboardHint(decision *backend.OnboardDecision, username string, hint *models.OnboardUserRule) {
 	if hint == nil || decision.Org == "" {
 		return
@@ -357,18 +361,43 @@ func (s *Server) refreshUser(username string, source string, user *models.User,
 				s.log.Warn().Msgf("Failed to look up user '%s' via provider '%s': %v", username, provider.Name(), err)
 				continue
 			}
-			if userpb == nil || userpb.Username == "" {
+			result := gapi.ProtoToUserResult(userpb)
+			if result == nil || result.OnboardRule.Username == "" {
 				s.log.Debug().Msgf("Provider '%s' did not find user '%s'", provider.Name(), username)
 				continue
 			}
-			foundUser = gapi.ProtoToUser(userpb)
 
-			if foundUser != nil {
-				s.normalizeUser(foundUser)
-				foundUser.ExpiresAt = time.Now().Add(time.Duration(provider.UserMaxAge()) * time.Second)
-				foundUser.Roles = s.filterKnownRoles(foundUser.Username, foundUser.Roles)
-				break
+			rule := result.OnboardRule
+			roles := make([]models.Role, len(rule.Roles))
+			for i, r := range rule.Roles {
+				roles[i] = models.Role(r)
 			}
+			foundUser = &models.User{
+				Username:    rule.Username,
+				Fullname:    rule.Fullname,
+				Email:       rule.Email,
+				Roles:       roles,
+				Source:      provider.Name(),
+				Shell:       defaultUserShell,
+				IsValid:     true,
+				ManageRepos: result.ManageRepos,
+				GitAddress:  result.GitAddress,
+			}
+			if rule.Sudo != nil {
+				foundUser.Sudo = *rule.Sudo
+			}
+			// FindUser re-evaluates the provider's onboarding decision for this
+			// user on every refresh, same as CompleteUserWebFlow does once at
+			// onboarding time, so treat it the same way when no more specific
+			// hint was already supplied by the caller.
+			if hint == nil {
+				hint = &rule
+			}
+
+			s.normalizeUser(foundUser)
+			foundUser.ExpiresAt = time.Now().Add(time.Duration(provider.UserMaxAge()) * time.Second)
+			foundUser.Roles = s.filterKnownRoles(foundUser.Username, foundUser.Roles)
+			break
 		}
 
 		if foundUser == nil && lookupErr != nil {
@@ -400,7 +429,11 @@ func (s *Server) refreshUser(username string, source string, user *models.User,
 				return nil, false, err
 			}
 
-			decision, err := s.DB.ResolveOnboardDecision(foundUser.Source, foundUser.Username)
+			onboardOrg := backend.DefaultOrganizationName
+			if hint != nil && hint.Organization != "" {
+				onboardOrg = hint.Organization
+			}
+			decision, err := s.DB.ResolveOnboardDecision(foundUser.Source, foundUser.Username, onboardOrg)
 			if err != nil {
 				return nil, false, fmt.Errorf("failed to resolve onboard decision for user '%s': %w", username, err)
 			}
@@ -458,6 +491,8 @@ func (s *Server) refreshUser(username string, source string, user *models.User,
 		if updateUser {
 			user.IsValid = foundUser.IsValid
 			user.ExpiresAt = foundUser.ExpiresAt
+			user.ManageRepos = foundUser.ManageRepos
+			user.GitAddress = foundUser.GitAddress
 			err := s.DB.UpdateUser(user)
 			if err != nil {
 				return nil, false, fmt.Errorf("failed to update user '%s' in database: %w", username, err)

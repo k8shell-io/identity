@@ -688,16 +688,16 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 			username, provider, err)
 	}
 
-	// manage_info is recorded on the user's own profile rather than forwarded
-	// downstream: it's only meaningful the one time the user is freshly
-	// onboarded, and a client reconnecting later has no way to ask for it again
-	// once it's gone unless it's persisted somewhere.
-	if freshlyOnboarded {
-		if mi := flowResult.GetManageInfo(); mi != nil && mi.GetUrl() != "" {
-			user.ManageInfoURL = mi.GetUrl()
-			if err := s.server.DB.UpdateUser(user); err != nil {
-				s.log.Warn().Err(err).Msgf("failed to store manage info for user '%s'", username)
-			}
+	// manage_repos/git_address are recorded on the user's own profile rather
+	// than forwarded downstream, so a client reconnecting later can read them
+	// off the user record instead of needing to ask again. refreshUser keeps
+	// them current on subsequent logins via FindUser, but store the values
+	// from this flow immediately rather than waiting for the next refresh.
+	if flowResult.GetManageRepos() != "" || flowResult.GetGitAddress() != "" {
+		user.ManageRepos = flowResult.GetManageRepos()
+		user.GitAddress = flowResult.GetGitAddress()
+		if err := s.server.DB.UpdateUser(user); err != nil {
+			s.log.Warn().Err(err).Msgf("failed to store manage repos/git address for user '%s'", username)
 		}
 	}
 

@@ -19,8 +19,8 @@ import (
 )
 
 // ErrOnboardRuleExists is returned by CreateOnboardRule when a rule with the
-// same (idp, username_pattern) already exists — regardless of org, see
-// onboard_rules_uniq in db/migrations/000002_onboard_rules.up.sql.
+// same (idp, username_pattern, org) already exists, see onboard_rules_uniq
+// in db/migrations/000001_schema.up.sql.
 var ErrOnboardRuleExists = errors.New("onboard rule already exists")
 
 // ErrOnboardRuleNotFound is returned when no onboard rule with the given id
@@ -84,9 +84,7 @@ func nonNilRoles(roles []string) []string {
 // identity.onboard_rules writes into sentinel errors; returns nil (meaning
 // "not a recognized constraint violation") otherwise. The onboard_rules_uniq
 // violation is deliberately not handled here — CreateOnboardRule builds a
-// more useful message for it naming the org that actually owns the
-// conflicting row (see onboardRuleExistsError), since uniqueness excludes
-// org and the conflict may be with a different org than the one requested.
+// more useful message for it (see onboardRuleExistsError).
 func onboardRulePgError(err error, org string, action models.OnboardAction) error {
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) {
@@ -104,22 +102,10 @@ func onboardRulePgError(err error, org string, action models.OnboardAction) erro
 }
 
 // onboardRuleExistsError builds an ErrOnboardRuleExists message for a
-// conflicting (idp, username_pattern), without naming the org that actually
-// owns it when that differs from requestedOrg — since onboard_rules_uniq
-// excludes org from the key, the conflict may belong to a different
-// (tenant) org than the caller's own, and its name is deliberately not
-// leaked to a caller who only knows their own org. Falls back to the same
-// generic wording if the lookup itself fails for any reason (never lets a
-// bookkeeping error hide the original AlreadyExists).
+// conflicting (idp, username_pattern, org) — org is part of onboard_rules_uniq,
+// so a conflict is always within the caller's own requestedOrg, never a
+// different (tenant) org.
 func (d *DB) onboardRuleExistsError(idp, usernamePattern, requestedOrg string) error {
-	var existingOrg string
-	err := d.Pool.QueryRow(context.Background(),
-		`SELECT org FROM identity.onboard_rules WHERE idp=$1 AND username_pattern=$2`,
-		idp, usernamePattern).Scan(&existingOrg)
-	if err == nil && existingOrg != requestedOrg {
-		return fmt.Errorf("%w: idp=%q pattern=%q already exists in another organization",
-			ErrOnboardRuleExists, idp, usernamePattern)
-	}
 	return fmt.Errorf("%w: idp=%q pattern=%q org=%q", ErrOnboardRuleExists, idp, usernamePattern, requestedOrg)
 }
 
@@ -241,20 +227,24 @@ func (d *DB) QueryOnboardRules(desc *queryv1.Descriptor, fm pkgquery.FieldMap,
 	return rules, rows.Err()
 }
 
-// ResolveOnboardDecision resolves whether username may onboard via idp, and
-// what it should get if so, by matching identity.onboard_rules. An
-// exact-username row (no wildcard in username_pattern) always outranks a
-// wildcard pattern row, regardless of priority; within either group the
-// row with the lowest priority wins (ties broken by the lower row id, for
-// determinism). When nothing matches at all — not even a catch-all
-// (username_pattern='*') row for the idp — this fails closed and returns
-// OnboardActionReject: a real deployment is expected to always define at
-// least a catch-all rule per idp it uses, so reaching this path signals a
-// missing rule, not an intentional "allow everyone" default.
-func (d *DB) ResolveOnboardDecision(idp, username string) (*OnboardDecision, error) {
+// ResolveOnboardDecision resolves whether username may onboard via idp into
+// org, and what it should get if so, by matching identity.onboard_rules
+// scoped to that org — org is normally the identity provider's own
+// onboarding hint (models.OnboardUserRule.Organization), or
+// DefaultOrganizationName when the provider reported none (see
+// Server.refreshUser). An exact-username row (no wildcard in
+// username_pattern) always outranks a wildcard pattern row, regardless of
+// priority; within either group the row with the lowest priority wins (ties
+// broken by the lower row id, for determinism). When nothing matches at
+// all — not even a catch-all (username_pattern='*') row for the idp within
+// org — this fails closed and returns OnboardActionReject: a real
+// deployment is expected to always define at least a catch-all rule per
+// (idp, org) pair it uses, so reaching this path signals a missing rule,
+// not an intentional "allow everyone" default.
+func (d *DB) ResolveOnboardDecision(idp, username, org string) (*OnboardDecision, error) {
 	rows, err := d.Pool.Query(context.Background(),
 		`SELECT id, username_pattern, org, action, priority, roles, sudo
-		 FROM identity.onboard_rules WHERE idp = $1 OR idp = '*'`, idp)
+		 FROM identity.onboard_rules WHERE (idp = $1 OR idp = '*') AND org = $2`, idp, org)
 	if err != nil {
 		return nil, fmt.Errorf("resolve onboard decision: %w", err)
 	}
@@ -333,7 +323,7 @@ func (d *DB) UpsertWaitlistEntry(idp, username, org string, roles []string, sudo
 	_, err := d.Pool.Exec(context.Background(),
 		`INSERT INTO identity.onboard_rules AS o (idp, username_pattern, org, action, status, roles, sudo, fullname, email, requested_at)
 		 VALUES ($1, $2, $3, 'waitlist', 'pending', $4, $5, $6, $7, now())
-		 ON CONFLICT (idp, username_pattern) DO UPDATE
+		 ON CONFLICT (idp, username_pattern, org) DO UPDATE
 		     SET action='waitlist', status='pending', roles=EXCLUDED.roles, sudo=EXCLUDED.sudo,
 		         fullname=EXCLUDED.fullname, email=EXCLUDED.email,
 		         requested_at=COALESCE(o.requested_at, EXCLUDED.requested_at), updated_at=now()`,
@@ -357,7 +347,7 @@ func (d *DB) MarkRejectedByRule(idp, username, org string, roles []string, sudo 
 	_, err := d.Pool.Exec(context.Background(),
 		`INSERT INTO identity.onboard_rules (idp, username_pattern, org, action, status, roles, sudo, fullname, email)
 		 VALUES ($1, $2, $3, 'reject', 'rejected', $4, $5, $6, $7)
-		 ON CONFLICT (idp, username_pattern) DO UPDATE
+		 ON CONFLICT (idp, username_pattern, org) DO UPDATE
 		     SET action='reject', status='rejected', updated_at=now()`,
 		idp, username, org, nonNilRoles(roles), sudo, fullname, email)
 	if err != nil {
@@ -378,7 +368,7 @@ func (d *DB) MarkOnboarded(idp, username, org string, roles []string, sudo bool,
 	_, err := d.Pool.Exec(context.Background(),
 		`INSERT INTO identity.onboard_rules (idp, username_pattern, org, action, status, roles, sudo, fullname, email)
 		 VALUES ($1, $2, $3, 'allow', 'onboarded', $4, $5, $6, $7)
-		 ON CONFLICT (idp, username_pattern) DO UPDATE
+		 ON CONFLICT (idp, username_pattern, org) DO UPDATE
 		     SET action='allow', status='onboarded', roles=EXCLUDED.roles, sudo=EXCLUDED.sudo, updated_at=now()`,
 		idp, username, org, nonNilRoles(roles), sudo, fullname, email)
 	if err != nil {
