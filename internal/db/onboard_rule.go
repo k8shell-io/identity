@@ -153,13 +153,13 @@ func (d *DB) CreateOnboardRule(rule *models.OnboardRule) (*models.OnboardRule, e
 // change them. Returns ErrOnboardRuleNotFound when no rule with that id
 // exists.
 func (d *DB) UpdateOnboardRule(id int32, action models.OnboardAction, priority int32,
-	roles []string, sudo bool, note string) (*models.OnboardRule, error) {
+	roles []string, sudo bool, note, fullname, email string) (*models.OnboardRule, error) {
 	row := d.Pool.QueryRow(context.Background(),
 		`UPDATE identity.onboard_rules
-		 SET action=$2, priority=$3, roles=$4, sudo=$5, note=$6, updated_at=now()
+		 SET action=$2, priority=$3, roles=$4, sudo=$5, note=$6, fullname=$7, email=$8, updated_at=now()
 		 WHERE id=$1
 		 RETURNING `+onboardRuleSelectColumns,
-		id, string(action), priority, nonNilRoles(roles), sudo, note,
+		id, string(action), priority, nonNilRoles(roles), sudo, note, fullname, email,
 	)
 	updated, err := scanOnboardRule(row)
 	if errors.Is(err, pgx.ErrNoRows) {

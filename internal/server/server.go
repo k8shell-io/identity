@@ -338,6 +338,7 @@ func (s *Server) refreshUser(username string, source string, user *models.User,
 	hint *models.OnboardUserRule) (*models.User, bool, error) {
 	if user == nil || time.Now().After(user.ExpiresAt) || !user.IsValid {
 		var foundUser *models.User
+		var lookupErr error
 		if user != nil {
 			source = user.Source
 		}
@@ -350,6 +351,8 @@ func (s *Server) refreshUser(username string, source string, user *models.User,
 				switch status.Code(err) {
 				case codes.PermissionDenied, codes.Unauthenticated:
 					return nil, false, err
+				case codes.Unavailable:
+					lookupErr = err
 				}
 				s.log.Warn().Msgf("Failed to look up user '%s' via provider '%s': %v", username, provider.Name(), err)
 				continue
@@ -366,6 +369,10 @@ func (s *Server) refreshUser(username string, source string, user *models.User,
 				foundUser.Roles = s.filterKnownRoles(foundUser.Username, foundUser.Roles)
 				break
 			}
+		}
+
+		if foundUser == nil && lookupErr != nil {
+			return nil, false, lookupErr
 		}
 
 		createUser := (foundUser != nil && user == nil)
@@ -393,10 +400,6 @@ func (s *Server) refreshUser(username string, source string, user *models.User,
 			}
 			s.applyOnboardHint(decision, foundUser.Username, hint)
 
-			// decision.Fullname carries an identity provider's onboarding-hint
-			// override (see applyOnboardHint); fall back to the fullname the
-			// provider reported for the user's own record when the hint didn't
-			// set one.
 			ruleFullname := foundUser.Fullname
 			if decision.Fullname != "" {
 				ruleFullname = decision.Fullname
@@ -404,11 +407,6 @@ func (s *Server) refreshUser(username string, source string, user *models.User,
 
 			switch decision.Action {
 			case models.OnboardActionReject:
-				// decision.Org is only empty in the fail-closed "nothing
-				// matched at all" case (see ResolveOnboardDecision) — there's
-				// no rule and no org to record a rejection against, so it's
-				// deliberately not persisted. A real matched reject rule
-				// always has decision.Org set.
 				if decision.Org != "" {
 					if err := s.DB.MarkRejectedByRule(foundUser.Source, foundUser.Username, decision.Org,
 						decision.Roles, decision.Sudo, ruleFullname, foundUser.Email); err != nil {
@@ -435,6 +433,7 @@ func (s *Server) refreshUser(username string, source string, user *models.User,
 					foundUser.Roles = s.filterKnownRoles(foundUser.Username, roles)
 				}
 				foundUser.Sudo = decision.Sudo
+				foundUser.Fullname = ruleFullname
 			}
 
 			err = s.DB.CreateUser(foundUser)
@@ -442,9 +441,6 @@ func (s *Server) refreshUser(username string, source string, user *models.User,
 				return nil, false, fmt.Errorf("failed to create user '%s' in database: %w", username, err)
 			}
 
-			// Status bookkeeping is best-effort: the user is already
-			// created, so a failure here must not fail the onboarding
-			// itself or risk it being retried into a duplicate-user error.
 			if err := s.DB.MarkOnboarded(foundUser.Source, foundUser.Username, foundUser.Organization,
 				decision.Roles, decision.Sudo, ruleFullname, foundUser.Email); err != nil {
 				s.log.Warn().Err(err).Msgf("failed to record onboarded status for user '%s'", username)
@@ -687,7 +683,7 @@ func (s *Server) getUserByUsername(username string, source string,
 	user, freshlyOnboarded, err := s.refreshUser(username, source, user, hint)
 	if err != nil {
 		switch status.Code(err) {
-		case codes.PermissionDenied, codes.Unauthenticated, codes.AlreadyExists, codes.FailedPrecondition:
+		case codes.PermissionDenied, codes.Unauthenticated, codes.AlreadyExists, codes.FailedPrecondition, codes.Unavailable:
 			return nil, false, err
 		}
 		return nil, false, fmt.Errorf("error occured when refreshing user '%s': %w", username, err)

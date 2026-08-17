@@ -94,7 +94,7 @@ func unwrapWebFlowState(state string) (idpState, cliState string, createPat bool
 // codes.Internal with the supplied message format.
 func propagateOrInternal(err error, format string, args ...interface{}) error {
 	switch status.Code(err) {
-	case codes.PermissionDenied, codes.Unauthenticated, codes.NotFound, codes.AlreadyExists, codes.FailedPrecondition:
+	case codes.PermissionDenied, codes.Unauthenticated, codes.NotFound, codes.AlreadyExists, codes.FailedPrecondition, codes.Unavailable:
 		return err
 	}
 	return status.Errorf(codes.Internal, format, args...)

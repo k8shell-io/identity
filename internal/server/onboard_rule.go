@@ -154,7 +154,7 @@ func (s *IdentityService) UpdateOnboardRule(ctx context.Context,
 	}
 
 	rule, err := s.server.DB.UpdateOnboardRule(req.GetId(), models.OnboardAction(req.GetAction()),
-		req.GetPriority(), req.GetRoles(), req.GetSudo(), req.GetNote())
+		req.GetPriority(), req.GetRoles(), req.GetSudo(), req.GetNote(), req.GetFullname(), req.GetEmail())
 	if err != nil {
 		switch {
 		case errors.Is(err, backend.ErrOnboardRuleNotFound):
