@@ -50,9 +50,6 @@ type Config struct {
 	// DB configures the database connection.
 	DB db.DBConfig `yaml:"db"`
 
-	// Organizations configures organization management.
-	Organizations OrganizationsConfig `yaml:"organizations"`
-
 	// LocalProviders configures local file-based identity providers.
 	LocalProviders file.FileUserProviderConfig `yaml:"localProviders"`
 
@@ -131,13 +128,6 @@ type PasswordLockoutConfig struct {
 	// LockDuration is how long an account stays locked once MaxAttempts is
 	// reached. Defaults to 15 minutes when zero.
 	LockDuration time.Duration `yaml:"lockDuration" validate:"omitempty,gt=0"`
-}
-
-// OrganizationsConfig configures organization management.
-type OrganizationsConfig struct {
-	// AutoCreate lists organization names that are created automatically when a
-	// user with that organization is first seen. Use ["*"] to allow all organizations.
-	AutoCreate []string `yaml:"autoCreate"`
 }
 
 // LoadConfig loads server configuration from configFile and validates it.
