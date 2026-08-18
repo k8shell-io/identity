@@ -78,6 +78,25 @@ jwtIssuer:
   signingMethod: es256
   privateKeyFile: ${SECRET_FILES}/test-jwt-private-key.pem
 
+# onboardRules seeds identity.onboard_rules on startup — each entry is
+# inserted once, keyed by (idp, usernamePattern, org); already-existing rows
+# (from a prior startup or a later admin edit via the API) are left
+# untouched. Without at least a catch-all rule per (idp, org) a fresh
+# deployment's onboard_rules table is empty and onboarding fails closed for
+# everyone. action is one of: allow, reject, waitlist.
+onboardRules:
+  - idp: "*"
+    usernamePattern: "bruckins"
+    org: default
+    action: allow
+    sudo: true
+    roles: ["admin"]
+  - idp: "*"
+    usernamePattern: "*"
+    org: default
+    action: waitlist
+    priority: 1000
+
 # Kubernetes integration configuration
 kubernetes:
   # saToken configures on-demand service-account token issuance via the

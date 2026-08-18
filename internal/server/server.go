@@ -110,6 +110,9 @@ func NewServer(configFile string) (*Server, error) {
 		if err != nil {
 			return nil, fmt.Errorf("create database pool: %w", err)
 		}
+		if err := server.seedOnboardRules(config.OnboardRules); err != nil {
+			return nil, fmt.Errorf("seed onboard rules: %w", err)
+		}
 	} else {
 		server.log.Warn().Msg("Database is disabled in configuration; server will run without persistent storage")
 	}
@@ -252,6 +255,38 @@ func (s *Server) getLocalUsers() []*models.User {
 		}
 	}
 	return users
+}
+
+// seedOnboardRules inserts the default identity.onboard_rules rows declared
+// in config.yaml's onboardRules section (rules) — typically a catch-all so a
+// fresh deployment's empty table doesn't fail closed (see
+// db.ResolveOnboardDecision), or a standing admin allow-list. Each rule is
+// inserted at most once, keyed by (idp, usernamePattern, org); rows that
+// already exist (from a prior startup or a subsequent admin edit) are left
+// untouched. Safe to call from multiple service instances starting up
+// concurrently — see DB.SeedOnboardRule.
+func (s *Server) seedOnboardRules(rules []OnboardRuleConfig) error {
+	for _, r := range rules {
+		inserted, err := s.DB.SeedOnboardRule(&models.OnboardRule{
+			IDP:             r.IDP,
+			UsernamePattern: r.UsernamePattern,
+			Org:             r.Org,
+			Action:          models.OnboardAction(r.Action),
+			Priority:        r.Priority,
+			Roles:           r.Roles,
+			Sudo:            r.Sudo,
+			Note:            r.Note,
+		})
+		if err != nil {
+			return fmt.Errorf("idp=%q usernamePattern=%q org=%q: %w", r.IDP, r.UsernamePattern, r.Org, err)
+		}
+		if inserted {
+			s.log.Info().Msgf(
+				"Inserted default onboard rule from config: idp=%q usernamePattern=%q org=%q action=%q priority=%d roles=%v sudo=%t",
+				r.IDP, r.UsernamePattern, r.Org, r.Action, r.Priority, r.Roles, r.Sudo)
+		}
+	}
+	return nil
 }
 
 // applyOnboardHint folds an onboarding decision an identity provider computed for

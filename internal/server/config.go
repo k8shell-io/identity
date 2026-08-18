@@ -72,8 +72,50 @@ type Config struct {
 	// PasswordLockout configures brute-force protection for AuthUserPassword.
 	PasswordLockout PasswordLockoutConfig `yaml:"passwordLockout"`
 
+	// OnboardRules declares default identity.onboard_rules rows to insert
+	// once at startup — see Server.seedOnboardRules. Without at least a
+	// catch-all rule per (idp, org) a fresh deployment's onboard_rules table
+	// is empty and ResolveOnboardDecision fails closed, rejecting everyone.
+	OnboardRules []OnboardRuleConfig `yaml:"onboardRules" validate:"omitempty,dive"`
+
 	// configDir is the directory containing the loaded configuration file.
 	configDir string
+}
+
+// OnboardRuleConfig declares a default identity.onboard_rules row, inserted
+// once at startup by Server.seedOnboardRules if no row already exists for
+// the same (IDP, UsernamePattern, Org) — from a prior seed, an
+// admin-authored rule, or a system-inserted waitlist/rejection row. Config
+// changes here therefore never clobber a rule an admin has since edited via
+// the API, and it's safe for multiple service instances to seed the same
+// config concurrently at startup.
+type OnboardRuleConfig struct {
+	// IDP is the identity provider name this rule applies to, "local", or
+	// "*" for any provider.
+	IDP string `yaml:"idp" validate:"required"`
+
+	// UsernamePattern is an exact username, or a pattern containing '*'.
+	UsernamePattern string `yaml:"usernamePattern" validate:"required"`
+
+	// Org is the organization matching users are placed into.
+	Org string `yaml:"org" validate:"required"`
+
+	// Action is the onboarding decision this rule resolves to.
+	Action string `yaml:"action" validate:"required,oneof=allow reject waitlist"`
+
+	// Priority ranks this rule among other matching rules of the same
+	// specificity (exact-username vs. pattern) — lower wins. Defaults to 0.
+	Priority int32 `yaml:"priority"`
+
+	// Roles are granted to the user when Action is "allow". Must be valid
+	// within Org (org-scoped-or-global).
+	Roles []string `yaml:"roles"`
+
+	// Sudo grants sudo access when Action is "allow".
+	Sudo bool `yaml:"sudo"`
+
+	// Note is an optional admin comment recorded on the rule.
+	Note string `yaml:"note"`
 }
 
 // PasswordLockoutConfig configures brute-force protection for
