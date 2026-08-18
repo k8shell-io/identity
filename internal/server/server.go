@@ -421,15 +421,16 @@ func (s *Server) refreshUser(username string, source string, user *models.User,
 			if rule.Sudo != nil {
 				foundUser.Sudo = *rule.Sudo
 			}
-			// FindUser re-evaluates the provider's onboarding decision for this
-			// user on every refresh, same as CompleteUserWebFlow does once at
-			// onboarding time, so treat it the same way when no more specific
-			// hint was already supplied by the caller.
 			if hint == nil {
 				hint = &rule
 			}
+			foundUser.UID = hint.UID
+			foundUser.GID = hint.GID
+			if foundUser.UID != 0 && foundUser.GID == 0 {
+				foundUser.GID = foundUser.UID
+			}
 
-			s.normalizeUser(foundUser)
+			foundUser.Username = strings.ToLower(foundUser.Username)
 			foundUser.ExpiresAt = time.Now().Add(time.Duration(provider.UserMaxAge()) * time.Second)
 			foundUser.Roles = s.filterKnownRoles(foundUser.Username, foundUser.Roles)
 			break
@@ -508,6 +509,19 @@ func (s *Server) refreshUser(username string, source string, user *models.User,
 				}
 				foundUser.Sudo = decision.Sudo
 				foundUser.Fullname = ruleFullname
+			}
+
+			if foundUser.UID == 0 {
+				next, err := s.DB.NextAvailableUID()
+				if err != nil {
+					if errors.Is(err, backend.ErrUIDRangeExhausted) {
+						return nil, false, status.Errorf(codes.ResourceExhausted,
+							"no available uid to onboard user '%s'; ask an admin to pin one via the onboard rule", username)
+					}
+					return nil, false, fmt.Errorf("failed to allocate uid for user '%s': %w", username, err)
+				}
+				foundUser.UID = next
+				foundUser.GID = next
 			}
 
 			err = s.DB.CreateUser(foundUser)
@@ -854,6 +868,10 @@ func (s *Server) GetUserByAccessToken(token string) (*models.User, error) {
 }
 
 // normalizeUser normalizes user attributes and applies default UID/GID values.
+// Used for local file-provider users only (see getLocalUsers) — DB-backed
+// user creation allocates a real UID via s.DB.NextAvailableUID() instead
+// (see the createUser branch of refreshUser) so concurrently-onboarded users
+// don't collide on this fixed fallback.
 func (s *Server) normalizeUser(user *models.User) {
 	if user == nil {
 		return
