@@ -272,9 +272,11 @@ func (f *FileUserProvider) ProviderInfo(ctx context.Context, in *identityv1.Prov
 	}, nil
 }
 
-// FindUser returns a user by username.
+// FindUser returns a user by username, re-evaluated as an onboarding decision.
+// The file-backed provider has no onboarding rules of its own, so it always
+// allows an existing file-defined user.
 func (f *FileUserProvider) FindUser(ctx context.Context, in *identityv1.FindUserRequest,
-	opts ...grpc.CallOption) (*commonv1.User, error) {
+	opts ...grpc.CallOption) (*commonv1.UserResult, error) {
 	f.mutex.RLock()
 	defer f.mutex.RUnlock()
 
@@ -282,7 +284,25 @@ func (f *FileUserProvider) FindUser(ctx context.Context, in *identityv1.FindUser
 	if !exists {
 		return nil, nil
 	}
-	return gapi.UserToProto(&user.User), nil
+
+	roles := make([]string, len(user.Roles))
+	for i, r := range user.Roles {
+		roles[i] = string(r)
+	}
+	sudo := user.Sudo
+
+	return gapi.UserResultToProto(&models.UserResult{
+		OnboardRule: models.OnboardUserRule{
+			Username: user.Username,
+			Fullname: user.Fullname,
+			Email:    user.Email,
+			Sudo:     &sudo,
+			Action:   models.OnboardActionAllow,
+			Roles:    roles,
+		},
+		ManageRepos: user.ManageRepos,
+		GitAddress:  user.GitAddress,
+	}), nil
 }
 
 // OnboardCapability reports onboarding capability for the user.
@@ -388,7 +408,7 @@ func (f *FileUserProvider) ListRepos(ctx context.Context, in *identityv1.ListRep
 
 // CompleteUserWebFlow completes web-flow onboarding and returns the user.
 func (f *FileUserProvider) CompleteUserWebFlow(ctx context.Context, in *identityv1.CompleteUserWebFlowRequest,
-	opts ...grpc.CallOption) (*commonv1.User, error) {
+	opts ...grpc.CallOption) (*commonv1.UserResult, error) {
 	return nil, status.Errorf(codes.Unimplemented,
 		"file user provider does not support onboarding via web flow")
 }

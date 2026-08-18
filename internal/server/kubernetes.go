@@ -5,16 +5,22 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
 
 	authenticationv1 "k8s.io/api/authentication/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
+
+// ErrServiceAccountNotFound indicates the Kubernetes service account
+// referenced by a credential no longer exists in the cluster.
+var ErrServiceAccountNotFound = errors.New("service account not found")
 
 // initKubernetesClient builds a Kubernetes client from the provided config.
 // When KubeconfigPath is empty it tries in-cluster config first, then falls
@@ -76,6 +82,9 @@ func (s *Server) issueKubernetesServiceAccountToken(ctx context.Context, namespa
 	result, err := s.k8sClient.CoreV1().ServiceAccounts(namespace).CreateToken(
 		ctx, serviceAccountName, tokenReq, metav1.CreateOptions{})
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return "", time.Time{}, fmt.Errorf("service account '%s/%s': %w", namespace, serviceAccountName, ErrServiceAccountNotFound)
+		}
 		return "", time.Time{}, fmt.Errorf("create token for service account '%s/%s': %w", namespace, serviceAccountName, err)
 	}
 

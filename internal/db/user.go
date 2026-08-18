@@ -43,7 +43,8 @@ func (d *DB) FindUser(username string, source string) (*models.User, error) {
 		query = `
 			SELECT username, is_valid, expires_at, uid, gid, fullname,
 			       email, password, shell, sudo, locked,
-			       roles, ` + UserBlueprintsExpr + ` AS blueprints, source, organization
+			       roles, ` + UserBlueprintsExpr + ` AS blueprints, source, organization,
+			       COALESCE(manage_repos, ''), COALESCE(git_address, '')
 			FROM identity.users u
 			WHERE username=$1
 		`
@@ -52,7 +53,8 @@ func (d *DB) FindUser(username string, source string) (*models.User, error) {
 		query = `
 			SELECT username, is_valid, expires_at, uid, gid, fullname,
 			       email, password, shell, sudo, locked,
-			       roles, ` + UserBlueprintsExpr + ` AS blueprints, source, organization
+			       roles, ` + UserBlueprintsExpr + ` AS blueprints, source, organization,
+			       COALESCE(manage_repos, ''), COALESCE(git_address, '')
 			FROM identity.users u
 			WHERE username=$1 AND source=$2
 		`
@@ -76,6 +78,8 @@ func (d *DB) FindUser(username string, source string) (*models.User, error) {
 		&user.Blueprints,
 		&user.Source,
 		&user.Organization,
+		&user.ManageRepos,
+		&user.GitAddress,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, models.ErrUserNotFound
@@ -96,7 +100,8 @@ func (d *DB) FindUserByEmail(email string) (*models.User, error) {
 	query := `
 		SELECT username, is_valid, expires_at, uid, gid, fullname,
 		       email, password, shell, sudo, locked,
-		       roles, ` + UserBlueprintsExpr + ` AS blueprints, source, organization
+		       roles, ` + UserBlueprintsExpr + ` AS blueprints, source, organization,
+		       COALESCE(manage_repos, ''), COALESCE(git_address, '')
 		FROM identity.users u
 		WHERE email=$1
 	`
@@ -118,6 +123,8 @@ func (d *DB) FindUserByEmail(email string) (*models.User, error) {
 		&user.Blueprints,
 		&user.Source,
 		&user.Organization,
+		&user.ManageRepos,
+		&user.GitAddress,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, models.ErrUserNotFound
@@ -133,7 +140,8 @@ func (d *DB) FindUserByUsernameAndSource(ctx context.Context, username string, s
 	query := `
 		SELECT username, is_valid, expires_at, uid, gid, fullname,
 		       email, COALESCE(password, '') AS password, shell, sudo, locked,
-		       roles, ` + UserBlueprintsExpr + ` AS blueprints, source, organization
+		       roles, ` + UserBlueprintsExpr + ` AS blueprints, source, organization,
+		       COALESCE(manage_repos, ''), COALESCE(git_address, '')
 		FROM identity.users u
 		WHERE username=$1 and source=$2
 	`
@@ -155,6 +163,8 @@ func (d *DB) FindUserByUsernameAndSource(ctx context.Context, username string, s
 		&user.Blueprints,
 		&user.Source,
 		&user.Organization,
+		&user.ManageRepos,
+		&user.GitAddress,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, models.ErrUserNotFound
@@ -205,13 +215,13 @@ func (d *DB) CreateUser(user *models.User) error {
 	_, err = tx.Exec(ctx, `INSERT INTO identity.users (
 		username, is_valid, expires_at, uid, gid, fullname,
 		email, password, shell, sudo, locked,
-		roles, source, organization
+		roles, source, organization, manage_repos, git_address
 	) VALUES (
-		$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+		$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
 	)`,
 		user.Username, user.IsValid, user.ExpiresAt, user.UID, user.GID, user.Fullname,
 		user.Email, user.Password, user.Shell, user.Sudo, user.Locked,
-		user.Roles, user.Source, user.Organization)
+		user.Roles, user.Source, user.Organization, user.ManageRepos, user.GitAddress)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -284,8 +294,10 @@ func (d *DB) UpdateUser(user *models.User) error {
 		locked=$10,
 		roles=$11,
 		source=$12,
-		organization=$13
-	WHERE username=$14`
+		organization=$13,
+		manage_repos=$14,
+		git_address=$15
+	WHERE username=$16`
 
 	_, err := d.Pool.Exec(context.Background(), query,
 		user.IsValid,
@@ -301,6 +313,8 @@ func (d *DB) UpdateUser(user *models.User) error {
 		user.Roles,
 		user.Source,
 		user.Organization,
+		user.ManageRepos,
+		user.GitAddress,
 		user.Username,
 	)
 	if err != nil {
@@ -365,7 +379,8 @@ func (d *DB) ListUsers(limit, offset int, roles, blueprints []string, org string
 	query := `
 		SELECT username, is_valid, expires_at, uid, gid, fullname,
 		       email, COALESCE(password, '') AS password, shell, sudo, locked,
-		       roles, ` + UserBlueprintsExpr + ` AS blueprints, source, organization
+		       roles, ` + UserBlueprintsExpr + ` AS blueprints, source, organization,
+		       COALESCE(manage_repos, ''), COALESCE(git_address, '')
 		FROM identity.users u
 	`
 
@@ -419,7 +434,8 @@ func (d *DB) ListUsersQuery(desc *queryv1.Descriptor, fm pkgquery.FieldMap, payl
 	selectSQL := `
 		SELECT username, is_valid, expires_at, uid, gid, fullname,
 		       email, COALESCE(password, '') AS password, shell, sudo, locked,
-		       roles, ` + UserBlueprintsExpr + ` AS blueprints, source, organization
+		       roles, ` + UserBlueprintsExpr + ` AS blueprints, source, organization,
+		       COALESCE(manage_repos, ''), COALESCE(git_address, '')
 		FROM identity.users u
 	`
 
@@ -465,6 +481,8 @@ func scanUsers(rows pgx.Rows) ([]*models.User, error) {
 			&user.Blueprints,
 			&user.Source,
 			&user.Organization,
+			&user.ManageRepos,
+			&user.GitAddress,
 		); err != nil {
 			return nil, err
 		}

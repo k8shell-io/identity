@@ -94,7 +94,7 @@ func unwrapWebFlowState(state string) (idpState, cliState string, createPat bool
 // codes.Internal with the supplied message format.
 func propagateOrInternal(err error, format string, args ...interface{}) error {
 	switch status.Code(err) {
-	case codes.PermissionDenied, codes.Unauthenticated, codes.NotFound, codes.AlreadyExists, codes.FailedPrecondition:
+	case codes.PermissionDenied, codes.Unauthenticated, codes.NotFound, codes.AlreadyExists, codes.FailedPrecondition, codes.Unavailable:
 		return err
 	}
 	return status.Errorf(codes.Internal, format, args...)
@@ -671,18 +671,34 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 		return nil, status.Errorf(codes.NotFound,
 			"no suitable identity provider found to complete web flow for provider '%s'", provider)
 	}
-	username, err := p.CompleteUserWebFlow(context.Background(), &identityv1.CompleteUserWebFlowRequest{
+	flowResult, err := p.CompleteUserWebFlow(context.Background(), &identityv1.CompleteUserWebFlowRequest{
 		State: idpState,
 		Code:  req.Code,
 	})
 	if err != nil {
 		return nil, propagateOrInternal(err, "failed to complete web flow for provider '%s': %v", provider, err)
 	}
+	onboardRule := flowResult.GetOnboardRule()
+	username := onboardRule.GetUsername()
+	hint := gapi.ProtoToOnboardUserRule(onboardRule)
 
-	user, err := s.server.GetUserByUsername(username.GetUsername(), provider)
+	user, freshlyOnboarded, err := s.server.GetUserByUsernameWithOnboardHint(username, provider, hint)
 	if err != nil {
 		return nil, propagateOrInternal(err, "failed to get user '%s' after completing web flow for provider '%s': %v",
-			username.GetUsername(), provider, err)
+			username, provider, err)
+	}
+
+	// manage_repos/git_address are recorded on the user's own profile rather
+	// than forwarded downstream, so a client reconnecting later can read them
+	// off the user record instead of needing to ask again. refreshUser keeps
+	// them current on subsequent logins via FindUser, but store the values
+	// from this flow immediately rather than waiting for the next refresh.
+	if flowResult.GetManageRepos() != "" || flowResult.GetGitAddress() != "" {
+		user.ManageRepos = flowResult.GetManageRepos()
+		user.GitAddress = flowResult.GetGitAddress()
+		if err := s.server.DB.UpdateUser(user); err != nil {
+			s.log.Warn().Err(err).Msgf("failed to store manage repos/git address for user '%s'", username)
+		}
 	}
 
 	token, err := s.server.issueUserToken(user)
@@ -690,7 +706,7 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 		return nil, status.Errorf(codes.Internal, "failed to issue token for user '%s'", user.Username)
 	}
 
-	resp := &identityv1.CompleteUserWebFlowResponse{UserToken: token}
+	resp := &identityv1.CompleteUserWebFlowResponse{UserToken: token, NewUser: freshlyOnboarded}
 
 	if createPat {
 		scopes := []string{"*"}
@@ -699,11 +715,11 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 		policyResult, err := s.server.applyTokenCreatePolicy(user, authz.TokenCreateSourceWebFlow)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to evaluate token create policy for user '%s': %v",
-				username.GetUsername(), err)
+				username, err)
 		}
 		if policyResult != nil && !policyResult.Allowed {
 			resp.PatError = fmt.Sprintf("Create token not allowed for user '%s'. %s",
-				username.GetUsername(), policyResult.Reason)
+				username, policyResult.Reason)
 			resp.CliState = cliState
 		} else {
 			if policyResult != nil {
@@ -720,21 +736,21 @@ func (s *IdentityService) CompleteUserWebFlow(ctx context.Context,
 			suffix, err := randomTokenSuffix()
 			if err != nil {
 				return nil, status.Errorf(codes.Internal, "failed to create access token for user '%s': %v",
-					username.GetUsername(), err)
+					username, err)
 			}
 
-			_, raw, err := s.server.DB.CreateAccessToken(username.GetUsername(),
+			_, raw, err := s.server.DB.CreateAccessToken(username,
 				"OAuth-"+suffix, scopes, patExpiresAt, true)
 			if err != nil {
 				return nil, status.Errorf(codes.Internal, "failed to create access token for user '%s': %v",
-					username.GetUsername(), err)
+					username, err)
 			}
 			resp.Pat = raw
 			resp.CliState = cliState
 		}
 	}
 
-	s.server.provisionGitCredential(ctx, username.GetUsername(), p)
+	s.server.provisionGitCredential(ctx, username, p)
 
 	return resp, nil
 }
@@ -783,10 +799,34 @@ func (s *IdentityService) GetBlueprintByUserStr(ctx context.Context,
 		Userstr: userStr.Raw(),
 	})
 	if err != nil {
+		if isBlueprintNotFoundErr(err) {
+			return nil, status.Errorf(codes.NotFound, "blueprint not found for '%s' with provider '%s': %v",
+				userStr.Username(), provider.Name(), err)
+		}
 		return nil, propagateOrInternal(err, "failed to get custom blueprint for '%s' with provider '%s': %v",
 			userStr.Username(), provider.Name(), err)
 	}
 	return blueprintpb, nil
+}
+
+// blueprintNotFoundMarkers are substrings the remote idp-github provider
+// currently embeds in a codes.Internal error when a user's blueprint
+// repository or ref cannot be found, instead of returning codes.NotFound
+// itself. Matched here so callers (e.g. the provisioner) can detect the
+// condition and fall back to a default blueprint.
+var blueprintNotFoundMarkers = []string{
+	"does not exist or is not accessible",
+	"not found in repository",
+}
+
+func isBlueprintNotFoundErr(err error) bool {
+	msg := err.Error()
+	for _, marker := range blueprintNotFoundMarkers {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // ListUserCredentials returns stored credentials for a user, or a single
@@ -828,9 +868,12 @@ func (s *IdentityService) GetUserCredential(ctx context.Context,
 
 	cred, err := s.server.ResolveCredential(ctx, req.Username, req.ServiceName, req.ServiceScope)
 	if err != nil {
-		if errors.Is(err, models.ErrUserNotFound) {
+		switch {
+		case errors.Is(err, models.ErrUserNotFound):
 			return nil, status.Errorf(codes.NotFound, "credential not found for user '%s', service '%s', scope '%s'",
 				req.Username, req.ServiceName, req.ServiceScope)
+		case errors.Is(err, ErrServiceAccountNotFound):
+			return nil, status.Errorf(codes.NotFound, "failed to resolve credential: %v", err)
 		}
 		return nil, status.Errorf(codes.Internal, "failed to resolve credential: %v", err)
 	}

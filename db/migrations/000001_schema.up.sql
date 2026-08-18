@@ -88,10 +88,12 @@ CREATE TABLE identity.users (
     gid            integer      not null,        -- primary POSIX GID
 
     -- profile
-    fullname       varchar,
-    email          varchar,
-    shell          varchar,                      -- login shell path
-    sudo           boolean      not null default false, -- sudo access
+    fullname         varchar,
+    email            varchar,
+    shell            varchar,                 -- login shell path
+    sudo             boolean not null default false, -- sudo access
+    manage_repos     varchar,                 -- optional repo management link 
+    git_address      varchar,                 -- optional git address for git operations
 
     -- authentication
     password       varchar,                      -- hashed; NULL for external auth
@@ -245,8 +247,10 @@ CREATE TABLE identity.onboard_rules (
     updated_at        TIMESTAMPTZ not null default now(),
 
     CONSTRAINT chk_onboard_rule_action CHECK (action IN ('allow', 'reject', 'waitlist')),
-    CONSTRAINT chk_onboard_rule_status CHECK (status IN ('none', 'pending', 'rejected', 'onboarded')),
-    CONSTRAINT onboard_rules_uniq UNIQUE (idp, username_pattern)
+    CONSTRAINT chk_onboard_rule_status CHECK (status IN ('none', 'pending', 'approved', 'rejected', 'onboarded')),
+    -- org is part of the key so the same idp can define independent rules
+    -- (including separate wildcard '*' catch-alls) per destination org.
+    CONSTRAINT onboard_rules_uniq UNIQUE (idp, username_pattern, org)
 );
 
 -- Speeds up both ResolveOnboardDecision's per-idp candidate fetch and
