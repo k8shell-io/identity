@@ -305,6 +305,28 @@ func (d *DB) ResolveOnboardDecision(idp, username, org string) (*OnboardDecision
 	}, nil
 }
 
+// SeedOnboardRule inserts a default onboard rule (e.g. from config.yaml's
+// onboardRules, see Server.seedOnboardRules) unless a row for the same
+// (idp, username_pattern, org) already exists — from a prior seed, an
+// admin-authored rule, or a system-inserted waitlist/rejection row. ON
+// CONFLICT DO NOTHING makes this safe to call concurrently from multiple
+// service instances at startup
+func (d *DB) SeedOnboardRule(rule *models.OnboardRule) (bool, error) {
+	tag, err := d.Pool.Exec(context.Background(),
+		`INSERT INTO identity.onboard_rules (idp, username_pattern, org, action, priority, roles, sudo, note)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		 ON CONFLICT (idp, username_pattern, org) DO NOTHING`,
+		rule.IDP, rule.UsernamePattern, rule.Org, string(rule.Action), rule.Priority, nonNilRoles(rule.Roles), rule.Sudo, rule.Note,
+	)
+	if err != nil {
+		if translated := onboardRulePgError(err, rule.Org, rule.Action); translated != nil {
+			return false, translated
+		}
+		return false, fmt.Errorf("seed onboard rule: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
 // UpsertWaitlistEntry records a pending onboarding attempt as a concrete
 // (exact-username) row with action='waitlist', status='pending', carrying
 // over the org/roles/sudo the matched rule already resolved to. This must

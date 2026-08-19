@@ -106,9 +106,12 @@ func NewServer(configFile string) (*Server, error) {
 
 	if config.DB.Enabled {
 		server.log.Info().Msg("Database is enabled; initializing database connection")
-		server.DB, err = backend.NewDB(config.DB, config.Organizations.AutoCreate)
+		server.DB, err = backend.NewDB(config.DB)
 		if err != nil {
 			return nil, fmt.Errorf("create database pool: %w", err)
+		}
+		if err := server.seedOnboardRules(config.OnboardRules); err != nil {
+			return nil, fmt.Errorf("seed onboard rules: %w", err)
 		}
 	} else {
 		server.log.Warn().Msg("Database is disabled in configuration; server will run without persistent storage")
@@ -254,6 +257,38 @@ func (s *Server) getLocalUsers() []*models.User {
 	return users
 }
 
+// seedOnboardRules inserts the default identity.onboard_rules rows declared
+// in config.yaml's onboardRules section (rules) — typically a catch-all so a
+// fresh deployment's empty table doesn't fail closed (see
+// db.ResolveOnboardDecision), or a standing admin allow-list. Each rule is
+// inserted at most once, keyed by (idp, usernamePattern, org); rows that
+// already exist (from a prior startup or a subsequent admin edit) are left
+// untouched. Safe to call from multiple service instances starting up
+// concurrently — see DB.SeedOnboardRule.
+func (s *Server) seedOnboardRules(rules []OnboardRuleConfig) error {
+	for _, r := range rules {
+		inserted, err := s.DB.SeedOnboardRule(&models.OnboardRule{
+			IDP:             r.IDP,
+			UsernamePattern: r.UsernamePattern,
+			Org:             r.Org,
+			Action:          models.OnboardAction(r.Action),
+			Priority:        r.Priority,
+			Roles:           r.Roles,
+			Sudo:            r.Sudo,
+			Note:            r.Note,
+		})
+		if err != nil {
+			return fmt.Errorf("idp=%q usernamePattern=%q org=%q: %w", r.IDP, r.UsernamePattern, r.Org, err)
+		}
+		if inserted {
+			s.log.Info().Msgf(
+				"Inserted default onboard rule from config: idp=%q usernamePattern=%q org=%q action=%q priority=%d roles=%v sudo=%t",
+				r.IDP, r.UsernamePattern, r.Org, r.Action, r.Priority, r.Roles, r.Sudo)
+		}
+	}
+	return nil
+}
+
 // applyOnboardHint folds an onboarding decision an identity provider computed for
 // this specific user (typically from CompleteUserWebFlow) into decision, which was
 // otherwise resolved purely from identity.onboard_rules. hint's action, when one of
@@ -386,15 +421,16 @@ func (s *Server) refreshUser(username string, source string, user *models.User,
 			if rule.Sudo != nil {
 				foundUser.Sudo = *rule.Sudo
 			}
-			// FindUser re-evaluates the provider's onboarding decision for this
-			// user on every refresh, same as CompleteUserWebFlow does once at
-			// onboarding time, so treat it the same way when no more specific
-			// hint was already supplied by the caller.
 			if hint == nil {
 				hint = &rule
 			}
+			foundUser.UID = hint.UID
+			foundUser.GID = hint.GID
+			if foundUser.UID != 0 && foundUser.GID == 0 {
+				foundUser.GID = foundUser.UID
+			}
 
-			s.normalizeUser(foundUser)
+			foundUser.Username = strings.ToLower(foundUser.Username)
 			foundUser.ExpiresAt = time.Now().Add(time.Duration(provider.UserMaxAge()) * time.Second)
 			foundUser.Roles = s.filterKnownRoles(foundUser.Username, foundUser.Roles)
 			break
@@ -473,6 +509,19 @@ func (s *Server) refreshUser(username string, source string, user *models.User,
 				}
 				foundUser.Sudo = decision.Sudo
 				foundUser.Fullname = ruleFullname
+			}
+
+			if foundUser.UID == 0 {
+				next, err := s.DB.NextAvailableUID()
+				if err != nil {
+					if errors.Is(err, backend.ErrUIDRangeExhausted) {
+						return nil, false, status.Errorf(codes.ResourceExhausted,
+							"no available uid to onboard user '%s'; ask an admin to pin one via the onboard rule", username)
+					}
+					return nil, false, fmt.Errorf("failed to allocate uid for user '%s': %w", username, err)
+				}
+				foundUser.UID = next
+				foundUser.GID = next
 			}
 
 			err = s.DB.CreateUser(foundUser)
@@ -819,6 +868,10 @@ func (s *Server) GetUserByAccessToken(token string) (*models.User, error) {
 }
 
 // normalizeUser normalizes user attributes and applies default UID/GID values.
+// Used for local file-provider users only (see getLocalUsers) — DB-backed
+// user creation allocates a real UID via s.DB.NextAvailableUID() instead
+// (see the createUser branch of refreshUser) so concurrently-onboarded users
+// don't collide on this fixed fallback.
 func (s *Server) normalizeUser(user *models.User) {
 	if user == nil {
 		return

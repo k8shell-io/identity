@@ -184,9 +184,8 @@ var ErrUIDExists = errors.New("uid already exists")
 // ErrEmailExists is returned by CreateUser when the email is already in use by another user.
 var ErrEmailExists = errors.New("email already exists")
 
-// CreateUser inserts a new user record into the database.
-// If the user's organization does not exist and is in the auto-create allowlist,
-// it is created automatically. Otherwise the insert will fail if the org is missing.
+// CreateUser inserts a new user record into the database. The insert fails
+// if the user's organization does not already exist.
 func (d *DB) CreateUser(user *models.User) error {
 	ctx := context.Background()
 
@@ -200,17 +199,6 @@ func (d *DB) CreateUser(user *models.User) error {
 			d.log.Error().Err(err).Msg("rollback transaction")
 		}
 	}()
-
-	if d.orgAutoCreateAllowed(user.Organization) {
-		_, err = tx.Exec(ctx,
-			`INSERT INTO identity.organizations (name, description)
-			 VALUES ($1, '')
-			 ON CONFLICT (name) DO NOTHING`,
-			user.Organization)
-		if err != nil {
-			return fmt.Errorf("ensure organization: %w", err)
-		}
-	}
 
 	_, err = tx.Exec(ctx, `INSERT INTO identity.users (
 		username, is_valid, expires_at, uid, gid, fullname,

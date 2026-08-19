@@ -19,7 +19,7 @@ Users are cached in Postgres and refreshed from the provider when the cached rec
 
 ### Organizations
 
-Every user belongs to exactly one organization (tenant). Organizations referenced by incoming users can be created automatically via the `organizations.autoCreate` config list (use `["*"]` to allow all).
+Every user belongs to exactly one organization (tenant). Organizations must already exist before a user can be onboarded into them — the `default` organization is seeded by the initial migration.
 
 ### JWT token lifecycle
 
