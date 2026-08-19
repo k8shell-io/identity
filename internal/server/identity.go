@@ -130,6 +130,12 @@ func (s *IdentityService) IssueUserToken(ctx context.Context,
 		}
 		return nil, propagateOrInternal(err, "error occurred when getting user '%s': %v", req.Username, err)
 	}
+	// GetUserByUsername returns invalid users rather than erroring (see its
+	// doc comment); a deactivated/deprovisioned user must not be issued a
+	// fresh token.
+	if !user.IsValid {
+		return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
+	}
 
 	token, err := s.server.issueUserToken(user)
 	if err != nil {
@@ -310,11 +316,16 @@ func (s *IdentityService) AuthUserPublicKey(ctx context.Context,
 
 	user, err := s.server.GetUserByUsername(req.Username, "")
 	if err != nil {
-		if errors.Is(err, models.ErrUserNotFound) || errors.Is(err, models.ErrUserIsNotValid) {
+		if errors.Is(err, models.ErrUserNotFound) {
 			return &identityv1.AuthUserResponse{Valid: false}, nil
 		}
 		return nil, propagateOrInternal(err, "error occured when finding user '%s': %s",
 			req.Username, err.Error())
+	}
+	// GetUserByUsername returns invalid users rather than erroring (see its
+	// doc comment), so the denial has to be checked explicitly here.
+	if !user.IsValid {
+		return &identityv1.AuthUserResponse{Valid: false}, nil
 	}
 
 	parsedKey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(req.PublicKey))
@@ -388,11 +399,18 @@ func (s *IdentityService) matchStoredAuthKey(username, normalizedKey string) (*i
 func (s *IdentityService) checkUserPassword(username, password string) (user *models.User, exists bool, err error) {
 	u, err := s.server.GetUserByUsername(username, "")
 	if err != nil {
-		if errors.Is(err, models.ErrUserNotFound) || errors.Is(err, models.ErrUserIsNotValid) {
+		if errors.Is(err, models.ErrUserNotFound) {
 			return nil, false, nil
 		}
 		return nil, false, propagateOrInternal(err, "error occurred when finding user '%s': %s",
 			username, err.Error())
+	}
+	// GetUserByUsername returns invalid users rather than erroring (see its
+	// doc comment); treat that the same as not-found, matching prior
+	// behavior — lockout tracking must not apply to accounts that aren't
+	// real/active.
+	if !u.IsValid {
+		return nil, false, nil
 	}
 
 	if u.Password == "" || password == "" {
@@ -875,7 +893,7 @@ func (s *IdentityService) GetUserCredential(ctx context.Context,
 		case errors.Is(err, ErrServiceAccountNotFound):
 			return nil, status.Errorf(codes.NotFound, "failed to resolve credential: %v", err)
 		}
-		return nil, status.Errorf(codes.Internal, "failed to resolve credential: %v", err)
+		return nil, propagateOrInternal(err, "failed to resolve credential: %v", err)
 	}
 
 	return gapi.UserCredentialToProto(cred), nil
@@ -1625,11 +1643,16 @@ func (s *IdentityService) CreateAccessToken(ctx context.Context,
 		return nil, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
-	if _, err := s.server.GetUserByUsername(req.Username, ""); err != nil {
+	if u, err := s.server.GetUserByUsername(req.Username, ""); err != nil {
 		if errors.Is(err, models.ErrUserNotFound) {
 			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
 		}
 		return nil, propagateOrInternal(err, "error occurred when getting user '%s': %v", req.Username, err)
+	} else if !u.IsValid {
+		// GetUserByUsername returns invalid users rather than erroring (see
+		// its doc comment); a deactivated/deprovisioned user must not be
+		// issued a new PAT.
+		return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
 	}
 
 	var expiresAt *time.Time
@@ -1805,10 +1828,16 @@ func (s *IdentityService) ResolveAccessToken(ctx context.Context,
 
 	user, err := s.server.GetUserByUsername(token.Username, "")
 	if err != nil {
-		if errors.Is(err, models.ErrUserNotFound) || errors.Is(err, models.ErrUserIsNotValid) {
+		if errors.Is(err, models.ErrUserNotFound) {
 			return nil, status.Error(codes.Unauthenticated, "invalid or expired access token")
 		}
 		return nil, propagateOrInternal(err, "error occurred when getting user '%s': %v", token.Username, err)
+	}
+	// GetUserByUsername returns invalid users rather than erroring (see its
+	// doc comment); a PAT for a deactivated/deprovisioned user must still be
+	// rejected here.
+	if !user.IsValid {
+		return nil, status.Error(codes.Unauthenticated, "invalid or expired access token")
 	}
 
 	var userToken string

@@ -378,6 +378,7 @@ func (s *Server) refreshUser(username string, source string, user *models.User,
 	if user == nil || time.Now().After(user.ExpiresAt) || !user.IsValid {
 		var foundUser *models.User
 		var lookupErr error
+		var lookupUnauthenticated bool
 		if user != nil {
 			source = user.Source
 		}
@@ -388,9 +389,35 @@ func (s *Server) refreshUser(username string, source string, user *models.User,
 			})
 			if err != nil {
 				switch status.Code(err) {
-				case codes.PermissionDenied, codes.Unauthenticated:
+				case codes.PermissionDenied:
+					// Access to this user was explicitly denied (as opposed to
+					// merely needing re-authentication) — nothing cached can
+					// substitute for that, so fail hard rather than serving a
+					// stale record the provider may no longer stand behind.
 					return nil, false, err
-				case codes.Unavailable:
+				case codes.Unauthenticated:
+					// The provider's own session/token for this user (e.g. an
+					// OAuth refresh token) has expired. This isn't a rejection
+					// of the user themselves, so — like every other
+					// inconclusive error below — fall back to serving the
+					// cached record. Unlike a mere Unavailable outage we do
+					// have a positive signal here, so the served record's
+					// IsValid is downgraded to false (in memory only, not
+					// persisted) to tell the caller it couldn't be freshly
+					// confirmed, without a second field duplicating IsValid's
+					// job.
+					lookupErr = err
+					lookupUnauthenticated = true
+				default:
+					// Any other error (Unavailable, DeadlineExceeded, Internal,
+					// or a code this provider client doesn't normally return)
+					// means the provider gave no conclusive answer. This must
+					// NOT fall through to the invalidateUser branch below —
+					// only a successful response that affirmatively reports no
+					// matching user should ever mark the cached record
+					// invalid. Treating an ambiguous error as "not found"
+					// would permanently disable a user's login over a
+					// transient provider hiccup.
 					lookupErr = err
 				}
 				s.log.Warn().Msgf("Failed to look up user '%s' via provider '%s': %v", username, provider.Name(), err)
@@ -441,6 +468,9 @@ func (s *Server) refreshUser(username string, source string, user *models.User,
 				s.log.Warn().Msgf(
 					"Provider lookup for user '%s' failed (%v); serving cached record from before the outage",
 					username, lookupErr)
+				if lookupUnauthenticated {
+					user.IsValid = false
+				}
 				return user, false, nil
 			}
 			return nil, false, lookupErr
@@ -783,10 +813,14 @@ func (s *Server) getUserByUsername(username string, source string,
 		return nil, false, fmt.Errorf("user '%s' not found: %w", username, models.ErrUserNotFound)
 	}
 
-	if !user.IsValid {
-		return nil, false, fmt.Errorf("user '%s' is not valid: %w", username, models.ErrUserIsNotValid)
-	}
-
+	// user.IsValid is returned as-is rather than turned into an error here:
+	// it's false both when the provider has confirmed the user no longer
+	// exists (persisted, via refreshUser's invalidateUser branch) and when a
+	// cached record was served because the provider couldn't be
+	// re-authenticated (transient, see refreshUser's Unauthenticated
+	// handling) — in the latter case the record must still come back, so
+	// callers that need to gate on validity (auth, PAT resolution, …) check
+	// user.IsValid themselves instead of relying on this lookup to fail.
 	return user, freshlyOnboarded, nil
 }
 
@@ -825,10 +859,8 @@ func (s *Server) GetUserByEmail(email string) (*models.User, error) {
 		return nil, fmt.Errorf("user with email '%s' not found: %w", email, models.ErrUserNotFound)
 	}
 
-	if !user.IsValid {
-		return nil, fmt.Errorf("user '%s' is not valid: %w", user.Username, models.ErrUserIsNotValid)
-	}
-
+	// See the matching comment in getUserByUsername: user.IsValid is
+	// returned as-is; callers that need to gate on it check it themselves.
 	return user, nil
 }
 
