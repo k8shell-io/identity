@@ -406,6 +406,13 @@ func (f *FileUserProvider) ListRepos(ctx context.Context, in *identityv1.ListRep
 	return nil, status.Errorf(codes.Unimplemented, "file user provider does not support listing repos")
 }
 
+// GetVersionInfo is not supported by the file-backed provider: it is an
+// in-process provider, not a separately built and versioned service.
+func (f *FileUserProvider) GetVersionInfo(ctx context.Context, in *commonv1.GetVersionInfoRequest,
+	opts ...grpc.CallOption) (*commonv1.GetVersionInfoResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "file user provider does not report version info")
+}
+
 // CompleteUserWebFlow completes web-flow onboarding and returns the user.
 func (f *FileUserProvider) CompleteUserWebFlow(ctx context.Context, in *identityv1.CompleteUserWebFlowRequest,
 	opts ...grpc.CallOption) (*commonv1.UserResult, error) {

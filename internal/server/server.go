@@ -87,14 +87,21 @@ type Server struct {
 
 	// passwordLockoutCfg is the resolved (defaults-applied) lockout config.
 	passwordLockoutCfg PasswordLockoutConfig
+
+	// version and commit are the build metadata injected at link time in
+	// main and surfaced over the wire by IdentityService.GetVersionInfo.
+	version string
+	commit  string
 }
 
 // NewServer initializes a new Server from the provided configuration file.
 // It loads configuration, initializes the database connection, and sets up
 // identity providers.
-func NewServer(configFile string) (*Server, error) {
+func NewServer(configFile, version, commit string) (*Server, error) {
 	server := &Server{
-		log: log.NewLogger("server"),
+		log:     log.NewLogger("server"),
+		version: version,
+		commit:  commit,
 	}
 
 	server.log.Info().Msgf("Loading server configuration from %s", configFile)
