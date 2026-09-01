@@ -14,8 +14,10 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/k8shell-io/common/pkg/api/client/identity"
 	commonv1 "github.com/k8shell-io/common/pkg/api/gen/go/common/v1"
 	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
 	queryv1 "github.com/k8shell-io/common/pkg/api/gen/go/query/v1"
@@ -26,6 +28,7 @@ import (
 	"github.com/k8shell-io/common/pkg/userstr"
 	"github.com/k8shell-io/common/pkg/utils"
 	backend "github.com/k8shell-io/identity/internal/db"
+	"github.com/k8shell-io/identity/internal/providers/file"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/crypto/ssh"
@@ -43,6 +46,9 @@ const defaultUserShell = "/bin/sh"
 // localUserSource tags users created via CreateUser as having no backing
 // identity provider, distinguishing them from provider-synced users.
 const localUserSource = "local"
+
+// serviceDescription is the human-readable summary returned by GetVersionInfo.
+const serviceDescription = "Authenticates users via OAuth/OIDC, manages users and tokens."
 
 // localUserExpiry is the expires_at set on users created via CreateUser.
 // refreshUser re-fetches from the provider named by a user's Source once
@@ -115,6 +121,18 @@ func NewIdentityService(server *Server) *IdentityService {
 	}
 }
 
+// GetVersionInfo returns build and version metadata for this service: the
+// released semantic version and git commit injected at link time, plus a
+// short description of what the service does.
+func (s *IdentityService) GetVersionInfo(_ context.Context,
+	_ *commonv1.GetVersionInfoRequest) (*commonv1.GetVersionInfoResponse, error) {
+	return &commonv1.GetVersionInfoResponse{
+		Version:     s.server.version,
+		CommitId:    s.server.commit,
+		Description: serviceDescription,
+	}, nil
+}
+
 // GetUserAccessToken returns the current JWT for the requested user.
 // Kubernetes must be configured; the Secret is the source of truth for the token.
 func (s *IdentityService) IssueUserToken(ctx context.Context,
@@ -129,6 +147,12 @@ func (s *IdentityService) IssueUserToken(ctx context.Context,
 			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
 		}
 		return nil, propagateOrInternal(err, "error occurred when getting user '%s': %v", req.Username, err)
+	}
+	// GetUserByUsername returns invalid users rather than erroring (see its
+	// doc comment); a deactivated/deprovisioned user must not be issued a
+	// fresh token.
+	if !user.IsValid {
+		return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
 	}
 
 	token, err := s.server.issueUserToken(user)
@@ -310,11 +334,16 @@ func (s *IdentityService) AuthUserPublicKey(ctx context.Context,
 
 	user, err := s.server.GetUserByUsername(req.Username, "")
 	if err != nil {
-		if errors.Is(err, models.ErrUserNotFound) || errors.Is(err, models.ErrUserIsNotValid) {
+		if errors.Is(err, models.ErrUserNotFound) {
 			return &identityv1.AuthUserResponse{Valid: false}, nil
 		}
 		return nil, propagateOrInternal(err, "error occured when finding user '%s': %s",
 			req.Username, err.Error())
+	}
+	// GetUserByUsername returns invalid users rather than erroring (see its
+	// doc comment), so the denial has to be checked explicitly here.
+	if !user.IsValid {
+		return &identityv1.AuthUserResponse{Valid: false}, nil
 	}
 
 	parsedKey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(req.PublicKey))
@@ -388,11 +417,18 @@ func (s *IdentityService) matchStoredAuthKey(username, normalizedKey string) (*i
 func (s *IdentityService) checkUserPassword(username, password string) (user *models.User, exists bool, err error) {
 	u, err := s.server.GetUserByUsername(username, "")
 	if err != nil {
-		if errors.Is(err, models.ErrUserNotFound) || errors.Is(err, models.ErrUserIsNotValid) {
+		if errors.Is(err, models.ErrUserNotFound) {
 			return nil, false, nil
 		}
 		return nil, false, propagateOrInternal(err, "error occurred when finding user '%s': %s",
 			username, err.Error())
+	}
+	// GetUserByUsername returns invalid users rather than erroring (see its
+	// doc comment); treat that the same as not-found, matching prior
+	// behavior — lockout tracking must not apply to accounts that aren't
+	// real/active.
+	if !u.IsValid {
+		return nil, false, nil
 	}
 
 	if u.Password == "" || password == "" {
@@ -875,7 +911,7 @@ func (s *IdentityService) GetUserCredential(ctx context.Context,
 		case errors.Is(err, ErrServiceAccountNotFound):
 			return nil, status.Errorf(codes.NotFound, "failed to resolve credential: %v", err)
 		}
-		return nil, status.Errorf(codes.Internal, "failed to resolve credential: %v", err)
+		return nil, propagateOrInternal(err, "failed to resolve credential: %v", err)
 	}
 
 	return gapi.UserCredentialToProto(cred), nil
@@ -1590,18 +1626,45 @@ func (s *IdentityService) RemoveUserAuthKey(ctx context.Context,
 	return gapi.UserToProto(user), nil
 }
 
+// providerVersionInfoTimeout bounds each per-provider GetVersionInfo call made
+// while assembling the response for GetAvailableIdentityProviders.
+const providerVersionInfoTimeout = 3 * time.Second
+
 func (s *IdentityService) GetAvailableIdentityProviders(
 	ctx context.Context,
 	req *identityv1.GetAvailableIdentityProvidersRequest,
 ) (*identityv1.GetAvailableIdentityProvidersResponse, error) {
-	activeProviders := s.server.orderedProviders("")
-	resp := make([]*identityv1.IdentityProviderInfo, len(activeProviders))
-	for i, activeProvider := range activeProviders {
-		resp[i] = &identityv1.IdentityProviderInfo{
+	resp := make([]*identityv1.IdentityProviderInfo, 0)
+
+	var wg sync.WaitGroup
+	for _, activeProvider := range s.server.orderedProviders("") {
+		// The file provider is in-process, not a selectable identity provider.
+		if activeProvider.Name() == file.FILE_PROVIDER_NAME {
+			continue
+		}
+
+		info := &identityv1.IdentityProviderInfo{
 			Name:         activeProvider.Name(),
 			Capabilities: activeProvider.Capabilities(),
 		}
+		resp = append(resp, info)
+
+		wg.Add(1)
+		go func(info *identityv1.IdentityProviderInfo, provider identity.IdpClient) {
+			defer wg.Done()
+			vctx, cancel := context.WithTimeout(ctx, providerVersionInfoTimeout)
+			defer cancel()
+			version, err := provider.GetVersionInfo(vctx, &commonv1.GetVersionInfoRequest{})
+			if err != nil {
+				// Unreachable remotes error out; leave version_info unset.
+				s.log.Debug().Err(err).Str("provider", info.Name).
+					Msg("provider does not report version info")
+				return
+			}
+			info.VersionInfo = version
+		}(info, activeProvider)
 	}
+	wg.Wait()
 
 	return &identityv1.GetAvailableIdentityProvidersResponse{
 		Providers: resp,
@@ -1625,11 +1688,16 @@ func (s *IdentityService) CreateAccessToken(ctx context.Context,
 		return nil, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
-	if _, err := s.server.GetUserByUsername(req.Username, ""); err != nil {
+	if u, err := s.server.GetUserByUsername(req.Username, ""); err != nil {
 		if errors.Is(err, models.ErrUserNotFound) {
 			return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
 		}
 		return nil, propagateOrInternal(err, "error occurred when getting user '%s': %v", req.Username, err)
+	} else if !u.IsValid {
+		// GetUserByUsername returns invalid users rather than erroring (see
+		// its doc comment); a deactivated/deprovisioned user must not be
+		// issued a new PAT.
+		return nil, status.Errorf(codes.NotFound, "user '%s' not found", req.Username)
 	}
 
 	var expiresAt *time.Time
@@ -1805,10 +1873,16 @@ func (s *IdentityService) ResolveAccessToken(ctx context.Context,
 
 	user, err := s.server.GetUserByUsername(token.Username, "")
 	if err != nil {
-		if errors.Is(err, models.ErrUserNotFound) || errors.Is(err, models.ErrUserIsNotValid) {
+		if errors.Is(err, models.ErrUserNotFound) {
 			return nil, status.Error(codes.Unauthenticated, "invalid or expired access token")
 		}
 		return nil, propagateOrInternal(err, "error occurred when getting user '%s': %v", token.Username, err)
+	}
+	// GetUserByUsername returns invalid users rather than erroring (see its
+	// doc comment); a PAT for a deactivated/deprovisioned user must still be
+	// rejected here.
+	if !user.IsValid {
+		return nil, status.Error(codes.Unauthenticated, "invalid or expired access token")
 	}
 
 	var userToken string
