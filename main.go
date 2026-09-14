@@ -66,7 +66,7 @@ func main() {
 	log.JsonLogger = !opts.LogText
 	log := log.NewLogger("server")
 
-	server, err := server.NewServer(opts.ConfigPath)
+	server, err := server.NewServer(opts.ConfigPath, VERSION, COMMIT)
 	if err != nil {
 		log.Error().Msgf("Error starting server: %v\n", err)
 		return

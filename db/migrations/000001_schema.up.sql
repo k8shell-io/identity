@@ -256,3 +256,41 @@ CREATE TABLE identity.onboard_rules (
 -- Speeds up both ResolveOnboardDecision's per-idp candidate fetch and
 -- listing the waitlist (action = 'waitlist') for the admin approval queue.
 CREATE INDEX idx_onboard_rules_idp_action ON identity.onboard_rules (idp, action);
+
+-- organization_env_vars stores environment variables shared by every user in
+-- an organization. keys are normalized to upper case by the application
+-- layer before being stored or queried (see chk_org_env_var_key), so lookups
+-- are effectively case-insensitive.
+CREATE TABLE identity.organization_env_vars (
+    id          SERIAL      PRIMARY KEY,
+    org         varchar     NOT NULL REFERENCES identity.organizations(name) ON DELETE CASCADE,
+    key         varchar     NOT NULL,
+    value       text        NOT NULL,
+    is_secret   boolean     NOT NULL DEFAULT FALSE,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT organization_env_vars_uniq UNIQUE (org, key),
+
+    -- valid POSIX environment variable name, already upper-cased
+    CONSTRAINT chk_org_env_var_key CHECK (key ~ '^[A-Z_][A-Z0-9_]*$')
+);
+
+-- user_env_vars stores environment variables owned by a single user. A key
+-- present here overrides the same key defined on the user's organization
+-- (see identity.organization_env_vars) — the effective value for a user is
+-- resolved at the application layer, not via a view or join here.
+CREATE TABLE identity.user_env_vars (
+    id          SERIAL      PRIMARY KEY,
+    username    varchar     NOT NULL REFERENCES identity.users(username) ON DELETE CASCADE,
+    key         varchar     NOT NULL,
+    value       text        NOT NULL,
+    is_secret   boolean     NOT NULL DEFAULT FALSE,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT user_env_vars_uniq UNIQUE (username, key),
+
+    -- valid POSIX environment variable name, already upper-cased
+    CONSTRAINT chk_user_env_var_key CHECK (key ~ '^[A-Z_][A-Z0-9_]*$')
+);
