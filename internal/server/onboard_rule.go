@@ -6,6 +6,7 @@ package server
 import (
 	"context"
 	"errors"
+	"regexp"
 	"strings"
 
 	commonv1 "github.com/k8shell-io/common/pkg/api/gen/go/common/v1"
@@ -82,26 +83,102 @@ func (s *IdentityService) validateOnboardRule(action, org string, roles []string
 	return nil
 }
 
+// commaNewlineRunRE matches a ',' followed by one or more newlines (each
+// optionally surrounded by horizontal whitespace) — the only newline
+// placement normalizeUsernamePattern treats as legitimate, e.g. pasting one
+// already comma-terminated entry per line.
+var commaNewlineRunRE = regexp.MustCompile(`,[ \t]*(?:\r?\n[ \t]*)+`)
+
+// normalizeUsernamePattern strips newlines that immediately follow a ','
+// (optionally through blank lines/horizontal whitespace) from a
+// username_pattern — the same treatment as any other incidental whitespace
+// around a list entry (see DB.ResolveOnboardDecision, which trims each entry
+// it splits on ','). It does NOT touch a newline anywhere else in the
+// pattern: e.g. "tomvit\nestaho,jlklklk" has a newline between "tomvit" and
+// "estaho" with no comma in between, so stripping it here would silently
+// merge two distinct entries into the single bogus username
+// "tomvitestaho" — left alone, validateUsernamePattern rejects it instead.
+// The whole pattern is trimmed first so a single trailing newline (e.g. from
+// a textarea/paste) doesn't need special-casing below.
+func normalizeUsernamePattern(pattern string) string {
+	pattern = strings.TrimSpace(pattern)
+	if !strings.Contains(pattern, ",") {
+		return pattern
+	}
+	return commaNewlineRunRE.ReplaceAllString(pattern, ",")
+}
+
+// duplicateUsernameKey lowercases and trims a username_pattern entry for
+// duplicate detection, so e.g. "Alice" and "alice" are treated as the same
+// entry regardless of case.
+func duplicateUsernameKey(u string) string {
+	return strings.ToLower(strings.TrimSpace(u))
+}
+
+// validUsernameRE matches a single valid username within username_pattern:
+// letters, digits, '.', '_', and '-' — the character set common identity
+// providers (GitHub, GitLab, Linux-style logins) actually issue usernames
+// in. Applied to every entry, whether username_pattern is a comma-delimited
+// list or a single exact username; the '*' wildcard is checked separately
+// and never reaches this.
+var validUsernameRE = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
 // validateUsernamePattern checks username_pattern's comma-delimited-list
 // form: no empty entries (a stray leading/trailing/double comma), and not
 // combined with a '*' wildcard — a rule is either a wildcard, a single exact
 // username, or a plain comma-delimited list of usernames, never a mix (see
 // DB.ResolveOnboardDecision, which matches a list entry-by-entry rather than
-// as a glob). Patterns with no comma at all (a wildcard or a single
-// username) are always valid and pass through untouched.
+// as a glob). A raw newline is always rejected here: by the time this runs,
+// normalizeUsernamePattern has already stripped every newline that
+// legitimately followed a ',' (a comma-terminated entry on its own line), so
+// anything left is a newline DB.ResolveOnboardDecision has no delimiter
+// semantics for — e.g. "tomvit\nestaho,jlklklk", where the newline sits
+// between two entries with no comma between them. Saving that as-is would
+// silently merge "tomvit" and "estaho" into a single, never-matching
+// username instead of surfacing the missing comma as a mistake. Every
+// non-wildcard entry is also checked against validUsernameRE, so garbage
+// like "fdsf%sdf" is rejected instead of being saved as a rule that can
+// never match a real username. Within a comma-delimited list, the same
+// username appearing twice (case-insensitively, e.g. "alice,Alice") is
+// rejected outright rather than silently collapsed — a caller who wrote a
+// name twice almost certainly meant to write two different names, and
+// silently deduplicating would hide that mistake.
 func validateUsernamePattern(pattern string) error {
+	if strings.ContainsAny(pattern, "\r\n") {
+		return status.Error(codes.InvalidArgument,
+			"username_pattern cannot contain a newline except immediately after a ',' separator")
+	}
 	if !strings.Contains(pattern, ",") {
+		if pattern == "*" {
+			return nil
+		}
+		if !validUsernameRE.MatchString(pattern) {
+			return status.Errorf(codes.InvalidArgument,
+				"username_pattern %q is not a valid username: only letters, digits, '.', '_', and '-' are allowed", pattern)
+		}
 		return nil
 	}
 	if strings.Contains(pattern, "*") {
 		return status.Error(codes.InvalidArgument,
 			"username_pattern cannot combine a comma-delimited list of usernames with a '*' wildcard")
 	}
-	for _, u := range strings.Split(pattern, ",") {
-		if strings.TrimSpace(u) == "" {
+	seen := make(map[string]bool)
+	for _, raw := range strings.Split(pattern, ",") {
+		u := strings.TrimSpace(raw)
+		if u == "" {
 			return status.Error(codes.InvalidArgument,
 				"username_pattern's comma-delimited list contains an empty username")
 		}
+		if !validUsernameRE.MatchString(u) {
+			return status.Errorf(codes.InvalidArgument,
+				"username_pattern's comma-delimited list contains an invalid username %q: only letters, digits, '.', '_', and '-' are allowed", u)
+		}
+		key := duplicateUsernameKey(u)
+		if seen[key] {
+			return status.Errorf(codes.InvalidArgument,
+				"username_pattern's comma-delimited list contains %q more than once", u)
+		}
+		seen[key] = true
 	}
 	return nil
 }
@@ -117,7 +194,8 @@ func (s *IdentityService) CreateOnboardRule(ctx context.Context,
 	if req.GetUsernamePattern() == "" {
 		return nil, status.Error(codes.InvalidArgument, "username_pattern is required")
 	}
-	if err := validateUsernamePattern(req.GetUsernamePattern()); err != nil {
+	usernamePattern := normalizeUsernamePattern(req.GetUsernamePattern())
+	if err := validateUsernamePattern(usernamePattern); err != nil {
 		return nil, err
 	}
 	if req.GetOrg() == "" {
@@ -132,7 +210,7 @@ func (s *IdentityService) CreateOnboardRule(ctx context.Context,
 
 	rule, err := s.server.DB.CreateOnboardRule(&models.OnboardRule{
 		IDP:             req.GetIdp(),
-		UsernamePattern: req.GetUsernamePattern(),
+		UsernamePattern: usernamePattern,
 		Org:             req.GetOrg(),
 		Action:          models.OnboardAction(req.GetAction()),
 		Priority:        req.GetPriority(),
@@ -164,7 +242,8 @@ func (s *IdentityService) UpdateOnboardRule(ctx context.Context,
 	if req.GetUsernamePattern() == "" {
 		return nil, status.Error(codes.InvalidArgument, "username_pattern is required")
 	}
-	if err := validateUsernamePattern(req.GetUsernamePattern()); err != nil {
+	usernamePattern := normalizeUsernamePattern(req.GetUsernamePattern())
+	if err := validateUsernamePattern(usernamePattern); err != nil {
 		return nil, err
 	}
 	if s.server.DB == nil {
@@ -186,7 +265,7 @@ func (s *IdentityService) UpdateOnboardRule(ctx context.Context,
 		return nil, err
 	}
 
-	rule, err := s.server.DB.UpdateOnboardRule(req.GetId(), req.GetUsernamePattern(), models.OnboardAction(req.GetAction()),
+	rule, err := s.server.DB.UpdateOnboardRule(req.GetId(), usernamePattern, models.OnboardAction(req.GetAction()),
 		req.GetPriority(), req.GetRoles(), req.GetSudo(), req.GetNote(), req.GetFullname(), req.GetEmail())
 	if err != nil {
 		switch {

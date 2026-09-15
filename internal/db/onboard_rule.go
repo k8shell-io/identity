@@ -244,18 +244,28 @@ func (d *DB) QueryOnboardRules(desc *queryv1.Descriptor, fm pkgquery.FieldMap,
 // with (see Server.refreshUser). username_pattern is one of: '*' (matches
 // any username), a comma-delimited list of usernames (matches username
 // against each entry exactly, e.g. 'alice,bob,carol'), or a single exact
-// username. A list or exact match always outranks a '*' wildcard row,
-// regardless of priority; within either group the row with the lowest priority wins (ties
-// broken by the lower row id, for determinism) — this now also decides
-// between two orgs' rules when hintOrg is empty and both match, so an
-// admin relying on the empty-hint fallback should give their intended
-// default a lower priority than any other org's rule for the same idp. When
-// nothing matches at all — not even a catch-all (username_pattern='*') row
-// for the idp (within hintOrg, or across every org when hintOrg is empty) —
-// this fails closed and returns OnboardActionReject: a real deployment is
-// expected to always define at least a catch-all rule per idp it uses, so
-// reaching this path signals a missing rule, not an intentional "allow
-// everyone" default.
+// username. Ranking is by specificity, in this order: a literal
+// single-username match always outranks a comma-delimited list match, which
+// always outranks a '*' wildcard match, regardless of priority; within any
+// one tier the row with the lowest priority wins (ties broken by the lower
+// row id, for determinism) — this also decides between two orgs' rules when
+// hintOrg is empty and both match, so an admin relying on the empty-hint
+// fallback should give their intended default a lower priority than any
+// other org's rule for the same idp. The literal-beats-list-beats-wildcard
+// ordering matters beyond the initial decision: once a comma-list or
+// wildcard rule first resolves a user to waitlist/allow/reject,
+// Server.refreshUser records that outcome as a concrete single-username row
+// (see UpsertWaitlistEntry/MarkOnboarded/MarkRejectedByRule) — a literal
+// match on username. Every later login by that same user must keep matching
+// that concrete row, not the broader rule that produced it, or an admin's
+// approval (or edits to a still-pending request) would be silently
+// overwritten the next time the user logs in and the original list/wildcard
+// rule wins the tie-break again. When nothing matches at all — not even a
+// catch-all (username_pattern='*') row for the idp (within hintOrg, or
+// across every org when hintOrg is empty) — this fails closed and returns
+// OnboardActionReject: a real deployment is expected to always define at
+// least a catch-all rule per idp it uses, so reaching this path signals a
+// missing rule, not an intentional "allow everyone" default.
 func (d *DB) ResolveOnboardDecision(idp, username, hintOrg string) (*OnboardDecision, error) {
 	query := `SELECT id, username_pattern, org, action, priority, roles, sudo
 		 FROM identity.onboard_rules WHERE (idp = $1 OR idp = '*')`
@@ -278,7 +288,7 @@ func (d *DB) ResolveOnboardDecision(idp, username, hintOrg string) (*OnboardDeci
 		roles    []string
 		sudo     bool
 	}
-	var exact, pattern []candidate
+	var literal, list, wildcard []candidate
 	for rows.Next() {
 		var c candidate
 		var usernamePattern string
@@ -289,16 +299,16 @@ func (d *DB) ResolveOnboardDecision(idp, username, hintOrg string) (*OnboardDeci
 		case strings.Contains(usernamePattern, ","):
 			for _, u := range strings.Split(usernamePattern, ",") {
 				if strings.TrimSpace(u) == username {
-					exact = append(exact, c)
+					list = append(list, c)
 					break
 				}
 			}
 		case strings.Contains(usernamePattern, "*"):
 			if matched, matchErr := path.Match(usernamePattern, username); matchErr == nil && matched {
-				pattern = append(pattern, c)
+				wildcard = append(wildcard, c)
 			}
 		case usernamePattern == username:
-			exact = append(exact, c)
+			literal = append(literal, c)
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -316,9 +326,12 @@ func (d *DB) ResolveOnboardDecision(idp, username, hintOrg string) (*OnboardDeci
 		return winner
 	}
 
-	winner := best(exact)
+	winner := best(literal)
 	if winner == nil {
-		winner = best(pattern)
+		winner = best(list)
+	}
+	if winner == nil {
+		winner = best(wildcard)
 	}
 	if winner == nil {
 		return &OnboardDecision{Action: models.OnboardActionReject}, nil
