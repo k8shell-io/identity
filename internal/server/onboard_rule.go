@@ -82,9 +82,33 @@ func (s *IdentityService) validateOnboardRule(action, org string, roles []string
 	return nil
 }
 
-// CreateOnboardRule registers a new onboard rule: a standing pattern policy
-// (username_pattern containing '*'), or a one-off decision for a specific
-// username.
+// validateUsernamePattern checks username_pattern's comma-delimited-list
+// form: no empty entries (a stray leading/trailing/double comma), and not
+// combined with a '*' wildcard — a rule is either a wildcard, a single exact
+// username, or a plain comma-delimited list of usernames, never a mix (see
+// DB.ResolveOnboardDecision, which matches a list entry-by-entry rather than
+// as a glob). Patterns with no comma at all (a wildcard or a single
+// username) are always valid and pass through untouched.
+func validateUsernamePattern(pattern string) error {
+	if !strings.Contains(pattern, ",") {
+		return nil
+	}
+	if strings.Contains(pattern, "*") {
+		return status.Error(codes.InvalidArgument,
+			"username_pattern cannot combine a comma-delimited list of usernames with a '*' wildcard")
+	}
+	for _, u := range strings.Split(pattern, ",") {
+		if strings.TrimSpace(u) == "" {
+			return status.Error(codes.InvalidArgument,
+				"username_pattern's comma-delimited list contains an empty username")
+		}
+	}
+	return nil
+}
+
+// CreateOnboardRule registers a new onboard rule: a standing wildcard policy
+// (username_pattern='*'), a standing list policy (a comma-delimited list of
+// usernames), or a one-off decision for a specific username.
 func (s *IdentityService) CreateOnboardRule(ctx context.Context,
 	req *identityv1.CreateOnboardRuleRequest) (*identityv1.OnboardRule, error) {
 	if req.GetIdp() == "" {
@@ -92,6 +116,9 @@ func (s *IdentityService) CreateOnboardRule(ctx context.Context,
 	}
 	if req.GetUsernamePattern() == "" {
 		return nil, status.Error(codes.InvalidArgument, "username_pattern is required")
+	}
+	if err := validateUsernamePattern(req.GetUsernamePattern()); err != nil {
+		return nil, err
 	}
 	if req.GetOrg() == "" {
 		return nil, status.Error(codes.InvalidArgument, "org is required")
@@ -126,13 +153,19 @@ func (s *IdentityService) CreateOnboardRule(ctx context.Context,
 	return onboardRuleToProto(rule), nil
 }
 
-// UpdateOnboardRule fully replaces the mutable fields of an onboard rule.
-// idp/username_pattern/org are immutable — delete and recreate the rule to
-// change them.
+// UpdateOnboardRule fully replaces the mutable fields of an onboard rule,
+// including username_pattern. idp/org are immutable — delete and recreate
+// the rule to change them.
 func (s *IdentityService) UpdateOnboardRule(ctx context.Context,
 	req *identityv1.UpdateOnboardRuleRequest) (*identityv1.OnboardRule, error) {
 	if req.GetId() == 0 {
 		return nil, status.Error(codes.InvalidArgument, "id is required")
+	}
+	if req.GetUsernamePattern() == "" {
+		return nil, status.Error(codes.InvalidArgument, "username_pattern is required")
+	}
+	if err := validateUsernamePattern(req.GetUsernamePattern()); err != nil {
+		return nil, err
 	}
 	if s.server.DB == nil {
 		return nil, status.Error(codes.Unavailable, "database is not configured")
@@ -153,12 +186,14 @@ func (s *IdentityService) UpdateOnboardRule(ctx context.Context,
 		return nil, err
 	}
 
-	rule, err := s.server.DB.UpdateOnboardRule(req.GetId(), models.OnboardAction(req.GetAction()),
+	rule, err := s.server.DB.UpdateOnboardRule(req.GetId(), req.GetUsernamePattern(), models.OnboardAction(req.GetAction()),
 		req.GetPriority(), req.GetRoles(), req.GetSudo(), req.GetNote(), req.GetFullname(), req.GetEmail())
 	if err != nil {
 		switch {
 		case errors.Is(err, backend.ErrOnboardRuleNotFound):
 			return nil, status.Errorf(codes.NotFound, "onboard rule '%d' not found", req.GetId())
+		case errors.Is(err, backend.ErrOnboardRuleExists):
+			return nil, status.Errorf(codes.AlreadyExists, "%v", err)
 		case errors.Is(err, models.ErrInvalidParameters):
 			return nil, status.Errorf(codes.InvalidArgument, "%v", err)
 		}
