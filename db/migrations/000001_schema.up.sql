@@ -194,13 +194,17 @@ CREATE UNIQUE INDEX idx_access_tokens_username_name
 
 -- onboard_rules controls whether a new user may onboard, and what they get
 -- when they do. A row is either:
---   - a pattern rule (username_pattern contains '*'), admin-authored, e.g.
+--   - a wildcard rule (username_pattern='*'), admin-authored, e.g.
 --     idp='github', username_pattern='*', action='waitlist' as that idp's
 --     catch-all/default; or
---   - a concrete decision (username_pattern has no '*'), either
---     admin-authored (a one-off allow/reject for a specific person) or
---     system-inserted the first time that exact user hits a 'waitlist'
---     pattern rule.
+--   - a list rule (username_pattern is a comma-delimited list of usernames,
+--     e.g. 'alice,bob,carol'), admin-authored, matching any username in the
+--     list — resolved the same as an exact match (see
+--     DB.ResolveOnboardDecision), not as a glob; or
+--   - a concrete decision (username_pattern is a single exact username, no
+--     ',' or '*'), either admin-authored (a one-off allow/reject for a
+--     specific person) or system-inserted the first time that exact user
+--     hits a wildcard or list rule.
 --
 -- org is the destination org a matching user is placed into (NOT a scope
 -- filter like identity.roles.org) — it always names exactly one
@@ -210,7 +214,7 @@ CREATE UNIQUE INDEX idx_access_tokens_username_name
 CREATE TABLE identity.onboard_rules (
     id                SERIAL PRIMARY KEY,
     idp               varchar     not null,  -- provider name, 'local', or '*' (any)
-    username_pattern  varchar     not null,  -- exact username, or a pattern containing '*'
+    username_pattern  varchar     not null,  -- exact username, a comma-delimited list of usernames, or '*' (any)
     org               varchar     not null references identity.organizations(name),
     action            varchar     not null,  -- 'allow' | 'reject' | 'waitlist'
     priority          integer     not null default 100, -- lower wins among matching rows of the same specificity

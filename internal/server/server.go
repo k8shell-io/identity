@@ -309,14 +309,14 @@ func (s *Server) seedOnboardRules(rules []OnboardRuleConfig) error {
 // explicitly granting or revoking it (non-nil). hint.Fullname, when non-empty,
 // replaces decision.Fullname, overriding the display fullname that would otherwise
 // be recorded against the matched onboard_rules row (see refreshUser). decision.Org
-// is never touched here: org placement is decided earlier, by which org
-// ResolveOnboardDecision was scoped to (hint.Organization, or
-// DefaultOrganizationName when the provider reported none — see refreshUser). A
-// provider can therefore only ever land a user in an org that already has a
-// matching onboard_rules row for it; it cannot invent or auto-create one. If
-// nothing in identity.onboard_rules matched idp within that org at all (the
-// fail-closed case, decision.Org == ""), the hint is ignored entirely — there is
-// no org to place the user into regardless of what the provider decided.
+// is never touched here: org placement is decided earlier, by ResolveOnboardDecision
+// — scoped to hint.Organization when the provider reported one, or resolved from
+// whichever onboard_rules row matches best across every org when it didn't (see
+// refreshUser). Either way the matched row's own org is authoritative; a provider
+// can request a specific org via hint.Organization but can't invent one that no
+// rule covers. If nothing in identity.onboard_rules matched idp at all (the fail-closed
+// case, decision.Org == ""), the hint is ignored entirely — there is no org to place
+// the user into regardless of what the provider decided.
 func (s *Server) applyOnboardHint(decision *backend.OnboardDecision, username string, hint *models.OnboardUserRule) {
 	if hint == nil || decision.Org == "" {
 		return
@@ -502,8 +502,8 @@ func (s *Server) refreshUser(username string, source string, user *models.User,
 				return nil, false, err
 			}
 
-			onboardOrg := backend.DefaultOrganizationName
-			if hint != nil && hint.Organization != "" {
+			var onboardOrg string
+			if hint != nil {
 				onboardOrg = hint.Organization
 			}
 			decision, err := s.DB.ResolveOnboardDecision(foundUser.Source, foundUser.Username, onboardOrg)

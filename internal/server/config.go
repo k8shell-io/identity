@@ -91,7 +91,8 @@ type OnboardRuleConfig struct {
 	// "*" for any provider.
 	IDP string `yaml:"idp" validate:"required"`
 
-	// UsernamePattern is an exact username, or a pattern containing '*'.
+	// UsernamePattern is '*' (any username), a comma-delimited list of
+	// usernames, or a single exact username.
 	UsernamePattern string `yaml:"usernamePattern" validate:"required"`
 
 	// Org is the organization matching users are placed into.

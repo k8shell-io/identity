@@ -134,24 +134,30 @@ func (d *DB) CreateOnboardRule(rule *models.OnboardRule) (*models.OnboardRule, e
 	return created, nil
 }
 
-// UpdateOnboardRule fully replaces the mutable fields of an onboard rule.
-// idp/username_pattern/org are immutable — delete and recreate the rule to
-// change them. Returns ErrOnboardRuleNotFound when no rule with that id
-// exists.
-func (d *DB) UpdateOnboardRule(id int32, action models.OnboardAction, priority int32,
+// UpdateOnboardRule fully replaces the mutable fields of an onboard rule,
+// including username_pattern. idp/org are immutable — delete and recreate
+// the rule to change them. Returns ErrOnboardRuleNotFound when no rule with
+// that id exists, or ErrOnboardRuleExists when the new username_pattern
+// collides with another row already sharing this rule's (idp, org) — see
+// onboard_rules_uniq.
+func (d *DB) UpdateOnboardRule(id int32, usernamePattern string, action models.OnboardAction, priority int32,
 	roles []string, sudo bool, note, fullname, email string) (*models.OnboardRule, error) {
 	row := d.Pool.QueryRow(context.Background(),
 		`UPDATE identity.onboard_rules
-		 SET action=$2, priority=$3, roles=$4, sudo=$5, note=$6, fullname=$7, email=$8, updated_at=now()
+		 SET username_pattern=$2, action=$3, priority=$4, roles=$5, sudo=$6, note=$7, fullname=$8, email=$9, updated_at=now()
 		 WHERE id=$1
 		 RETURNING `+onboardRuleSelectColumns,
-		id, string(action), priority, nonNilRoles(roles), sudo, note, fullname, email,
+		id, usernamePattern, string(action), priority, nonNilRoles(roles), sudo, note, fullname, email,
 	)
 	updated, err := scanOnboardRule(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("%w: id %d", ErrOnboardRuleNotFound, id)
 	}
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "onboard_rules_uniq" {
+			return nil, fmt.Errorf("%w: id=%d pattern=%q", ErrOnboardRuleExists, id, usernamePattern)
+		}
 		if translated := onboardRulePgError(err, "", action); translated != nil {
 			return nil, translated
 		}
@@ -227,24 +233,48 @@ func (d *DB) QueryOnboardRules(desc *queryv1.Descriptor, fm pkgquery.FieldMap,
 	return rules, rows.Err()
 }
 
-// ResolveOnboardDecision resolves whether username may onboard via idp into
-// org, and what it should get if so, by matching identity.onboard_rules
-// scoped to that org — org is normally the identity provider's own
-// onboarding hint (models.OnboardUserRule.Organization), or
-// DefaultOrganizationName when the provider reported none (see
-// Server.refreshUser). An exact-username row (no wildcard in
-// username_pattern) always outranks a wildcard pattern row, regardless of
-// priority; within either group the row with the lowest priority wins (ties
-// broken by the lower row id, for determinism). When nothing matches at
-// all — not even a catch-all (username_pattern='*') row for the idp within
-// org — this fails closed and returns OnboardActionReject: a real
-// deployment is expected to always define at least a catch-all rule per
-// (idp, org) pair it uses, so reaching this path signals a missing rule,
-// not an intentional "allow everyone" default.
-func (d *DB) ResolveOnboardDecision(idp, username, org string) (*OnboardDecision, error) {
-	rows, err := d.Pool.Query(context.Background(),
-		`SELECT id, username_pattern, org, action, priority, roles, sudo
-		 FROM identity.onboard_rules WHERE (idp = $1 OR idp = '*') AND org = $2`, idp, org)
+// ResolveOnboardDecision resolves whether username may onboard via idp, and
+// what it should get if so, by matching identity.onboard_rules. hintOrg is
+// the identity provider's own onboarding hint (models.OnboardUserRule.Organization);
+// when non-empty, matching is scoped to that org, same as before. When empty
+// (the provider reported no org of its own), every org is searched and the
+// winning row's own org decides placement — see the onboard_rules.org
+// comment in db/migrations/000001_schema.up.sql: the rule is the source of
+// truth for destination org, not a value the provider must already agree
+// with (see Server.refreshUser). username_pattern is one of: '*' (matches
+// any username), a comma-delimited list of usernames (matches username
+// against each entry exactly, e.g. 'alice,bob,carol'), or a single exact
+// username. Ranking is by specificity, in this order: a literal
+// single-username match always outranks a comma-delimited list match, which
+// always outranks a '*' wildcard match, regardless of priority; within any
+// one tier the row with the lowest priority wins (ties broken by the lower
+// row id, for determinism) — this also decides between two orgs' rules when
+// hintOrg is empty and both match, so an admin relying on the empty-hint
+// fallback should give their intended default a lower priority than any
+// other org's rule for the same idp. The literal-beats-list-beats-wildcard
+// ordering matters beyond the initial decision: once a comma-list or
+// wildcard rule first resolves a user to waitlist/allow/reject,
+// Server.refreshUser records that outcome as a concrete single-username row
+// (see UpsertWaitlistEntry/MarkOnboarded/MarkRejectedByRule) — a literal
+// match on username. Every later login by that same user must keep matching
+// that concrete row, not the broader rule that produced it, or an admin's
+// approval (or edits to a still-pending request) would be silently
+// overwritten the next time the user logs in and the original list/wildcard
+// rule wins the tie-break again. When nothing matches at all — not even a
+// catch-all (username_pattern='*') row for the idp (within hintOrg, or
+// across every org when hintOrg is empty) — this fails closed and returns
+// OnboardActionReject: a real deployment is expected to always define at
+// least a catch-all rule per idp it uses, so reaching this path signals a
+// missing rule, not an intentional "allow everyone" default.
+func (d *DB) ResolveOnboardDecision(idp, username, hintOrg string) (*OnboardDecision, error) {
+	query := `SELECT id, username_pattern, org, action, priority, roles, sudo
+		 FROM identity.onboard_rules WHERE (idp = $1 OR idp = '*')`
+	args := []any{idp}
+	if hintOrg != "" {
+		query += ` AND org = $2`
+		args = append(args, hintOrg)
+	}
+	rows, err := d.Pool.Query(context.Background(), query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("resolve onboard decision: %w", err)
 	}
@@ -258,19 +288,27 @@ func (d *DB) ResolveOnboardDecision(idp, username, org string) (*OnboardDecision
 		roles    []string
 		sudo     bool
 	}
-	var exact, pattern []candidate
+	var literal, list, wildcard []candidate
 	for rows.Next() {
 		var c candidate
 		var usernamePattern string
 		if err := rows.Scan(&c.id, &usernamePattern, &c.org, &c.action, &c.priority, &c.roles, &c.sudo); err != nil {
 			return nil, err
 		}
-		if strings.Contains(usernamePattern, "*") {
-			if matched, matchErr := path.Match(usernamePattern, username); matchErr == nil && matched {
-				pattern = append(pattern, c)
+		switch {
+		case strings.Contains(usernamePattern, ","):
+			for _, u := range strings.Split(usernamePattern, ",") {
+				if strings.TrimSpace(u) == username {
+					list = append(list, c)
+					break
+				}
 			}
-		} else if usernamePattern == username {
-			exact = append(exact, c)
+		case strings.Contains(usernamePattern, "*"):
+			if matched, matchErr := path.Match(usernamePattern, username); matchErr == nil && matched {
+				wildcard = append(wildcard, c)
+			}
+		case usernamePattern == username:
+			literal = append(literal, c)
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -288,9 +326,12 @@ func (d *DB) ResolveOnboardDecision(idp, username, org string) (*OnboardDecision
 		return winner
 	}
 
-	winner := best(exact)
+	winner := best(literal)
 	if winner == nil {
-		winner = best(pattern)
+		winner = best(list)
+	}
+	if winner == nil {
+		winner = best(wildcard)
 	}
 	if winner == nil {
 		return &OnboardDecision{Action: models.OnboardActionReject}, nil
