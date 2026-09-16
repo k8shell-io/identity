@@ -41,7 +41,7 @@ import (
 const minPasswordLength = 8
 
 // defaultUserShell is the login shell assigned by CreateUser when none is supplied.
-const defaultUserShell = "/bin/sh"
+const defaultUserShell = "/bin/bash"
 
 // localUserSource tags users created via CreateUser as having no backing
 // identity provider, distinguishing them from provider-synced users.
