@@ -22,15 +22,14 @@ func announcementToProto(a *models.Announcement) *identityv1.Announcement {
 		return nil
 	}
 	pb := &identityv1.Announcement{
-		Id:        a.ID,
-		Title:     a.Title,
-		Body:      a.Body,
-		CreatedBy: a.CreatedBy,
-		Orgs:      a.Orgs,
-		CreatedAt: timestamppb.New(a.CreatedAt),
-		UpdatedAt: timestamppb.New(a.UpdatedAt),
-		ReadCount: a.ReadCount,
-		IsRead:    a.IsRead,
+		Id:           a.ID,
+		Translations: announcementTranslationsToProto(a.Translations),
+		CreatedBy:    a.CreatedBy,
+		Orgs:         a.Orgs,
+		CreatedAt:    timestamppb.New(a.CreatedAt),
+		UpdatedAt:    timestamppb.New(a.UpdatedAt),
+		ReadCount:    a.ReadCount,
+		IsRead:       a.IsRead,
 	}
 	if a.StartsAt != nil {
 		pb.StartsAt = timestamppb.New(*a.StartsAt)
@@ -52,15 +51,28 @@ func announcementListToProto(list []*models.Announcement) *identityv1.Announceme
 	return &identityv1.AnnouncementList{Announcements: pbList}
 }
 
+func announcementTranslationsToProto(translations []models.AnnouncementTranslation) []*identityv1.AnnouncementTranslation {
+	pb := make([]*identityv1.AnnouncementTranslation, len(translations))
+	for i, t := range translations {
+		pb[i] = &identityv1.AnnouncementTranslation{Lang: t.Lang, Title: t.Title, Body: t.Body}
+	}
+	return pb
+}
+
+func announcementTranslationsFromProto(pb []*identityv1.AnnouncementTranslation) []models.AnnouncementTranslation {
+	translations := make([]models.AnnouncementTranslation, len(pb))
+	for i, t := range pb {
+		translations[i] = models.AnnouncementTranslation{Lang: t.GetLang(), Title: t.GetTitle(), Body: t.GetBody()}
+	}
+	return translations
+}
+
 // CreateAnnouncement creates a new announcement. It is global when orgs is
 // empty, otherwise scoped to the listed organizations.
 func (s *IdentityService) CreateAnnouncement(_ context.Context,
 	req *identityv1.CreateAnnouncementRequest) (*identityv1.Announcement, error) {
-	if req.GetTitle() == "" {
-		return nil, status.Error(codes.InvalidArgument, "title is required")
-	}
-	if req.GetBody() == "" {
-		return nil, status.Error(codes.InvalidArgument, "body is required")
+	if len(req.GetTranslations()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "at least one translation is required")
 	}
 	if req.GetCreatedBy() == "" {
 		return nil, status.Error(codes.InvalidArgument, "created_by is required")
@@ -70,10 +82,9 @@ func (s *IdentityService) CreateAnnouncement(_ context.Context,
 	}
 
 	a := &models.Announcement{
-		Title:     req.GetTitle(),
-		Body:      req.GetBody(),
-		CreatedBy: req.GetCreatedBy(),
-		Orgs:      req.GetOrgs(),
+		Translations: announcementTranslationsFromProto(req.GetTranslations()),
+		CreatedBy:    req.GetCreatedBy(),
+		Orgs:         req.GetOrgs(),
 	}
 	if req.StartsAt != nil {
 		t := req.GetStartsAt().AsTime()
@@ -114,22 +125,12 @@ func (s *IdentityService) GetAnnouncement(_ context.Context,
 	return announcementToProto(a), nil
 }
 
-// UpdateAnnouncement partially updates an announcement's title, body, org
+// UpdateAnnouncement partially updates an announcement's translations, org
 // scope, and/or validity period.
 func (s *IdentityService) UpdateAnnouncement(_ context.Context,
 	req *identityv1.UpdateAnnouncementRequest) (*identityv1.Announcement, error) {
 	if s.server.DB == nil {
 		return nil, status.Error(codes.Unavailable, "database is not configured")
-	}
-
-	var title, body *string
-	if req.Title != nil {
-		v := req.Title.GetValue()
-		title = &v
-	}
-	if req.Body != nil {
-		v := req.Body.GetValue()
-		body = &v
 	}
 
 	var startsAt *time.Time
@@ -143,7 +144,7 @@ func (s *IdentityService) UpdateAnnouncement(_ context.Context,
 		endsAt = &t
 	}
 
-	updated, err := s.server.DB.UpdateAnnouncement(req.GetId(), title, body,
+	updated, err := s.server.DB.UpdateAnnouncement(req.GetId(), announcementTranslationsFromProto(req.GetTranslations()),
 		req.GetOrgs(), req.GetClearOrgs(),
 		startsAt, req.GetClearStartsAt(),
 		endsAt, req.GetClearEndsAt(),

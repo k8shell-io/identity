@@ -20,14 +20,67 @@ import (
 // exists.
 var ErrAnnouncementNotFound = errors.New("announcement not found")
 
-const announcementColumns = `id, title, body, created_by, orgs, starts_at, ends_at, created_at, updated_at`
+// announcementQuerier is satisfied by both *pgxpool.Pool (d.Pool) and
+// pgx.Tx, letting getAnnouncementByID be reused inside CreateAnnouncement/
+// UpdateAnnouncement's transaction — to return the row together with the
+// translations just written in the same transaction — and standalone by
+// GetAnnouncement.
+type announcementQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
 
-func scanAnnouncement(row pgx.Row) (*models.Announcement, error) {
+const announcementBaseColumns = `a.id, a.created_by, a.orgs, a.starts_at, a.ends_at, a.created_at, a.updated_at`
+
+// announcementTranslationsExpr aggregates an announcement's translations as
+// three parallel arrays (lang/title/body, all ordered by lang), the same
+// array_agg-per-column pattern as OrganizationAdminUsernamesExpr — a
+// self-contained correlated subquery per computed field, safe to reference
+// from any query selecting from identity.announcements aliased "a".
+// zipAnnouncementTranslations reassembles them into
+// []models.AnnouncementTranslation in Go.
+const announcementTranslationsExpr = `
+	COALESCE((SELECT array_agg(t.lang  ORDER BY t.lang) FROM identity.announcement_translations t WHERE t.announcement_id = a.id), ARRAY[]::varchar[]),
+	COALESCE((SELECT array_agg(t.title ORDER BY t.lang) FROM identity.announcement_translations t WHERE t.announcement_id = a.id), ARRAY[]::varchar[]),
+	COALESCE((SELECT array_agg(t.body  ORDER BY t.lang) FROM identity.announcement_translations t WHERE t.announcement_id = a.id), ARRAY[]::text[])`
+
+func zipAnnouncementTranslations(langs, titles, bodies []string) []models.AnnouncementTranslation {
+	out := make([]models.AnnouncementTranslation, len(langs))
+	for i := range langs {
+		out[i] = models.AnnouncementTranslation{Lang: langs[i], Title: titles[i], Body: bodies[i]}
+	}
+	return out
+}
+
+func scanAnnouncementRow(row pgx.Row) (*models.Announcement, error) {
 	var a models.Announcement
-	if err := row.Scan(&a.ID, &a.Title, &a.Body, &a.CreatedBy, &a.Orgs, &a.StartsAt, &a.EndsAt, &a.CreatedAt, &a.UpdatedAt); err != nil {
+	var langs, titles, bodies []string
+	if err := row.Scan(&a.ID, &a.CreatedBy, &a.Orgs, &a.StartsAt, &a.EndsAt, &a.CreatedAt, &a.UpdatedAt,
+		&langs, &titles, &bodies); err != nil {
 		return nil, err
 	}
+	a.Translations = zipAnnouncementTranslations(langs, titles, bodies)
 	return &a, nil
+}
+
+// getAnnouncementByID retrieves an announcement (with its translations, no
+// ReadCount/IsRead) via q — either d.Pool for a standalone read, or an
+// in-flight tx so a caller can read back a row together with writes made
+// earlier in the same transaction. Returns ErrAnnouncementNotFound when no
+// announcement with that id exists.
+func getAnnouncementByID(ctx context.Context, q announcementQuerier, id int32) (*models.Announcement, error) {
+	row := q.QueryRow(ctx,
+		`SELECT `+announcementBaseColumns+`, `+announcementTranslationsExpr+`
+		 FROM identity.announcements a WHERE a.id = $1`, id)
+	a, err := scanAnnouncementRow(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("%w: id %d", ErrAnnouncementNotFound, id)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get announcement: %w", err)
+	}
+	return a, nil
 }
 
 // nonNilOrgs coalesces a nil orgs slice to an empty (non-nil) one. pgx
@@ -81,29 +134,100 @@ func (d *DB) validateAnnouncementOrgs(orgs []string) error {
 	return nil
 }
 
-// CreateAnnouncement creates a new announcement. It is global when a.Orgs is
-// empty, otherwise scoped to the listed organizations — each of which must
-// already exist (see validateAnnouncementOrgs). Returns
-// models.ErrInvalidParameters if any named org doesn't exist, or if
-// a.StartsAt is after a.EndsAt.
+// validateAnnouncementTranslations returns models.ErrInvalidParameters when
+// translations is empty, or when any entry has an empty lang/title/body —
+// every announcement must be readable in at least one language.
+func validateAnnouncementTranslations(translations []models.AnnouncementTranslation) error {
+	if len(translations) == 0 {
+		return fmt.Errorf("%w: at least one translation is required", models.ErrInvalidParameters)
+	}
+	for _, t := range translations {
+		if t.Lang == "" {
+			return fmt.Errorf("%w: translation lang is required", models.ErrInvalidParameters)
+		}
+		if t.Title == "" {
+			return fmt.Errorf("%w: translation title is required (lang=%q)", models.ErrInvalidParameters, t.Lang)
+		}
+		if t.Body == "" {
+			return fmt.Errorf("%w: translation body is required (lang=%q)", models.ErrInvalidParameters, t.Lang)
+		}
+	}
+	return nil
+}
+
+// insertAnnouncementTranslations writes translations for announcementID.
+// Callers must have already validated translations is non-empty (see
+// validateAnnouncementTranslations).
+func insertAnnouncementTranslations(ctx context.Context, q announcementQuerier, announcementID int32,
+	translations []models.AnnouncementTranslation) error {
+	for _, t := range translations {
+		_, err := q.Exec(ctx,
+			`INSERT INTO identity.announcement_translations (announcement_id, lang, title, body)
+			 VALUES ($1, $2, $3, $4)`,
+			announcementID, t.Lang, t.Title, t.Body,
+		)
+		if err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+				return fmt.Errorf("%w: duplicate translation language %q", models.ErrInvalidParameters, t.Lang)
+			}
+			return fmt.Errorf("insert announcement translation: %w", err)
+		}
+	}
+	return nil
+}
+
+// CreateAnnouncement creates a new announcement with its translations (at
+// least one is required). It is global when a.Orgs is empty, otherwise
+// scoped to the listed organizations — each of which must already exist
+// (see validateAnnouncementOrgs). Returns models.ErrInvalidParameters if
+// a.Translations is empty or has an incomplete entry, any named org
+// doesn't exist, or a.StartsAt is after a.EndsAt.
 func (d *DB) CreateAnnouncement(a *models.Announcement) (*models.Announcement, error) {
+	if err := validateAnnouncementTranslations(a.Translations); err != nil {
+		return nil, err
+	}
 	if err := d.validateAnnouncementOrgs(a.Orgs); err != nil {
 		return nil, err
 	}
 
-	row := d.Pool.QueryRow(context.Background(),
-		`INSERT INTO identity.announcements (title, body, created_by, orgs, starts_at, ends_at)
-		 VALUES ($1, $2, $3, $4, $5, $6)
-		 RETURNING `+announcementColumns,
-		a.Title, a.Body, a.CreatedBy, nonNilOrgs(a.Orgs), a.StartsAt, a.EndsAt,
-	)
-	created, err := scanAnnouncement(row)
+	ctx := context.Background()
+	tx, err := d.Pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			d.log.Error().Err(err).Msg("rollback transaction")
+		}
+	}()
+
+	var id int32
+	err = tx.QueryRow(ctx,
+		`INSERT INTO identity.announcements (created_by, orgs, starts_at, ends_at)
+		 VALUES ($1, $2, $3, $4)
+		 RETURNING id`,
+		a.CreatedBy, nonNilOrgs(a.Orgs), a.StartsAt, a.EndsAt,
+	).Scan(&id)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23514" && pgErr.ConstraintName == "chk_announcement_period" {
 			return nil, fmt.Errorf("%w: starts_at must be before ends_at", models.ErrInvalidParameters)
 		}
 		return nil, fmt.Errorf("insert announcement: %w", err)
+	}
+
+	if err := insertAnnouncementTranslations(ctx, tx, id, a.Translations); err != nil {
+		return nil, err
+	}
+
+	created, err := getAnnouncementByID(ctx, tx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit transaction: %w", err)
 	}
 	return created, nil
 }
@@ -113,34 +237,46 @@ func (d *DB) CreateAnnouncement(a *models.Announcement) (*models.Announcement, e
 // ErrAnnouncementNotFound when no announcement with that id exists.
 func (d *DB) GetAnnouncement(id int32) (*models.Announcement, error) {
 	row := d.Pool.QueryRow(context.Background(),
-		`SELECT a.id, a.title, a.body, a.created_by, a.orgs, a.starts_at, a.ends_at, a.created_at, a.updated_at,
+		`SELECT `+announcementBaseColumns+`, `+announcementTranslationsExpr+`,
 		        (SELECT COUNT(*) FROM identity.announcement_reads r WHERE r.announcement_id = a.id)
 		 FROM identity.announcements a
 		 WHERE a.id = $1`,
 		id,
 	)
 	var a models.Announcement
-	err := row.Scan(&a.ID, &a.Title, &a.Body, &a.CreatedBy, &a.Orgs, &a.StartsAt, &a.EndsAt, &a.CreatedAt, &a.UpdatedAt, &a.ReadCount)
+	var langs, titles, bodies []string
+	err := row.Scan(&a.ID, &a.CreatedBy, &a.Orgs, &a.StartsAt, &a.EndsAt, &a.CreatedAt, &a.UpdatedAt,
+		&langs, &titles, &bodies, &a.ReadCount)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("%w: id %d", ErrAnnouncementNotFound, id)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get announcement: %w", err)
 	}
+	a.Translations = zipAnnouncementTranslations(langs, titles, bodies)
 	return &a, nil
 }
 
-// UpdateAnnouncement partially updates an announcement identified by id — a
-// nil title/body leaves that field unchanged. Because a nil orgs/startsAt/
-// endsAt is ambiguous between "leave unchanged" and "clear", clearOrgs/
-// clearStartsAt/clearEndsAt make the intent explicit: clearOrgs makes the
-// announcement global (orgs must be empty when set), clearStartsAt/
-// clearEndsAt remove that bound (open-ended) — set at most one of a bound
-// and its own clear flag. Returns ErrAnnouncementNotFound when no
-// announcement with that id exists, or models.ErrInvalidParameters if any
-// named org doesn't exist or the resulting period is invalid.
-func (d *DB) UpdateAnnouncement(id int32, title, body *string, orgs []string, clearOrgs bool,
+// UpdateAnnouncement partially updates an announcement identified by id.
+// translations, when non-empty, replaces the announcement's entire
+// translation set (validated the same as on create) — pass nil/empty to
+// leave the existing translations unchanged; the set can never be replaced
+// with an empty one, since every announcement must keep at least one
+// language. Because a nil orgs/startsAt/endsAt is ambiguous between "leave
+// unchanged" and "clear", clearOrgs/clearStartsAt/clearEndsAt make the
+// intent explicit: clearOrgs makes the announcement global (orgs must be
+// empty when set), clearStartsAt/clearEndsAt remove that bound (open-ended)
+// — set at most one of a bound and its own clear flag. Returns
+// ErrAnnouncementNotFound when no announcement with that id exists, or
+// models.ErrInvalidParameters if translations/orgs are invalid or the
+// resulting period is invalid.
+func (d *DB) UpdateAnnouncement(id int32, translations []models.AnnouncementTranslation, orgs []string, clearOrgs bool,
 	startsAt *time.Time, clearStartsAt bool, endsAt *time.Time, clearEndsAt bool) (*models.Announcement, error) {
+	if len(translations) > 0 {
+		if err := validateAnnouncementTranslations(translations); err != nil {
+			return nil, err
+		}
+	}
 	if len(orgs) > 0 {
 		if err := d.validateAnnouncementOrgs(orgs); err != nil {
 			return nil, err
@@ -150,22 +286,26 @@ func (d *DB) UpdateAnnouncement(id int32, title, body *string, orgs []string, cl
 	startsAtChanged := startsAt != nil || clearStartsAt
 	endsAtChanged := endsAt != nil || clearEndsAt
 
-	row := d.Pool.QueryRow(context.Background(),
-		`UPDATE identity.announcements SET
-		   title      = COALESCE($2, title),
-		   body       = COALESCE($3, body),
-		   orgs       = CASE WHEN $4 THEN $5::varchar[]     ELSE orgs      END,
-		   starts_at  = CASE WHEN $6 THEN $7::timestamptz   ELSE starts_at END,
-		   ends_at    = CASE WHEN $8 THEN $9::timestamptz   ELSE ends_at   END,
-		   updated_at = now()
-		 WHERE id = $1
-		 RETURNING `+announcementColumns,
-		id, title, body, orgsChanged, nonNilOrgs(orgs), startsAtChanged, startsAt, endsAtChanged, endsAt,
-	)
-	updated, err := scanAnnouncement(row)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, fmt.Errorf("%w: id %d", ErrAnnouncementNotFound, id)
+	ctx := context.Background()
+	tx, err := d.Pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin transaction: %w", err)
 	}
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			d.log.Error().Err(err).Msg("rollback transaction")
+		}
+	}()
+
+	tag, err := tx.Exec(ctx,
+		`UPDATE identity.announcements SET
+		   orgs       = CASE WHEN $2 THEN $3::varchar[]   ELSE orgs      END,
+		   starts_at  = CASE WHEN $4 THEN $5::timestamptz ELSE starts_at END,
+		   ends_at    = CASE WHEN $6 THEN $7::timestamptz ELSE ends_at   END,
+		   updated_at = now()
+		 WHERE id = $1`,
+		id, orgsChanged, nonNilOrgs(orgs), startsAtChanged, startsAt, endsAtChanged, endsAt,
+	)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23514" && pgErr.ConstraintName == "chk_announcement_period" {
@@ -173,12 +313,34 @@ func (d *DB) UpdateAnnouncement(id int32, title, body *string, orgs []string, cl
 		}
 		return nil, fmt.Errorf("update announcement: %w", err)
 	}
+	if tag.RowsAffected() == 0 {
+		return nil, fmt.Errorf("%w: id %d", ErrAnnouncementNotFound, id)
+	}
+
+	if len(translations) > 0 {
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM identity.announcement_translations WHERE announcement_id = $1`, id); err != nil {
+			return nil, fmt.Errorf("delete announcement translations: %w", err)
+		}
+		if err := insertAnnouncementTranslations(ctx, tx, id, translations); err != nil {
+			return nil, err
+		}
+	}
+
+	updated, err := getAnnouncementByID(ctx, tx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit transaction: %w", err)
+	}
 	return updated, nil
 }
 
 // DeleteAnnouncement permanently removes an announcement, cascading its
-// announcement_reads. Returns ErrAnnouncementNotFound when no announcement
-// with that id exists.
+// translations and read tracking. Returns ErrAnnouncementNotFound when no
+// announcement with that id exists.
 func (d *DB) DeleteAnnouncement(id int32) error {
 	result, err := d.Pool.Exec(context.Background(), `DELETE FROM identity.announcements WHERE id = $1`, id)
 	if err != nil {
@@ -198,7 +360,7 @@ func (d *DB) DeleteAnnouncement(id int32) error {
 func (d *DB) ListAnnouncements(org string, limit, offset int) ([]*models.Announcement, error) {
 	limit, offset = db.AdjustListLimit(limit, offset)
 
-	sqlQuery := `SELECT a.id, a.title, a.body, a.created_by, a.orgs, a.starts_at, a.ends_at, a.created_at, a.updated_at,
+	sqlQuery := `SELECT ` + announcementBaseColumns + `, ` + announcementTranslationsExpr + `,
 		        (SELECT COUNT(*) FROM identity.announcement_reads r WHERE r.announcement_id = a.id)
 		 FROM identity.announcements a`
 
@@ -220,9 +382,12 @@ func (d *DB) ListAnnouncements(org string, limit, offset int) ([]*models.Announc
 	var list []*models.Announcement
 	for rows.Next() {
 		var a models.Announcement
-		if err := rows.Scan(&a.ID, &a.Title, &a.Body, &a.CreatedBy, &a.Orgs, &a.StartsAt, &a.EndsAt, &a.CreatedAt, &a.UpdatedAt, &a.ReadCount); err != nil {
+		var langs, titles, bodies []string
+		if err := rows.Scan(&a.ID, &a.CreatedBy, &a.Orgs, &a.StartsAt, &a.EndsAt, &a.CreatedAt, &a.UpdatedAt,
+			&langs, &titles, &bodies, &a.ReadCount); err != nil {
 			return nil, fmt.Errorf("list announcements: %w", err)
 		}
+		a.Translations = zipAnnouncementTranslations(langs, titles, bodies)
 		list = append(list, &a)
 	}
 	return list, rows.Err()
@@ -235,7 +400,7 @@ func (d *DB) ListAnnouncements(org string, limit, offset int) ([]*models.Announc
 // unread — use ListUserAnnouncements to retrieve it regardless.
 func (d *DB) ListUnreadAnnouncements(username, org string) ([]*models.Announcement, error) {
 	rows, err := d.Pool.Query(context.Background(),
-		`SELECT a.id, a.title, a.body, a.created_by, a.orgs, a.starts_at, a.ends_at, a.created_at, a.updated_at
+		`SELECT `+announcementBaseColumns+`, `+announcementTranslationsExpr+`
 		 FROM identity.announcements a
 		 WHERE (a.orgs = '{}' OR $1 = ANY(a.orgs))
 		   AND (a.starts_at IS NULL OR a.starts_at <= now())
@@ -254,7 +419,7 @@ func (d *DB) ListUnreadAnnouncements(username, org string) ([]*models.Announceme
 
 	var list []*models.Announcement
 	for rows.Next() {
-		a, err := scanAnnouncement(rows)
+		a, err := scanAnnouncementRow(rows)
 		if err != nil {
 			return nil, fmt.Errorf("list unread announcements: %w", err)
 		}
@@ -270,7 +435,7 @@ func (d *DB) ListUnreadAnnouncements(username, org string) ([]*models.Announceme
 // includes announcements already read or outside their validity period.
 func (d *DB) ListUserAnnouncements(username, org string) ([]*models.Announcement, error) {
 	rows, err := d.Pool.Query(context.Background(),
-		`SELECT a.id, a.title, a.body, a.created_by, a.orgs, a.starts_at, a.ends_at, a.created_at, a.updated_at,
+		`SELECT `+announcementBaseColumns+`, `+announcementTranslationsExpr+`,
 		        r.read_at IS NOT NULL, r.read_at
 		 FROM identity.announcements a
 		 LEFT JOIN identity.announcement_reads r ON r.announcement_id = a.id AND r.username = $2
@@ -286,10 +451,12 @@ func (d *DB) ListUserAnnouncements(username, org string) ([]*models.Announcement
 	var list []*models.Announcement
 	for rows.Next() {
 		var a models.Announcement
-		if err := rows.Scan(&a.ID, &a.Title, &a.Body, &a.CreatedBy, &a.Orgs, &a.StartsAt, &a.EndsAt, &a.CreatedAt, &a.UpdatedAt,
-			&a.IsRead, &a.ReadAt); err != nil {
+		var langs, titles, bodies []string
+		if err := rows.Scan(&a.ID, &a.CreatedBy, &a.Orgs, &a.StartsAt, &a.EndsAt, &a.CreatedAt, &a.UpdatedAt,
+			&langs, &titles, &bodies, &a.IsRead, &a.ReadAt); err != nil {
 			return nil, fmt.Errorf("list user announcements: %w", err)
 		}
+		a.Translations = zipAnnouncementTranslations(langs, titles, bodies)
 		list = append(list, &a)
 	}
 	return list, rows.Err()

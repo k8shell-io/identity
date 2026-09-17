@@ -1,6 +1,8 @@
--- announcements are markdown messages from platform admins to users.
--- created_by is not FK'd to identity.users (same precedent as
--- onboard_rules.decided_by) so an announcement survives its author's
+-- announcements are markdown messages from platform admins to users, given
+-- in one or more languages via identity.announcement_translations (there is
+-- no title/body here — every announcement is translated, even if only into
+-- one language). created_by is not FK'd to identity.users (same precedent
+-- as onboard_rules.decided_by) so an announcement survives its author's
 -- account being deleted. orgs names the organizations this announcement
 -- applies to; empty means every organization (global) — not FK'd per
 -- element (Postgres arrays don't support that), validated at the
@@ -9,8 +11,6 @@
 -- NULL bound is open on that side.
 CREATE TABLE identity.announcements (
     id          SERIAL      PRIMARY KEY,
-    title       varchar     NOT NULL,
-    body        text        NOT NULL,              -- markdown content
     created_by  varchar     NOT NULL,               -- author username
     orgs        varchar[]   NOT NULL DEFAULT '{}',  -- empty = every organization (global)
     starts_at   TIMESTAMPTZ,
@@ -22,6 +22,21 @@ CREATE TABLE identity.announcements (
 );
 
 CREATE INDEX idx_announcements_orgs ON identity.announcements USING GIN (orgs);
+
+-- announcement_translations holds an announcement's title/body per
+-- language. Every announcement must have at least one translation —
+-- Postgres can't express "at least one child row" as a table-level CHECK,
+-- so this is enforced at the application layer (CreateAnnouncement rejects
+-- an empty translation list, and UpdateAnnouncement never allows the set to
+-- be emptied).
+CREATE TABLE identity.announcement_translations (
+    announcement_id integer     NOT NULL REFERENCES identity.announcements(id) ON DELETE CASCADE,
+    lang            varchar(35) NOT NULL,  -- BCP 47 language tag, e.g. 'en', 'en-US'
+    title           varchar     NOT NULL,
+    body            text        NOT NULL,  -- markdown content
+
+    PRIMARY KEY (announcement_id, lang)
+);
 
 -- announcement_reads tracks which users have read which announcement, and
 -- when — the source of both an announcement's read count and a user's
