@@ -302,6 +302,15 @@ func (d *DB) DeleteOrganization(name string) error {
 		return fmt.Errorf("delete organization onboard rules: %w", err)
 	}
 
+	// announcements.orgs is a multi-org scope, not a single destination like
+	// onboard_rules.org — an announcement naming other orgs too still has
+	// meaning once this one is gone, so only this org is pruned from the
+	// array rather than the announcement itself being deleted.
+	if _, err := tx.Exec(ctx,
+		`UPDATE identity.announcements SET orgs = array_remove(orgs, $1) WHERE $1 = ANY(orgs)`, name); err != nil {
+		return fmt.Errorf("prune organization from announcements: %w", err)
+	}
+
 	result, err := tx.Exec(ctx, `DELETE FROM identity.organizations WHERE name=$1`, name)
 	if err != nil {
 		var pgErr *pgconn.PgError
