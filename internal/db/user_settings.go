@@ -19,12 +19,12 @@ import (
 // contract.
 func (d *DB) GetUserSettings(username string) (*models.UserSettings, error) {
 	row := d.Pool.QueryRow(context.Background(),
-		`SELECT version, data, session_idle_timeout_seconds, updated_at
+		`SELECT version, data, updated_at
 		 FROM identity.user_settings WHERE username=$1`, username)
 
 	var s models.UserSettings
 	s.Username = username
-	if err := row.Scan(&s.Version, &s.Data, &s.SessionIdleTimeoutSeconds, &s.UpdatedAt); err != nil {
+	if err := row.Scan(&s.Version, &s.Data, &s.UpdatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return &s, nil
 		}
@@ -37,20 +37,19 @@ func (d *DB) GetUserSettings(username string) (*models.UserSettings, error) {
 // and returns the new version and updated_at. version is not compared
 // against any existing value — there is no optimistic-concurrency check.
 // Returns models.ErrInvalidParameters if username does not exist.
-func (d *DB) PutUserSettings(username string, data []byte, sessionIdleTimeoutSeconds *int32) (*models.UserSettings, error) {
+func (d *DB) PutUserSettings(username string, data []byte) (*models.UserSettings, error) {
 	row := d.Pool.QueryRow(context.Background(),
-		`INSERT INTO identity.user_settings (username, version, data, session_idle_timeout_seconds)
-		 VALUES ($1, 1, $2, $3)
+		`INSERT INTO identity.user_settings (username, version, data)
+		 VALUES ($1, 1, $2)
 		 ON CONFLICT (username) DO UPDATE
 		   SET version = identity.user_settings.version + 1,
 		       data = EXCLUDED.data,
-		       session_idle_timeout_seconds = EXCLUDED.session_idle_timeout_seconds,
 		       updated_at = now()
 		 RETURNING version, updated_at`,
-		username, data, sessionIdleTimeoutSeconds,
+		username, data,
 	)
 
-	s := &models.UserSettings{Username: username, Data: data, SessionIdleTimeoutSeconds: sessionIdleTimeoutSeconds}
+	s := &models.UserSettings{Username: username, Data: data}
 	if err := row.Scan(&s.Version, &s.UpdatedAt); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
