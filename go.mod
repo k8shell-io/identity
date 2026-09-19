@@ -4,7 +4,7 @@ go 1.24.5
 
 require (
 	github.com/jackc/pgx/v5 v5.7.6
-	github.com/k8shell-io/common v0.57.0
+	github.com/k8shell-io/common v0.59.0
 	github.com/nats-io/nats.go v1.47.0
 	github.com/rs/zerolog v1.34.0
 	golang.org/x/crypto v0.44.0
@@ -36,6 +36,7 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/golang-migrate/migrate/v4 v4.19.0 // indirect
+	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
