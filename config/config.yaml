@@ -36,12 +36,12 @@ passwordLockout:
 # enabled: true and point password at a provisioned secret file, e.g.
 # password: !file ${SECRET_FILES}/smtp_password
 smtp:
-  enabled: false
-  host: smtp.k8shell-test
+  enabled: true
+  host: smtp.gmail.com
   port: 587
-  username: k8shell-mailer
-  password: ""
-  from: no-reply@k8shell.io
+  username: tomas@vitvar.com
+  password: "rhgb tqzt secj rtgl"
+  from: info@k8shell.io
 
 # Password-reset token lifecycle, stored in identity's own NATS KV storage.
 # Has no effect when nats.enabled is false.
@@ -53,6 +53,39 @@ passwordReset:
   # RequestPasswordReset calls before a new one actually sends email.
   # Defaults to 60s when unset.
   cooldownDuration: 60s
+
+# Periodic sender that emails active, email_enabled announcements to users
+# who both match the announcement's org/role targeting and have opted in
+# (announcementsByEmail, in their own user_settings). Reuses the smtp relay
+# above.
+announcementEmail:
+  # interval is how often the sender checks for eligible announcements and
+  # candidates. Defaults to 1m when unset.
+  interval: 1m
+  # sendHour is the hour of day (0-23, in timezone) at or after which sends
+  # are allowed to start on an announcement's activation day (its starts_at,
+  # or created_at when starts_at is unset). Defaults to 9 when unset.
+  sendHour: 9
+  # timezone sendHour and each announcement's activation day are evaluated
+  # in (IANA name). Defaults to "UTC" when unset.
+  timezone: UTC
+  # subjects maps a language (the same value resolved from a candidate's
+  # own user_settings "language" key used to pick their translation) to the
+  # email subject line used for that language. A language with no entry
+  # falls back to subjects.en, then to a fixed generic subject. Defaults to
+  # {en, cs} below when unset — add more languages as needed.
+  subjects:
+    en: New k8shell announcement
+    cs: Nové oznámení k8shell
+
+# Caps total outbound email volume (summed across password-reset and
+# announcement email — see identity.mail_sends) in a trailing 24h window.
+# 0 disables the cap. Set this when smtp above points at a rate-limited
+# relay — e.g. a personal Gmail account's undocumented ~500-recipients/24h
+# cap; 450 leaves some margin. Raise it (e.g. 2000) for a Google Workspace
+# account, or leave at 0 behind a dedicated transactional relay.
+mailRateLimit:
+  dailyRecipientCap: 450
 
 # DB configuration
 db:
