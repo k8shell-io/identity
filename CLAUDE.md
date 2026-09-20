@@ -1,6 +1,10 @@
+@common/CLAUDE-SHARED.md
+
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+See `CLAUDE-SHARED.md` (imported above) for fleet-wide conventions: the service map, developing against a live `common` checkout.
 
 ## Commands
 
