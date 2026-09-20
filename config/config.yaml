@@ -30,6 +30,30 @@ passwordLockout:
   # reached. Defaults to 15m when unset.
   lockDuration: 15m
 
+# SMTP relay for password-reset email. Disabled by default; when disabled
+# (or unreachable), RequestPasswordReset logs and swallows the failure and
+# still reports success to callers. To enable against a real relay, set
+# enabled: true and point password at a provisioned secret file, e.g.
+# password: !file ${SECRET_FILES}/smtp_password
+smtp:
+  enabled: false
+  host: smtp.k8shell-test
+  port: 587
+  username: k8shell-mailer
+  password: ""
+  from: no-reply@k8shell.io
+
+# Password-reset token lifecycle, stored in identity's own NATS KV storage.
+# Has no effect when nats.enabled is false.
+passwordReset:
+  # tokenTTL bounds how long an issued reset link stays valid. Defaults to
+  # 1h when unset.
+  tokenTTL: 1h
+  # cooldownDuration is how long a username must wait between
+  # RequestPasswordReset calls before a new one actually sends email.
+  # Defaults to 60s when unset.
+  cooldownDuration: 60s
+
 # DB configuration
 db:
   enabled: true

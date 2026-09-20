@@ -69,6 +69,12 @@ type Config struct {
 	// PasswordLockout configures brute-force protection for AuthUserPassword.
 	PasswordLockout PasswordLockoutConfig `yaml:"passwordLockout"`
 
+	// SMTP configures the outbound mail relay used to send password-reset email.
+	SMTP SMTPConfig `yaml:"smtp"`
+
+	// PasswordReset tunes the password-reset token/cooldown lifecycle.
+	PasswordReset PasswordResetConfig `yaml:"passwordReset"`
+
 	// OnboardRules declares default identity.onboard_rules rows to insert
 	// once at startup — see Server.seedOnboardRules. Without at least a
 	// catch-all rule per (idp, org) a fresh deployment's onboard_rules table
@@ -129,6 +135,44 @@ type PasswordLockoutConfig struct {
 	// LockDuration is how long an account stays locked once MaxAttempts is
 	// reached. Defaults to 15 minutes when zero.
 	LockDuration time.Duration `yaml:"lockDuration" validate:"omitempty,gt=0"`
+}
+
+// SMTPConfig configures the outbound mail relay identity uses to send
+// password-reset email. When Enabled is false (the default), or the relay is
+// unreachable, RequestPasswordReset logs and swallows the send failure
+// rather than returning an error to the caller.
+type SMTPConfig struct {
+	// Enabled turns on SMTP sending. Defaults to false.
+	Enabled bool `yaml:"enabled"`
+
+	// Host and Port address the SMTP relay. Required when Enabled.
+	Host string `yaml:"host" validate:"required_if=Enabled true"`
+	Port int    `yaml:"port" validate:"required_if=Enabled true"`
+
+	// Username and Password authenticate to the relay via PLAIN auth. Leave
+	// both empty for an unauthenticated relay.
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
+
+	// From is the envelope/header From address on outgoing mail. Required
+	// when Enabled.
+	From string `yaml:"from" validate:"required_if=Enabled true"`
+}
+
+// PasswordResetConfig tunes the password-reset token lifecycle. Tracking is
+// stored in identity's own NATS KV storage and has no effect when NATS is
+// disabled.
+type PasswordResetConfig struct {
+	// TokenTTL bounds how long an issued reset link stays valid. Defaults to
+	// 1 hour when zero. Only takes effect the first time the underlying KV
+	// bucket is created — see Server.NewServer.
+	TokenTTL time.Duration `yaml:"tokenTTL" validate:"omitempty,gt=0"`
+
+	// CooldownDuration is how long a username must wait between
+	// RequestPasswordReset calls before a new one actually sends email.
+	// Defaults to 60 seconds when zero. Same first-creation-only caveat as
+	// TokenTTL.
+	CooldownDuration time.Duration `yaml:"cooldownDuration" validate:"omitempty,gt=0"`
 }
 
 // LoadConfig loads server configuration from configFile and validates it.
