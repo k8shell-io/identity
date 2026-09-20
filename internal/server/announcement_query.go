@@ -27,6 +27,8 @@ var announcementsQueryDescriptor = query.NewDescriptor("announcements").
 		queryv1.Operator_OPERATOR_EQ, queryv1.Operator_OPERATOR_NE, queryv1.Operator_OPERATOR_IN).
 	Field("active", queryv1.FieldType_FIELD_TYPE_BOOLEAN,
 		queryv1.Operator_OPERATOR_EQ).
+	Field("emailEnabled", queryv1.FieldType_FIELD_TYPE_BOOLEAN,
+		queryv1.Operator_OPERATOR_EQ).
 	Field("startsAt", queryv1.FieldType_FIELD_TYPE_DATETIME,
 		queryv1.Operator_OPERATOR_EQ, queryv1.Operator_OPERATOR_GT, queryv1.Operator_OPERATOR_GTE,
 		queryv1.Operator_OPERATOR_LT, queryv1.Operator_OPERATOR_LTE, queryv1.Operator_OPERATOR_EXISTS).
@@ -47,11 +49,12 @@ var announcementsQueryDescriptor = query.NewDescriptor("announcements").
 // (createdBy -> created_by, etc.) and marking orgs/roles as Postgres array
 // columns.
 var announcementsQueryFieldMap = query.FieldMap{
-	"createdBy": {Name: "created_by"},
-	"orgs":      {Array: true},
-	"roles":     {Array: true},
-	"startsAt":  {Name: "starts_at"},
-	"endsAt":    {Name: "ends_at"},
-	"createdAt": {Name: "created_at"},
-	"updatedAt": {Name: "updated_at"},
+	"createdBy":    {Name: "created_by"},
+	"orgs":         {Array: true},
+	"roles":        {Array: true},
+	"startsAt":     {Name: "starts_at"},
+	"endsAt":       {Name: "ends_at"},
+	"createdAt":    {Name: "created_at"},
+	"updatedAt":    {Name: "updated_at"},
+	"emailEnabled": {Name: "email_enabled"},
 }

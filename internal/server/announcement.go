@@ -35,6 +35,7 @@ func announcementToProto(a *models.Announcement) *identityv1.Announcement {
 		UpdatedAt:    timestamppb.New(a.UpdatedAt),
 		ReadCount:    a.ReadCount,
 		IsRead:       a.IsRead,
+		EmailEnabled: a.EmailEnabled,
 	}
 	if a.StartsAt != nil {
 		pb.StartsAt = timestamppb.New(*a.StartsAt)
@@ -104,6 +105,10 @@ func (s *IdentityService) CreateAnnouncement(_ context.Context,
 	if req.Active != nil {
 		active = req.Active.GetValue()
 	}
+	emailEnabled := false
+	if req.EmailEnabled != nil {
+		emailEnabled = req.EmailEnabled.GetValue()
+	}
 
 	a := &models.Announcement{
 		Name:         req.GetName(),
@@ -112,6 +117,7 @@ func (s *IdentityService) CreateAnnouncement(_ context.Context,
 		Orgs:         req.GetOrgs(),
 		Roles:        req.GetRoles(),
 		Active:       active,
+		EmailEnabled: emailEnabled,
 	}
 	if req.StartsAt != nil {
 		t := req.GetStartsAt().AsTime()
@@ -170,6 +176,11 @@ func (s *IdentityService) UpdateAnnouncement(_ context.Context,
 		v := req.Active.GetValue()
 		active = &v
 	}
+	var emailEnabled *bool
+	if req.EmailEnabled != nil {
+		v := req.EmailEnabled.GetValue()
+		emailEnabled = &v
+	}
 
 	var startsAt *time.Time
 	if req.StartsAt != nil {
@@ -188,6 +199,7 @@ func (s *IdentityService) UpdateAnnouncement(_ context.Context,
 		active,
 		startsAt, req.GetClearStartsAt(),
 		endsAt, req.GetClearEndsAt(),
+		emailEnabled,
 	)
 	if err != nil {
 		switch {
