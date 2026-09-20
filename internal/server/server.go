@@ -186,7 +186,7 @@ func NewServer(configFile, version, commit string) (*Server, error) {
 
 	server.announcementEmailCfg = config.AnnouncementEmail
 	if server.announcementEmailCfg.Interval == 0 {
-		server.announcementEmailCfg.Interval = 1 * time.Minute
+		server.announcementEmailCfg.Interval = 15 * time.Minute
 	}
 	if len(server.announcementEmailCfg.Subjects) == 0 {
 		server.announcementEmailCfg.Subjects = map[string]string{
