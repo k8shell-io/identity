@@ -34,7 +34,7 @@ type announcementQuerier interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 }
 
-const announcementBaseColumns = `a.id, a.name, a.created_by, a.orgs, a.roles, a.active, a.starts_at, a.ends_at, a.created_at, a.updated_at`
+const announcementBaseColumns = `a.id, a.name, a.created_by, a.orgs, a.roles, a.active, a.starts_at, a.ends_at, a.created_at, a.updated_at, a.email_enabled`
 
 // announcementTranslationsExpr aggregates an announcement's translations as
 // two parallel arrays (lang/body, both ordered by lang), the same
@@ -58,8 +58,31 @@ func zipAnnouncementTranslations(langs, bodies []string) []models.AnnouncementTr
 func scanAnnouncementRow(row pgx.Row) (*models.Announcement, error) {
 	var a models.Announcement
 	var langs, bodies []string
-	if err := row.Scan(&a.ID, &a.Name, &a.CreatedBy, &a.Orgs, &a.Roles, &a.Active, &a.StartsAt, &a.EndsAt, &a.CreatedAt, &a.UpdatedAt,
+	if err := row.Scan(&a.ID, &a.Name, &a.CreatedBy, &a.Orgs, &a.Roles, &a.Active, &a.StartsAt, &a.EndsAt, &a.CreatedAt, &a.UpdatedAt, &a.EmailEnabled,
 		&langs, &bodies); err != nil {
+		return nil, err
+	}
+	a.Translations = zipAnnouncementTranslations(langs, bodies)
+	return &a, nil
+}
+
+// announcementReadCountExpr is the correlated subquery computing an
+// announcement's ReadCount — the number of distinct users who have read it
+// (identity.announcement_reads) — shared by every query that selects
+// announcementBaseColumns/announcementTranslationsExpr and also wants
+// ReadCount (GetAnnouncement, ListAnnouncements, QueryAnnouncements).
+// getAnnouncementByID does not select it since none of its callers
+// (create/update/get-by-id) need it.
+const announcementReadCountExpr = `(SELECT COUNT(*) FROM identity.announcement_reads r WHERE r.announcement_id = a.id)`
+
+// scanAnnouncementRowWithReadCount is scanAnnouncementRow plus a trailing
+// ReadCount column — for a row selected via announcementBaseColumns,
+// announcementTranslationsExpr, announcementReadCountExpr in that order.
+func scanAnnouncementRowWithReadCount(row pgx.Row) (*models.Announcement, error) {
+	var a models.Announcement
+	var langs, bodies []string
+	if err := row.Scan(&a.ID, &a.Name, &a.CreatedBy, &a.Orgs, &a.Roles, &a.Active, &a.StartsAt, &a.EndsAt, &a.CreatedAt, &a.UpdatedAt, &a.EmailEnabled,
+		&langs, &bodies, &a.ReadCount); err != nil {
 		return nil, err
 	}
 	a.Translations = zipAnnouncementTranslations(langs, bodies)
@@ -259,10 +282,10 @@ func (d *DB) CreateAnnouncement(a *models.Announcement) (*models.Announcement, e
 
 	var id int32
 	err = tx.QueryRow(ctx,
-		`INSERT INTO identity.announcements (name, created_by, orgs, roles, active, starts_at, ends_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`INSERT INTO identity.announcements (name, created_by, orgs, roles, active, starts_at, ends_at, email_enabled)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		 RETURNING id`,
-		a.Name, a.CreatedBy, nonNilOrgs(a.Orgs), nonNilRoles(a.Roles), a.Active, a.StartsAt, a.EndsAt,
+		a.Name, a.CreatedBy, nonNilOrgs(a.Orgs), nonNilRoles(a.Roles), a.Active, a.StartsAt, a.EndsAt, a.EmailEnabled,
 	).Scan(&id)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -292,24 +315,19 @@ func (d *DB) CreateAnnouncement(a *models.Announcement) (*models.Announcement, e
 // ErrAnnouncementNotFound when no announcement with that id exists.
 func (d *DB) GetAnnouncement(id int32) (*models.Announcement, error) {
 	row := d.Pool.QueryRow(context.Background(),
-		`SELECT `+announcementBaseColumns+`, `+announcementTranslationsExpr+`,
-		        (SELECT COUNT(*) FROM identity.announcement_reads r WHERE r.announcement_id = a.id)
+		`SELECT `+announcementBaseColumns+`, `+announcementTranslationsExpr+`, `+announcementReadCountExpr+`
 		 FROM identity.announcements a
 		 WHERE a.id = $1`,
 		id,
 	)
-	var a models.Announcement
-	var langs, bodies []string
-	err := row.Scan(&a.ID, &a.Name, &a.CreatedBy, &a.Orgs, &a.Roles, &a.Active, &a.StartsAt, &a.EndsAt, &a.CreatedAt, &a.UpdatedAt,
-		&langs, &bodies, &a.ReadCount)
+	a, err := scanAnnouncementRowWithReadCount(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("%w: id %d", ErrAnnouncementNotFound, id)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get announcement: %w", err)
 	}
-	a.Translations = zipAnnouncementTranslations(langs, bodies)
-	return &a, nil
+	return a, nil
 }
 
 // UpdateAnnouncement partially updates an announcement identified by id — a
@@ -325,12 +343,14 @@ func (d *DB) GetAnnouncement(id int32) (*models.Announcement, error) {
 // when set), clearStartsAt/clearEndsAt remove that bound (open-ended) — set
 // at most one of a value and its own clear flag. When roles changes but
 // orgs does not, roles is validated against the announcement's current
-// orgs. Returns ErrAnnouncementNotFound when no announcement with that id
-// exists, or models.ErrInvalidParameters if translations/orgs/roles are
-// invalid or the resulting period is invalid.
+// orgs. emailEnabled, when non-nil, marks the announcement eligible (or
+// ineligible) to be sent by email. Returns ErrAnnouncementNotFound when no
+// announcement with that id exists, or models.ErrInvalidParameters if
+// translations/orgs/roles are invalid or the resulting period is invalid.
 func (d *DB) UpdateAnnouncement(id int32, name *string, translations []models.AnnouncementTranslation,
 	orgs []string, clearOrgs bool, roles []string, clearRoles bool, active *bool,
-	startsAt *time.Time, clearStartsAt bool, endsAt *time.Time, clearEndsAt bool) (*models.Announcement, error) {
+	startsAt *time.Time, clearStartsAt bool, endsAt *time.Time, clearEndsAt bool,
+	emailEnabled *bool) (*models.Announcement, error) {
 	if len(translations) > 0 {
 		if err := validateAnnouncementTranslations(translations); err != nil {
 			return nil, err
@@ -375,16 +395,17 @@ func (d *DB) UpdateAnnouncement(id int32, name *string, translations []models.An
 
 	tag, err := tx.Exec(ctx,
 		`UPDATE identity.announcements SET
-		   name       = COALESCE($2, name),
-		   orgs       = CASE WHEN $3  THEN $4::varchar[]    ELSE orgs      END,
-		   roles      = CASE WHEN $5  THEN $6::varchar[]    ELSE roles     END,
-		   active     = COALESCE($7, active),
-		   starts_at  = CASE WHEN $8  THEN $9::timestamptz  ELSE starts_at END,
-		   ends_at    = CASE WHEN $10 THEN $11::timestamptz ELSE ends_at   END,
-		   updated_at = now()
+		   name          = COALESCE($2, name),
+		   orgs          = CASE WHEN $3  THEN $4::varchar[]    ELSE orgs      END,
+		   roles         = CASE WHEN $5  THEN $6::varchar[]    ELSE roles     END,
+		   active        = COALESCE($7, active),
+		   starts_at     = CASE WHEN $8  THEN $9::timestamptz  ELSE starts_at END,
+		   ends_at       = CASE WHEN $10 THEN $11::timestamptz ELSE ends_at   END,
+		   email_enabled = COALESCE($12, email_enabled),
+		   updated_at    = now()
 		 WHERE id = $1`,
 		id, name, orgsChanged, nonNilOrgs(orgs), rolesChanged, nonNilRoles(roles), active,
-		startsAtChanged, startsAt, endsAtChanged, endsAt,
+		startsAtChanged, startsAt, endsAtChanged, endsAt, emailEnabled,
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -442,8 +463,7 @@ func (d *DB) DeleteAnnouncement(id int32) error {
 func (d *DB) ListAnnouncements(org string, limit, offset int) ([]*models.Announcement, error) {
 	limit, offset = db.AdjustListLimit(limit, offset)
 
-	sqlQuery := `SELECT ` + announcementBaseColumns + `, ` + announcementTranslationsExpr + `,
-		        (SELECT COUNT(*) FROM identity.announcement_reads r WHERE r.announcement_id = a.id)
+	sqlQuery := `SELECT ` + announcementBaseColumns + `, ` + announcementTranslationsExpr + `, ` + announcementReadCountExpr + `
 		 FROM identity.announcements a`
 
 	var args []any
@@ -463,21 +483,22 @@ func (d *DB) ListAnnouncements(org string, limit, offset int) ([]*models.Announc
 
 	var list []*models.Announcement
 	for rows.Next() {
-		var a models.Announcement
-		var langs, bodies []string
-		if err := rows.Scan(&a.ID, &a.Name, &a.CreatedBy, &a.Orgs, &a.Roles, &a.Active, &a.StartsAt, &a.EndsAt, &a.CreatedAt, &a.UpdatedAt,
-			&langs, &bodies, &a.ReadCount); err != nil {
+		a, err := scanAnnouncementRowWithReadCount(rows)
+		if err != nil {
 			return nil, fmt.Errorf("list announcements: %w", err)
 		}
-		a.Translations = zipAnnouncementTranslations(langs, bodies)
-		list = append(list, &a)
+		list = append(list, a)
 	}
 	return list, rows.Err()
 }
 
 // announcementsQuerySelectSQL is the shared SELECT/FROM header for
-// QueryAnnouncements, mirroring onboardRulesQuerySelectSQL.
-const announcementsQuerySelectSQL = `SELECT ` + announcementBaseColumns + `, ` + announcementTranslationsExpr + `
+// QueryAnnouncements, mirroring onboardRulesQuerySelectSQL. Includes
+// announcementReadCountExpr so ReadCount is populated like every other
+// admin-facing listing (GetAnnouncement, ListAnnouncements) — it's just not
+// registered in announcementsQueryFieldMap, so it can't be filtered/sorted
+// on via the generic query engine, only returned.
+const announcementsQuerySelectSQL = `SELECT ` + announcementBaseColumns + `, ` + announcementTranslationsExpr + `, ` + announcementReadCountExpr + `
 	FROM identity.announcements a
 `
 
@@ -486,9 +507,7 @@ const announcementsQuerySelectSQL = `SELECT ` + announcementBaseColumns + `, ` +
 // must have already run query.Validate(desc, payload) — QueryAnnouncements
 // trusts the payload has been checked and only translates it to SQL. Like
 // ListAnnouncements this is the administration-facing view: not scoped to a
-// requesting user's roles, not filtered by active or validity period, and
-// ReadCount is left zero (it's a computed aggregate, not a column the
-// generic query engine can filter/sort on).
+// requesting user's roles, not filtered by active or validity period.
 func (d *DB) QueryAnnouncements(desc *queryv1.Descriptor, fm pkgquery.FieldMap,
 	payload *queryv1.Payload) ([]*models.Announcement, error) {
 	limit, offset := db.AdjustListLimit(int(payload.GetPage().GetLimit()), int(payload.GetPage().GetOffset()))
@@ -506,7 +525,7 @@ func (d *DB) QueryAnnouncements(desc *queryv1.Descriptor, fm pkgquery.FieldMap,
 
 	var list []*models.Announcement
 	for rows.Next() {
-		a, err := scanAnnouncementRow(rows)
+		a, err := scanAnnouncementRowWithReadCount(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -582,7 +601,7 @@ func (d *DB) ListUserAnnouncements(username, org string, roles []string) ([]*mod
 	for rows.Next() {
 		var a models.Announcement
 		var langs, bodies []string
-		if err := rows.Scan(&a.ID, &a.Name, &a.CreatedBy, &a.Orgs, &a.Roles, &a.Active, &a.StartsAt, &a.EndsAt, &a.CreatedAt, &a.UpdatedAt,
+		if err := rows.Scan(&a.ID, &a.Name, &a.CreatedBy, &a.Orgs, &a.Roles, &a.Active, &a.StartsAt, &a.EndsAt, &a.CreatedAt, &a.UpdatedAt, &a.EmailEnabled,
 			&langs, &bodies, &a.IsRead, &a.ReadAt); err != nil {
 			return nil, fmt.Errorf("list user announcements: %w", err)
 		}

@@ -88,6 +88,41 @@ type Server struct {
 	// passwordLockoutCfg is the resolved (defaults-applied) lockout config.
 	passwordLockoutCfg PasswordLockoutConfig
 
+	// passwordResetTokenKV stores single-use password-reset tokens (see
+	// natsc.PASSWORD_RESET_TOKEN_BUCKET). It is nil when NATS is disabled, in
+	// which case RequestPasswordReset/ConfirmPasswordReset cannot function.
+	passwordResetTokenKV *natsc.JetStreamKV
+
+	// passwordResetCooldownKV throttles repeat RequestPasswordReset calls per
+	// username (see natsc.PASSWORD_RESET_COOLDOWN_BUCKET). It is nil when
+	// NATS is disabled, in which case the cooldown fails open (no throttling).
+	passwordResetCooldownKV *natsc.JetStreamKV
+
+	// passwordResetCfg is the resolved (defaults-applied) password-reset config.
+	passwordResetCfg PasswordResetConfig
+
+	// smtpCfg is the resolved SMTP config used to send password-reset and
+	// announcement email.
+	smtpCfg SMTPConfig
+
+	// announcementEmailCfg is the resolved (defaults-applied) announcement
+	// email sender config, excluding SendHour/Timezone — see
+	// announcementEmailSendHour/announcementEmailLoc.
+	announcementEmailCfg AnnouncementEmailConfig
+
+	// announcementEmailSendHour is the resolved (default-applied) hour of
+	// day, in announcementEmailLoc, sends may start on an announcement's
+	// activation day.
+	announcementEmailSendHour int
+
+	// announcementEmailLoc is the resolved timezone announcementEmailSendHour
+	// and each announcement's activation day are evaluated in.
+	announcementEmailLoc *time.Location
+
+	// mailRateLimitCfg is the resolved mail rate-limit config, shared by
+	// every outbound mail path (password-reset and announcement).
+	mailRateLimitCfg MailRateLimitConfig
+
 	// version and commit are the build metadata injected at link time in
 	// main and surfaced over the wire by IdentityService.GetVersionInfo.
 	version string
@@ -132,6 +167,48 @@ func NewServer(configFile, version, commit string) (*Server, error) {
 		server.authzClient = authzv1.NewAuthzServiceClient(authzConn.Conn)
 	}
 
+	server.passwordLockoutCfg = config.PasswordLockout
+	if server.passwordLockoutCfg.MaxAttempts == 0 {
+		server.passwordLockoutCfg.MaxAttempts = 5
+	}
+	if server.passwordLockoutCfg.LockDuration == 0 {
+		server.passwordLockoutCfg.LockDuration = 15 * time.Minute
+	}
+
+	server.passwordResetCfg = config.PasswordReset
+	if server.passwordResetCfg.TokenTTL == 0 {
+		server.passwordResetCfg.TokenTTL = time.Hour
+	}
+	if server.passwordResetCfg.CooldownDuration == 0 {
+		server.passwordResetCfg.CooldownDuration = 60 * time.Second
+	}
+	server.smtpCfg = config.SMTP
+
+	server.announcementEmailCfg = config.AnnouncementEmail
+	if server.announcementEmailCfg.Interval == 0 {
+		server.announcementEmailCfg.Interval = 1 * time.Minute
+	}
+	if len(server.announcementEmailCfg.Subjects) == 0 {
+		server.announcementEmailCfg.Subjects = map[string]string{
+			"en": "New k8Shell announcement",
+			"cs": "Nové oznámení k8Shell",
+		}
+	}
+	server.announcementEmailSendHour = 9
+	if config.AnnouncementEmail.SendHour != nil {
+		server.announcementEmailSendHour = *config.AnnouncementEmail.SendHour
+	}
+	announcementEmailTZ := config.AnnouncementEmail.Timezone
+	if announcementEmailTZ == "" {
+		announcementEmailTZ = "UTC"
+	}
+	server.announcementEmailLoc, err = time.LoadLocation(announcementEmailTZ)
+	if err != nil {
+		return nil, fmt.Errorf("load announcement email timezone %q: %w", announcementEmailTZ, err)
+	}
+
+	server.mailRateLimitCfg = config.MailRateLimit
+
 	server.nats, err = natsc.NewNATSClient(config.Nats)
 	if err != nil {
 		return nil, fmt.Errorf("create NATS client: %w", err)
@@ -147,14 +224,22 @@ func NewServer(configFile, version, commit string) (*Server, error) {
 		if err != nil {
 			return nil, fmt.Errorf("create password lockout KV bucket: %w", err)
 		}
-	}
 
-	server.passwordLockoutCfg = config.PasswordLockout
-	if server.passwordLockoutCfg.MaxAttempts == 0 {
-		server.passwordLockoutCfg.MaxAttempts = 5
-	}
-	if server.passwordLockoutCfg.LockDuration == 0 {
-		server.passwordLockoutCfg.LockDuration = 15 * time.Minute
+		server.passwordResetTokenKV, err = server.nats.NewKV(natsc.BucketOptions{
+			Bucket:    natsc.PASSWORD_RESET_TOKEN_BUCKET,
+			BucketTTL: server.passwordResetCfg.TokenTTL,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create password reset token KV bucket: %w", err)
+		}
+
+		server.passwordResetCooldownKV, err = server.nats.NewKV(natsc.BucketOptions{
+			Bucket:    natsc.PASSWORD_RESET_COOLDOWN_BUCKET,
+			BucketTTL: server.passwordResetCfg.CooldownDuration,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create password reset cooldown KV bucket: %w", err)
+		}
 	}
 
 	server.log.Info().Msgf("Initializing JWT issuer: issuer=%s method=%s expiry=%s",
@@ -225,6 +310,7 @@ func (s *Server) Serve() error {
 
 	s.startProviderRetryLoop(ctx)
 	s.startAccessTokenJanitor(ctx)
+	s.startAnnouncementEmailSender(ctx)
 
 	errChan := make(chan error, 1)
 	go func() {

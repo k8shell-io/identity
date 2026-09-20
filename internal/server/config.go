@@ -69,6 +69,20 @@ type Config struct {
 	// PasswordLockout configures brute-force protection for AuthUserPassword.
 	PasswordLockout PasswordLockoutConfig `yaml:"passwordLockout"`
 
+	// SMTP configures the outbound mail relay used to send password-reset email.
+	SMTP SMTPConfig `yaml:"smtp"`
+
+	// PasswordReset tunes the password-reset token/cooldown lifecycle.
+	PasswordReset PasswordResetConfig `yaml:"passwordReset"`
+
+	// AnnouncementEmail tunes the periodic sender that emails active,
+	// email-eligible announcements to opted-in users.
+	AnnouncementEmail AnnouncementEmailConfig `yaml:"announcementEmail"`
+
+	// MailRateLimit caps total outbound email volume (summed across every
+	// mail kind identity sends) in a trailing 24h window.
+	MailRateLimit MailRateLimitConfig `yaml:"mailRateLimit"`
+
 	// OnboardRules declares default identity.onboard_rules rows to insert
 	// once at startup — see Server.seedOnboardRules. Without at least a
 	// catch-all rule per (idp, org) a fresh deployment's onboard_rules table
@@ -129,6 +143,90 @@ type PasswordLockoutConfig struct {
 	// LockDuration is how long an account stays locked once MaxAttempts is
 	// reached. Defaults to 15 minutes when zero.
 	LockDuration time.Duration `yaml:"lockDuration" validate:"omitempty,gt=0"`
+}
+
+// SMTPConfig configures the outbound mail relay identity uses to send
+// password-reset email. When Enabled is false (the default), or the relay is
+// unreachable, RequestPasswordReset logs and swallows the send failure
+// rather than returning an error to the caller.
+type SMTPConfig struct {
+	// Enabled turns on SMTP sending. Defaults to false.
+	Enabled bool `yaml:"enabled"`
+
+	// Host and Port address the SMTP relay. Required when Enabled.
+	Host string `yaml:"host" validate:"required_if=Enabled true"`
+	Port int    `yaml:"port" validate:"required_if=Enabled true"`
+
+	// Username and Password authenticate to the relay via PLAIN auth. Leave
+	// both empty for an unauthenticated relay.
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
+
+	// From is the envelope/header From address on outgoing mail. Required
+	// when Enabled.
+	From string `yaml:"from" validate:"required_if=Enabled true"`
+}
+
+// PasswordResetConfig tunes the password-reset token lifecycle. Tracking is
+// stored in identity's own NATS KV storage and has no effect when NATS is
+// disabled.
+type PasswordResetConfig struct {
+	// TokenTTL bounds how long an issued reset link stays valid. Defaults to
+	// 1 hour when zero. Only takes effect the first time the underlying KV
+	// bucket is created — see Server.NewServer.
+	TokenTTL time.Duration `yaml:"tokenTTL" validate:"omitempty,gt=0"`
+
+	// CooldownDuration is how long a username must wait between
+	// RequestPasswordReset calls before a new one actually sends email.
+	// Defaults to 60 seconds when zero. Same first-creation-only caveat as
+	// TokenTTL.
+	CooldownDuration time.Duration `yaml:"cooldownDuration" validate:"omitempty,gt=0"`
+}
+
+// AnnouncementEmailConfig tunes the periodic sender that emails active,
+// email-eligible announcements to opted-in users (see
+// Server.startAnnouncementEmailSender). It reuses SMTPConfig — there is no
+// separate relay configuration for announcement email.
+type AnnouncementEmailConfig struct {
+	// Interval is how often the sender checks for eligible announcements
+	// and candidates. Defaults to 1 minute when zero.
+	Interval time.Duration `yaml:"interval" validate:"omitempty,gt=0"`
+
+	// SendHour is the hour of day (0-23, evaluated in Timezone) at or after
+	// which sends are allowed to start on an announcement's activation day
+	// (its StartsAt, or CreatedAt when StartsAt is unset). A *int (rather
+	// than int) because 0 (midnight) is itself a valid explicit value,
+	// indistinguishable from "unset" if this were a plain int with a
+	// zero-defaults-to-9 rule — same reasoning as
+	// KubernetesSATokenConfig.Enabled. Defaults to 9 when nil.
+	SendHour *int `yaml:"sendHour" validate:"omitempty,gte=0,lte=23"`
+
+	// Timezone is the IANA timezone name SendHour and each announcement's
+	// activation day are evaluated in. Defaults to "UTC" when empty. An
+	// invalid value fails server startup rather than silently falling back,
+	// since a wrong timezone would misfire every send.
+	Timezone string `yaml:"timezone"`
+
+	// Subjects maps a language — the same value resolved from a candidate's
+	// user_settings "language" key used to pick their translation (see
+	// announcementUserSettings) — to the email subject line used for that
+	// language. A language with no entry falls back to Subjects["en"], then
+	// to a fixed generic subject if that's missing too. Defaults to
+	// {"en": "New k8Shell announcement", "cs": "Nové oznámení k8Shell"} when
+	// unset. Not limited to en/cs — add any language key the deployment
+	// needs translations for.
+	Subjects map[string]string `yaml:"subjects"`
+}
+
+// MailRateLimitConfig caps total outbound email volume (summed across every
+// mail kind identity sends — see identity.mail_sends) in a trailing 24h
+// window. Exists to respect a rate-limited relay's send cap, e.g. a
+// personal Gmail account's undocumented ~500-recipients/24h limit.
+type MailRateLimitConfig struct {
+	// DailyRecipientCap is the maximum number of recipients emailed across
+	// all mail kinds in any trailing 24h window. 0 (the default) disables
+	// the cap.
+	DailyRecipientCap int `yaml:"dailyRecipientCap" validate:"omitempty,gte=0"`
 }
 
 // LoadConfig loads server configuration from configFile and validates it.

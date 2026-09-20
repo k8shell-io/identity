@@ -4,9 +4,10 @@ go 1.24.5
 
 require (
 	github.com/jackc/pgx/v5 v5.7.6
-	github.com/k8shell-io/common v0.61.0
+	github.com/k8shell-io/common v0.61.2
 	github.com/nats-io/nats.go v1.47.0
 	github.com/rs/zerolog v1.34.0
+	github.com/yuin/goldmark v1.8.6
 	golang.org/x/crypto v0.44.0
 	google.golang.org/grpc v1.76.0
 	google.golang.org/protobuf v1.36.10
