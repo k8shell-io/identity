@@ -28,7 +28,9 @@ import (
 	"github.com/k8shell-io/common/pkg/userstr"
 	"github.com/k8shell-io/common/pkg/utils"
 	backend "github.com/k8shell-io/identity/internal/db"
+	"github.com/k8shell-io/identity/internal/mail"
 	"github.com/k8shell-io/identity/internal/providers/file"
+	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/crypto/ssh"
@@ -572,6 +574,126 @@ func (s *IdentityService) SetUserPassword(ctx context.Context,
 	}
 
 	return gapi.UserToProto(user), nil
+}
+
+// RequestPasswordReset issues and emails a single-use password-reset link
+// for a username, if the user has an on-file email address and SMTP is
+// configured. api-server discards this RPC's outcome either way (its HTTP
+// response is already sent by the time it's called), so failures past basic
+// request validation are logged and swallowed — this always returns success.
+func (s *IdentityService) RequestPasswordReset(ctx context.Context,
+	req *identityv1.RequestPasswordResetRequest) (*identityv1.RequestPasswordResetResponse, error) {
+	if req.Username == "" {
+		return nil, status.Error(codes.InvalidArgument, "username is required")
+	}
+
+	resp := &identityv1.RequestPasswordResetResponse{}
+
+	inCooldown, err := s.server.checkAndSetPasswordResetCooldown(req.Username)
+	if err != nil {
+		s.log.Warn().Err(err).Str("username", req.Username).
+			Msg("password reset cooldown check failed; proceeding without cooldown")
+	} else if inCooldown {
+		s.log.Info().Str("username", req.Username).
+			Msg("password reset request ignored: cooldown active")
+		return resp, nil
+	}
+
+	if !s.server.smtpCfg.Enabled {
+		s.log.Warn().Str("username", req.Username).
+			Msg("password reset: SMTP is not configured; skipping send")
+		return resp, nil
+	}
+
+	user, err := s.server.GetUserByUsername(req.Username, "")
+	if err != nil {
+		s.log.Warn().Err(err).Str("username", req.Username).
+			Msg("password reset: failed to resolve user; skipping send")
+		return resp, nil
+	}
+	if user.Email == "" {
+		s.log.Warn().Str("username", req.Username).
+			Msg("password reset: user has no email on file; skipping send")
+		return resp, nil
+	}
+
+	rawToken, err := s.server.issuePasswordResetToken(req.Username)
+	if err != nil {
+		s.log.Error().Err(err).Str("username", req.Username).
+			Msg("password reset: failed to issue token; skipping send")
+		return resp, nil
+	}
+
+	confirmURL := buildPasswordResetConfirmURL(req.ConfirmUrlBase, rawToken)
+	mailCfg := mail.Config{
+		Host:     s.server.smtpCfg.Host,
+		Port:     s.server.smtpCfg.Port,
+		Username: s.server.smtpCfg.Username,
+		Password: s.server.smtpCfg.Password,
+		From:     s.server.smtpCfg.From,
+	}
+	if err := mail.SendPasswordResetEmail(mailCfg, user.Email, confirmURL); err != nil {
+		s.log.Error().Err(err).Str("username", req.Username).
+			Msg("password reset: failed to send email")
+	}
+
+	return resp, nil
+}
+
+// ConfirmPasswordReset redeems a token issued by RequestPasswordReset,
+// folding "consume token" + "set new password" + "clear login lockout" into
+// one RPC. The token is deleted only after the password update succeeds, so
+// a transient failure setting the password never wastes an otherwise-valid
+// token. Clearing the lockout is best-effort after that point: the password
+// change is the operation the caller/user actually cares about, so a
+// failure clearing it is logged rather than turned into an error response
+// that would incorrectly suggest the password wasn't changed.
+func (s *IdentityService) ConfirmPasswordReset(ctx context.Context,
+	req *identityv1.ConfirmPasswordResetRequest) (*identityv1.ConfirmPasswordResetResponse, error) {
+	if req.Token == "" {
+		return nil, status.Error(codes.InvalidArgument, "token is required")
+	}
+	if s.server.DB == nil {
+		return nil, status.Error(codes.Unavailable, "database is not configured")
+	}
+
+	username, err := s.server.lookupPasswordResetToken(req.Token)
+	if err != nil {
+		if errors.Is(err, nats.ErrKeyNotFound) {
+			return nil, status.Error(codes.InvalidArgument, "invalid or expired token")
+		}
+		return nil, status.Errorf(codes.Internal, "failed to look up reset token: %v", err)
+	}
+
+	if len(req.Password) < minPasswordLength {
+		return nil, status.Errorf(codes.InvalidArgument, "password must be at least %d characters", minPasswordLength)
+	}
+	hashed, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		if errors.Is(err, bcrypt.ErrPasswordTooLong) {
+			return nil, status.Error(codes.InvalidArgument, "password is too long")
+		}
+		return nil, status.Errorf(codes.Internal, "failed to hash password: %v", err)
+	}
+
+	if _, err := s.server.DB.SetUserPassword(username, string(hashed)); err != nil {
+		// A dangling token for a since-deleted user is treated as an
+		// internal failure here, not InvalidArgument — the token itself was
+		// valid; InvalidArgument is reserved for an invalid/expired/unknown
+		// token, not a downstream user-record issue.
+		return nil, status.Errorf(codes.Internal, "failed to set password for user '%s': %v", username, err)
+	}
+
+	if err := s.server.consumePasswordResetToken(req.Token); err != nil {
+		s.log.Warn().Err(err).Str("username", username).
+			Msg("password reset: failed to delete consumed token (will expire via TTL)")
+	}
+	if err := s.server.resetPasswordLockout(username); err != nil {
+		s.log.Warn().Err(err).Str("username", username).
+			Msg("password reset: failed to clear password lockout after reset")
+	}
+
+	return &identityv1.ConfirmPasswordResetResponse{}, nil
 }
 
 // GetUserOnboardCapability returns onboarding capability information for a user.

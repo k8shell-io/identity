@@ -88,6 +88,22 @@ type Server struct {
 	// passwordLockoutCfg is the resolved (defaults-applied) lockout config.
 	passwordLockoutCfg PasswordLockoutConfig
 
+	// passwordResetTokenKV stores single-use password-reset tokens (see
+	// natsc.PASSWORD_RESET_TOKEN_BUCKET). It is nil when NATS is disabled, in
+	// which case RequestPasswordReset/ConfirmPasswordReset cannot function.
+	passwordResetTokenKV *natsc.JetStreamKV
+
+	// passwordResetCooldownKV throttles repeat RequestPasswordReset calls per
+	// username (see natsc.PASSWORD_RESET_COOLDOWN_BUCKET). It is nil when
+	// NATS is disabled, in which case the cooldown fails open (no throttling).
+	passwordResetCooldownKV *natsc.JetStreamKV
+
+	// passwordResetCfg is the resolved (defaults-applied) password-reset config.
+	passwordResetCfg PasswordResetConfig
+
+	// smtpCfg is the resolved SMTP config used to send password-reset email.
+	smtpCfg SMTPConfig
+
 	// version and commit are the build metadata injected at link time in
 	// main and surfaced over the wire by IdentityService.GetVersionInfo.
 	version string
@@ -132,6 +148,23 @@ func NewServer(configFile, version, commit string) (*Server, error) {
 		server.authzClient = authzv1.NewAuthzServiceClient(authzConn.Conn)
 	}
 
+	server.passwordLockoutCfg = config.PasswordLockout
+	if server.passwordLockoutCfg.MaxAttempts == 0 {
+		server.passwordLockoutCfg.MaxAttempts = 5
+	}
+	if server.passwordLockoutCfg.LockDuration == 0 {
+		server.passwordLockoutCfg.LockDuration = 15 * time.Minute
+	}
+
+	server.passwordResetCfg = config.PasswordReset
+	if server.passwordResetCfg.TokenTTL == 0 {
+		server.passwordResetCfg.TokenTTL = time.Hour
+	}
+	if server.passwordResetCfg.CooldownDuration == 0 {
+		server.passwordResetCfg.CooldownDuration = 60 * time.Second
+	}
+	server.smtpCfg = config.SMTP
+
 	server.nats, err = natsc.NewNATSClient(config.Nats)
 	if err != nil {
 		return nil, fmt.Errorf("create NATS client: %w", err)
@@ -147,14 +180,22 @@ func NewServer(configFile, version, commit string) (*Server, error) {
 		if err != nil {
 			return nil, fmt.Errorf("create password lockout KV bucket: %w", err)
 		}
-	}
 
-	server.passwordLockoutCfg = config.PasswordLockout
-	if server.passwordLockoutCfg.MaxAttempts == 0 {
-		server.passwordLockoutCfg.MaxAttempts = 5
-	}
-	if server.passwordLockoutCfg.LockDuration == 0 {
-		server.passwordLockoutCfg.LockDuration = 15 * time.Minute
+		server.passwordResetTokenKV, err = server.nats.NewKV(natsc.BucketOptions{
+			Bucket:    natsc.PASSWORD_RESET_TOKEN_BUCKET,
+			BucketTTL: server.passwordResetCfg.TokenTTL,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create password reset token KV bucket: %w", err)
+		}
+
+		server.passwordResetCooldownKV, err = server.nats.NewKV(natsc.BucketOptions{
+			Bucket:    natsc.PASSWORD_RESET_COOLDOWN_BUCKET,
+			BucketTTL: server.passwordResetCfg.CooldownDuration,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create password reset cooldown KV bucket: %w", err)
+		}
 	}
 
 	server.log.Info().Msgf("Initializing JWT issuer: issuer=%s method=%s expiry=%s",
