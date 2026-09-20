@@ -577,8 +577,10 @@ func (s *IdentityService) SetUserPassword(ctx context.Context,
 }
 
 // RequestPasswordReset issues and emails a single-use password-reset link
-// for a username, if the user has an on-file email address and SMTP is
-// configured. api-server discards this RPC's outcome either way (its HTTP
+// for a username, if the user has an on-file email address, SMTP is
+// configured, and the shared daily recipient budget (MailRateLimitConfig,
+// checked jointly with announcement email via identity.mail_sends) isn't
+// exhausted. api-server discards this RPC's outcome either way (its HTTP
 // response is already sent by the time it's called), so failures past basic
 // request validation are logged and swallowed — this always returns success.
 func (s *IdentityService) RequestPasswordReset(ctx context.Context,
@@ -617,6 +619,16 @@ func (s *IdentityService) RequestPasswordReset(ctx context.Context,
 		return resp, nil
 	}
 
+	budget, err := s.server.remainingMailBudget()
+	if err != nil {
+		s.log.Warn().Err(err).Str("username", req.Username).
+			Msg("password reset: failed to check daily recipient budget; proceeding without the cap")
+	} else if budget <= 0 {
+		s.log.Warn().Str("username", req.Username).
+			Msg("password reset: daily recipient cap reached; skipping send")
+		return resp, nil
+	}
+
 	rawToken, err := s.server.issuePasswordResetToken(req.Username)
 	if err != nil {
 		s.log.Error().Err(err).Str("username", req.Username).
@@ -635,6 +647,11 @@ func (s *IdentityService) RequestPasswordReset(ctx context.Context,
 	if err := mail.SendPasswordResetEmail(mailCfg, user.Email, confirmURL); err != nil {
 		s.log.Error().Err(err).Str("username", req.Username).
 			Msg("password reset: failed to send email")
+	} else if s.server.DB != nil {
+		if err := s.server.DB.RecordMailSend("password_reset", user.Email); err != nil {
+			s.log.Warn().Err(err).Str("username", req.Username).
+				Msg("password reset: failed to record mail send for rate accounting")
+		}
 	}
 
 	return resp, nil

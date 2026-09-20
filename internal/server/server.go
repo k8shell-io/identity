@@ -101,8 +101,27 @@ type Server struct {
 	// passwordResetCfg is the resolved (defaults-applied) password-reset config.
 	passwordResetCfg PasswordResetConfig
 
-	// smtpCfg is the resolved SMTP config used to send password-reset email.
+	// smtpCfg is the resolved SMTP config used to send password-reset and
+	// announcement email.
 	smtpCfg SMTPConfig
+
+	// announcementEmailCfg is the resolved (defaults-applied) announcement
+	// email sender config, excluding SendHour/Timezone — see
+	// announcementEmailSendHour/announcementEmailLoc.
+	announcementEmailCfg AnnouncementEmailConfig
+
+	// announcementEmailSendHour is the resolved (default-applied) hour of
+	// day, in announcementEmailLoc, sends may start on an announcement's
+	// activation day.
+	announcementEmailSendHour int
+
+	// announcementEmailLoc is the resolved timezone announcementEmailSendHour
+	// and each announcement's activation day are evaluated in.
+	announcementEmailLoc *time.Location
+
+	// mailRateLimitCfg is the resolved mail rate-limit config, shared by
+	// every outbound mail path (password-reset and announcement).
+	mailRateLimitCfg MailRateLimitConfig
 
 	// version and commit are the build metadata injected at link time in
 	// main and surfaced over the wire by IdentityService.GetVersionInfo.
@@ -164,6 +183,31 @@ func NewServer(configFile, version, commit string) (*Server, error) {
 		server.passwordResetCfg.CooldownDuration = 60 * time.Second
 	}
 	server.smtpCfg = config.SMTP
+
+	server.announcementEmailCfg = config.AnnouncementEmail
+	if server.announcementEmailCfg.Interval == 0 {
+		server.announcementEmailCfg.Interval = 1 * time.Minute
+	}
+	if len(server.announcementEmailCfg.Subjects) == 0 {
+		server.announcementEmailCfg.Subjects = map[string]string{
+			"en": "New k8Shell announcement",
+			"cs": "Nové oznámení k8Shell",
+		}
+	}
+	server.announcementEmailSendHour = 9
+	if config.AnnouncementEmail.SendHour != nil {
+		server.announcementEmailSendHour = *config.AnnouncementEmail.SendHour
+	}
+	announcementEmailTZ := config.AnnouncementEmail.Timezone
+	if announcementEmailTZ == "" {
+		announcementEmailTZ = "UTC"
+	}
+	server.announcementEmailLoc, err = time.LoadLocation(announcementEmailTZ)
+	if err != nil {
+		return nil, fmt.Errorf("load announcement email timezone %q: %w", announcementEmailTZ, err)
+	}
+
+	server.mailRateLimitCfg = config.MailRateLimit
 
 	server.nats, err = natsc.NewNATSClient(config.Nats)
 	if err != nil {
@@ -266,6 +310,7 @@ func (s *Server) Serve() error {
 
 	s.startProviderRetryLoop(ctx)
 	s.startAccessTokenJanitor(ctx)
+	s.startAnnouncementEmailSender(ctx)
 
 	errChan := make(chan error, 1)
 	go func() {
