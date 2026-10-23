@@ -1,5 +1,6 @@
 blueprint:
   template: development
+  image: workspaces/dev-go:1.26.10-2.0
   resources:
     cpu: 16
     memory: 16Gi
