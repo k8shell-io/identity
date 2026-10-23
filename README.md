@@ -78,7 +78,7 @@ docker/        # Dockerfile (alpine + distroless stages)
 
 ## Prerequisites
 
-- Go 1.24+
+- Go 1.27+
 - Docker
 - A running Postgres instance (see `backend/compose.yaml`)
 
