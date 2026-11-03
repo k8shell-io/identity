@@ -5,6 +5,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -43,7 +44,8 @@ const DefaultOrganizationName = "default"
 
 // CreateOrganization registers a new organization.
 func (d *DB) CreateOrganization(name, description string) (*models.Organization, error) {
-	org := &models.Organization{Name: name, Description: description, ReadOnly: name == DefaultOrganizationName}
+	org := &models.Organization{Name: name, Description: description,
+		ReadOnly: name == DefaultOrganizationName, NodeSelectors: map[string]string{}}
 	err := d.Pool.QueryRow(context.Background(),
 		`INSERT INTO identity.organizations (name, description)
 		 VALUES ($1, $2)
@@ -61,23 +63,42 @@ func (d *DB) CreateOrganization(name, description string) (*models.Organization,
 	return org, nil
 }
 
-// UpdateOrganization updates an organization's description. The name is
-// immutable and used only to identify the organization; pass a nil
-// description to leave it unchanged. Returns ErrOrganizationNotFound when no
-// organization with that name exists, or ErrOrganizationReadOnly for
-// DefaultOrganizationName.
-func (d *DB) UpdateOrganization(name string, description *string) (*models.Organization, error) {
-	if name == DefaultOrganizationName {
+// UpdateOrganization updates an organization's description and/or node
+// selectors. The name is immutable and used only to identify the
+// organization; pass a nil description or nil nodeSelectors to leave that
+// field unchanged. A non-nil empty nodeSelectors clears them; otherwise it
+// replaces them wholesale. Returns ErrOrganizationNotFound when no
+// organization with that name exists, or ErrOrganizationReadOnly when
+// description is set for DefaultOrganizationName (its node selectors may
+// still be updated).
+func (d *DB) UpdateOrganization(name string, description *string,
+	nodeSelectors map[string]string) (*models.Organization, error) {
+	// The built-in default org keeps its description fixed, but its node
+	// selectors are deployment configuration and remain editable.
+	if name == DefaultOrganizationName && description != nil {
 		return nil, fmt.Errorf("%w: %q", ErrOrganizationReadOnly, name)
+	}
+
+	// nil leaves node_selectors unchanged (SQL NULL → COALESCE keeps it).
+	var selectorsJSON *string
+	if nodeSelectors != nil {
+		b, err := json.Marshal(nodeSelectors)
+		if err != nil {
+			return nil, fmt.Errorf("marshal node selectors: %w", err)
+		}
+		str := string(b)
+		selectorsJSON = &str
 	}
 
 	org := &models.Organization{Name: name}
 	err := d.Pool.QueryRow(context.Background(),
-		`UPDATE identity.organizations SET description = COALESCE($2, description)
+		`UPDATE identity.organizations
+		 SET description = COALESCE($2, description),
+		     node_selectors = COALESCE($3::jsonb, node_selectors)
 		 WHERE name=$1
-		 RETURNING COALESCE(description, ''), created_at`,
-		name, description,
-	).Scan(&org.Description, &org.CreatedAt)
+		 RETURNING COALESCE(description, ''), created_at, node_selectors`,
+		name, description, selectorsJSON,
+	).Scan(&org.Description, &org.CreatedAt, &org.NodeSelectors)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("%w: %q", ErrOrganizationNotFound, name)
 	}
@@ -95,7 +116,7 @@ func (d *DB) UpdateOrganization(name string, description *string) (*models.Organ
 // number of users in the org, computed via a join/aggregate in a single
 // query rather than N+1 per-org lookups.
 func (d *DB) ListOrganizations() ([]*models.Organization, error) {
-	sqlQuery := organizationsSelectSQL + "GROUP BY o.name, o.description, o.created_at\nORDER BY o.name"
+	sqlQuery := organizationsSelectSQL + "GROUP BY o.name, o.description, o.created_at, o.node_selectors\nORDER BY o.name"
 
 	rows, err := d.Pool.Query(context.Background(), sqlQuery, orgAdminRoleName)
 	if err != nil {
@@ -110,11 +131,11 @@ func (d *DB) ListOrganizations() ([]*models.Organization, error) {
 // computed AdminUsernames/UserCount fields as ListOrganizations. Returns
 // ErrOrganizationNotFound when no organization with that name exists.
 func (d *DB) GetOrganization(name string) (*models.Organization, error) {
-	sqlQuery := organizationsSelectSQL + "WHERE o.name = $2\nGROUP BY o.name, o.description, o.created_at"
+	sqlQuery := organizationsSelectSQL + "WHERE o.name = $2\nGROUP BY o.name, o.description, o.created_at, o.node_selectors"
 
 	var org models.Organization
 	err := d.Pool.QueryRow(context.Background(), sqlQuery, orgAdminRoleName, name).Scan(
-		&org.Name, &org.Description, &org.CreatedAt, &org.AdminUsernames, &org.UserCount)
+		&org.Name, &org.Description, &org.CreatedAt, &org.NodeSelectors, &org.AdminUsernames, &org.UserCount)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("%w: %q", ErrOrganizationNotFound, name)
 	}
@@ -154,6 +175,7 @@ const organizationsSelectSQL = `
 		o.name,
 		COALESCE(o.description, ''),
 		o.created_at,
+		o.node_selectors,
 		` + OrganizationAdminUsernamesExpr + `,
 		COUNT(u.username)
 	FROM identity.organizations o
@@ -209,7 +231,7 @@ func (d *DB) ListOrganizationsQuery(desc *queryv1.Descriptor, fm pkgquery.FieldM
 	}
 
 	sqlQuery := organizationsSelectSQL
-	sqlQuery += "GROUP BY o.name, o.description, o.created_at\n"
+	sqlQuery += "GROUP BY o.name, o.description, o.created_at, o.node_selectors\n"
 	if len(conditions) > 0 {
 		sqlQuery += "HAVING " + strings.Join(conditions, " AND ") + "\n"
 	}
@@ -235,7 +257,7 @@ func scanOrganizations(rows pgx.Rows) ([]*models.Organization, error) {
 	for rows.Next() {
 		var org models.Organization
 		if err := rows.Scan(&org.Name, &org.Description, &org.CreatedAt,
-			&org.AdminUsernames, &org.UserCount); err != nil {
+			&org.NodeSelectors, &org.AdminUsernames, &org.UserCount); err != nil {
 			return nil, err
 		}
 		org.ReadOnly = org.Name == DefaultOrganizationName
