@@ -4,7 +4,7 @@ go 1.27.3
 
 require (
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/k8shell-io/common v0.65.4
+	github.com/k8shell-io/common v0.65.5
 	github.com/nats-io/nats.go v1.54.0
 	github.com/rs/zerolog v1.35.1
 	github.com/yuin/goldmark v1.8.6
