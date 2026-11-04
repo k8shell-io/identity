@@ -4,7 +4,7 @@ go 1.27.3
 
 require (
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/k8shell-io/common v0.65.0
+	github.com/k8shell-io/common v0.65.4
 	github.com/nats-io/nats.go v1.54.0
 	github.com/rs/zerolog v1.35.1
 	github.com/yuin/goldmark v1.8.6
@@ -47,7 +47,6 @@ require (
 	github.com/go-playground/validator/v10 v10.30.5 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/golang-migrate/migrate/v4 v4.20.1 // indirect
-	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/gnostic-models v0.7.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/invopop/jsonschema v0.14.0 // indirect
