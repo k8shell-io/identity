@@ -6,6 +6,8 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
 	queryv1 "github.com/k8shell-io/common/pkg/api/gen/go/query/v1"
@@ -17,7 +19,32 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"k8s.io/apimachinery/pkg/util/validation"
 )
+
+// validateNodeSelectors checks every key is a valid Kubernetes qualified
+// name and every value is a comma-separated list of valid label values
+// (e.g. "gpu,highmem"); the provisioner splits it into the allowed values
+// for that key. Empty segments such as "a,,b" are rejected.
+func validateNodeSelectors(sel map[string]string) error {
+	for k, v := range sel {
+		if errs := validation.IsQualifiedName(k); len(errs) > 0 {
+			return fmt.Errorf("invalid node selector key %q: %s", k, strings.Join(errs, "; "))
+		}
+		if v == "" {
+			continue
+		}
+		for _, part := range strings.Split(v, ",") {
+			if part == "" {
+				return fmt.Errorf("invalid value %q for node selector key %q: empty comma-separated entry", v, k)
+			}
+			if errs := validation.IsValidLabelValue(part); len(errs) > 0 {
+				return fmt.Errorf("invalid value %q for node selector key %q: %s", part, k, strings.Join(errs, "; "))
+			}
+		}
+	}
+	return nil
+}
 
 // organizationToProto converts a Go model to its protobuf representation.
 func organizationToProto(o *models.Organization) *identityv1.Organization {
@@ -31,6 +58,7 @@ func organizationToProto(o *models.Organization) *identityv1.Organization {
 		AdminUsernames: o.AdminUsernames,
 		UserCount:      utils.SafeIntToInt32(o.UserCount),
 		ReadOnly:       o.ReadOnly,
+		NodeSelectors:  o.NodeSelectors,
 	}
 }
 
@@ -138,9 +166,12 @@ func (s *IdentityService) CreateOrganization(ctx context.Context,
 	return organizationToProto(org), nil
 }
 
-// UpdateOrganization updates an organization's description. The name is
-// immutable and used only to identify the organization. Fails for the
-// built-in "default" organization, which is read-only.
+// UpdateOrganization updates an organization's description and/or node
+// selectors. The name is immutable and used only to identify the
+// organization. An unset node_selectors leaves them unchanged; one set with
+// no values clears them. For the built-in
+// "default" organization only node selectors may be changed; its
+// description is read-only.
 func (s *IdentityService) UpdateOrganization(ctx context.Context,
 	req *identityv1.UpdateOrganizationRequest) (*identityv1.Organization, error) {
 	if req.GetName() == "" {
@@ -155,14 +186,25 @@ func (s *IdentityService) UpdateOrganization(ctx context.Context,
 		description = &req.Description.Value
 	}
 
-	org, err := s.server.DB.UpdateOrganization(req.GetName(), description)
+	var nodeSelectors map[string]string
+	if req.NodeSelectors != nil {
+		nodeSelectors = req.NodeSelectors.GetValues()
+		if nodeSelectors == nil {
+			nodeSelectors = map[string]string{} // sent empty = clear
+		}
+		if err := validateNodeSelectors(nodeSelectors); err != nil {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
+	}
+
+	org, err := s.server.DB.UpdateOrganization(req.GetName(), description, nodeSelectors)
 	if err != nil {
 		switch {
 		case errors.Is(err, backend.ErrOrganizationNotFound):
 			return nil, status.Errorf(codes.NotFound, "organization '%s' not found", req.GetName())
 		case errors.Is(err, backend.ErrOrganizationReadOnly):
 			return nil, status.Errorf(codes.FailedPrecondition,
-				"organization '%s' is read-only and cannot be updated", req.GetName())
+				"organization '%s' is read-only: only its node selectors can be updated", req.GetName())
 		}
 		return nil, status.Errorf(codes.Internal, "failed to update organization '%s': %v", req.GetName(), err)
 	}
