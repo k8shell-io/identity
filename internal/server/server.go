@@ -105,6 +105,10 @@ type Server struct {
 	// announcement email.
 	smtpCfg SMTPConfig
 
+	// notifyMailSender, when non-nil, replaces SMTP delivery of NotifyUser
+	// messages. Tests only; production leaves it nil.
+	notifyMailSender func(to, subject, body string) (string, error)
+
 	// announcementEmailCfg is the resolved (defaults-applied) announcement
 	// email sender config, excluding SendHour/Timezone — see
 	// announcementEmailSendHour/announcementEmailLoc.
